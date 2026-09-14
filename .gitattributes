@@ -1,0 +1,6 @@
+# Keep LF in the repo and working tree on Windows: shaders, shell scripts and
+# golden-frame hashes must not change bytes depending on core.autocrlf.
+* text=auto eol=lf
+
+*.png  binary
+*.bin  binary
