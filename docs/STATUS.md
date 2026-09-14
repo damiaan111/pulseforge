@@ -25,7 +25,10 @@ P0 steps:
 | 3 | Deterministic engine + GPU determinism spike | ✅ | `0a0f2ba` |
 | — | D48/D49, this document | ✅ | `8d00833` |
 | 4 | Export pipe: readback, GPU NV12, NVENC, audio mux, verify, report | ✅ | `56cf79a` |
-| 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | (this commit) |
+| 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
+
+**Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
+run `npm run check`, then continue with §8 (P2 step 1). Keep STATUS.md updated and commit after each step."*
 
 ---
 
