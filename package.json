@@ -16,7 +16,8 @@
     "spike:determinism": "node --disable-warning=ExperimentalWarning spike/determinism.ts",
     "spike:export": "node --disable-warning=ExperimentalWarning spike/export.ts",
     "validate": "node --disable-warning=ExperimentalWarning spike/validate.ts",
-    "golden": "node --disable-warning=ExperimentalWarning spike/golden.ts"
+    "golden": "node --disable-warning=ExperimentalWarning spike/golden.ts",
+    "render": "node --disable-warning=ExperimentalWarning src/cli/render.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

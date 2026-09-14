@@ -24,6 +24,8 @@ export interface ExportRunOptions {
   /** The audio file muxed into the export. */
   readonly audioPath: string;
   readonly audioLabel: string;
+  /** Defaults to the whole file starting at t=0, which is what the spikes want. */
+  readonly audioPlacement?: ExportConfig['audioPlacement'];
   readonly durationTicks: number;
   readonly settings: EncodeSettings;
   readonly readbackMode: 'sync' | 'async';
@@ -31,6 +33,8 @@ export interface ExportRunOptions {
   readonly hashFrames: boolean;
   readonly dither: boolean;
   readonly runs: number;
+  /** Where the (single-run) output goes. Defaults into `workDir`, which is what the spikes want. */
+  readonly outputPath?: string;
   readonly onProgress?: (line: string) => void;
 }
 
@@ -70,13 +74,17 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
 
   const runs: ExportRun[] = [];
   for (let run = 1; run <= options.runs; run++) {
-    const outputPath = join(options.workDir, `${options.name}-run${run}.mp4`);
+    // A caller-supplied path only makes sense for one run; several would overwrite each other.
+    const outputPath = options.outputPath !== undefined && options.runs === 1
+      ? options.outputPath
+      : join(options.workDir, `${options.name}-run${run}.mp4`);
     const config: ExportConfig = {
       mode: 'export',
       analysisFile,
       resultFile: join(options.workDir, `${options.name}-run${run}.result.json`),
       audioPath: options.audioPath,
       audioLabel: options.audioLabel,
+      audioPlacement: options.audioPlacement ?? { leadInSamples: 0, clipInSamples: 0, clipOutSamples: undefined },
       durationTicks: options.durationTicks,
       project: options.project,
       dither: options.dither,

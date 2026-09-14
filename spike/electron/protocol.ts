@@ -23,6 +23,12 @@ export interface ExportConfig {
   resultFile: string;
   audioPath: string;
   audioLabel: string;
+  /**
+   * Where the audio sits on the timeline (PROJECT.md §8.10), in samples at 48 kHz. Passed
+   * explicitly rather than assumed zero: a project with lead-in silence or a trimmed clip
+   * would otherwise export out of sync with its own preview.
+   */
+  audioPlacement: { leadInSamples: number; clipInSamples: number; clipOutSamples: number | undefined };
   durationTicks: number;
   project: RenderProject;
   dither: boolean;

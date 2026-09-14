@@ -193,7 +193,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       dither: config.dither,
       audio: {
         source: { kind: 'file', path: config.audioPath, ffmpegExe: config.ffmpegExe },
-        placement: { leadInSamples: 0, clipInSamples: 0, clipOutSamples: undefined },
+        placement: config.audioPlacement,
         label: config.audioLabel,
       },
       durationTicks: config.durationTicks,

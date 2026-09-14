@@ -2,7 +2,9 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–5 done (document, layout, modulation, effects, golden frames)**.
+> Last updated: 2026-09-14 — **P0 and P2 complete**: the engine renders multi-layer projects
+> headlessly at 16:9 / 9:16 / 1:1, golden frames are green, and `npm run render` produces an MP4
+> from a project file. Next: P3 (§9).
 
 ---
 
@@ -13,7 +15,7 @@
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
-| **P2 — Engine** | 🔶 **in progress** — steps 1–5 of 6 done (see §8) |
+| **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | P3 … P8 | ⬜ not started |
 
 P2 steps:
@@ -23,9 +25,9 @@ P2 steps:
 | 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `ce8b68f` |
 | 2 | Layout & aspect system | ✅ | `830bea9` |
 | 3 | Param resolution + modulation evaluator | ✅ | `91c18db` |
-| 4 | Effect chain contract + bloom/vignette | ✅ | `TBD` |
-| 5 | Golden frames | ✅ | `TBD` |
-| 6 | Headless render CLI | ⬜ | |
+| 4 | Effect chain contract + bloom/vignette | ✅ | `117cb4e` |
+| 5 | Golden frames | ✅ | `d1bfe6e` |
+| 6 | Headless render CLI | ✅ | `TBD` |
 
 P0 steps:
 
@@ -39,7 +41,8 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check`, then continue with §8 (P2 step 6). Keep STATUS.md updated and commit after each step."*
+run `npm run check` and `npm run golden`, then continue with §9 (P3 step 1). Keep STATUS.md updated
+and commit after each step."*
 
 ---
 
@@ -60,9 +63,10 @@ run `npm run check`, then continue with §8 (P2 step 6). Keep STATUS.md updated 
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 233 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 244 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
+| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
 | `npm run golden` | re-render the golden set and compare with the committed references; `--update`, `--only <name>` | ~40 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
 | `npm run spike:export` | real export ×2 with comparison + timings; `--4k`, `--seconds`, `--codec h264\|hevc`, `--conversion gpu-nv12\|swscale`, `--readback sync\|async`, `--depth`, `--no-hash`, `--runs`, `--audio` | ~1 min |
@@ -261,6 +265,41 @@ Verified: 15/15 identical across two consecutive runs. A deliberate one-bar chan
 `neon-bars` was caught at 16:9 (SSIM 0.835, max Δ 217) while 9:16 and 1:1 stayed identical —
 because those aspects override `barCount`, which is the aspect system visible in the output.
 
+### 4.13 Headless render CLI (P2 step 6) — `npm run render`
+`src/cli/render.ts`: a project document on disk → an encoded MP4, no UI involved. It closes P2's
+definition of done and is the proof that the engine really is separable from the shell — batch
+rendering (S13) and CI become short steps rather than a rewrite.
+
+```
+npm run render -- <project.pvproj> -o <out.mp4>
+    --aspect 16:9|9:16|1:1|4:5   render at that shape, keeping the project's pixel count
+    --size WxH                   explicit canvas size
+    --codec h264|hevc            default h264
+    --audio <file>               override the document's audio path
+    --seconds N                  render only the first N seconds
+    --quiet
+```
+
+- Loading, decoding, analysis and reporting are plain Node; only the render itself goes through
+  Electron, because a WebGL2 context needs Chromium.
+- Audio paths resolve relative to the project file (data-formats §1.2), and the audio
+  **placement** (lead-in, clip in/out) is now passed through the export config instead of being
+  assumed zero — a project with lead-in silence would otherwise have exported out of sync with
+  its own preview. That was a latent bug in the spike path, fixed here.
+- Parse issues and snapshot notes are printed, never swallowed: a silently missing effect gets
+  debugged as a broken module.
+- Errors name the fix (`--codec av1` is refused up front, because Ampere has no AV1 encoder).
+- Argument parsing and aspect sizing are unit-tested in `tests/cli/render-args.test.ts`. One bug
+  found there: a leading `-` was treating `-30` as a flag, so no option could ever take a
+  negative value.
+
+Measured on the RTX 3060: the 640×360 golden project, 120 frames, ~320 fps end to end including
+process startup, H.264 and HEVC 10-bit, both passing ffprobe verification.
+
+**Known debt:** `src/cli/` imports the Electron render host from `spike/`. That host belongs in
+`src/shell/` once P3 builds it; the CLI should then use the shell's, and `spike/` should go back
+to being only a measurement harness.
+
 ### 4.9 Spike and validation harness (`spike/`)
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
@@ -322,16 +361,42 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 
 ---
 
-## 8. Next: P2 — Engine (PROJECT.md §10)
+## 8. P2 — Engine: done (PROJECT.md §10)
 
 Goal: *"Engine renders a multi-layer project from a hand-written JSON file, headlessly, correctly at
 16:9 / 9:16 / 1:1. Golden-frame tests green. The engine/shell import boundary is lint-enforced."*
+**All four clauses hold.**
+
+1. ✅ **Project document v1** (`src/project/`) — §4.7
+2. ✅ **Layout & aspect system** — §4.8
+3. ✅ **Param resolution + modulation evaluator** — §4.10
+4. ✅ **Effect chain contract + bloom and vignette** — §4.11
+5. ✅ **Golden frames** — §4.12
+6. ✅ **Headless render CLI** — §4.13
+
+---
+
+## 9. Next: P3 — Studio (PROJECT.md §10)
+
+Goal: *"Load audio, trim/fade, add/edit layers, live preview on the audio master clock, timeline,
+undo/redo, aspect switcher, save/load."* The Shimga-style UI (ui-spec.md).
+
+The engine is ready for it: the studio's job is to build `ProjectDocument`s and call
+`toRenderProject` + `renderFrame`, which is exactly what `npm run render` and `npm run golden`
+already do headlessly.
 
 Suggested order (each a commit, STATUS updated each time):
 
-1. ✅ **Project document v1** (`src/project/`) — see §4.7. 47 tests in `tests/project/`.
-2. ✅ **Layout & aspect system** — see §4.8. GPU-verified in `tests/golden/layout-gpu.test.ts`.
-3. ✅ **Param resolution + modulation evaluator** — see §4.10.
-4. ✅ **Effect chain contract + bloom and vignette** — see §4.11.
-5. ✅ **Golden frames** — see §4.12.
-6. **Headless render CLI** stub (`pulseforge render project.json -o out.mp4`) reusing `runExport`.
+1. **App shell** (`src/shell/`): Electron main with a **safe process layout** — the spike renderer
+   uses `nodeIntegration` + `contextIsolation: false`, which the app must not. Preload + typed IPC,
+   file dialogs, project open/save with the backup that `backupPathFor` already names.
+2. **Command/undo stack** (`src/project/commands.ts`, M8): every mutation an undoable command.
+   Pure and CPU-testable; do it before any UI so the UI has nothing to unpick later.
+3. **Analysis pipeline for real** (M4): onsets, beat grid, RMS/peak/centroid/flux, the on-disk
+   `AnalysisCache` (data-formats §4) and workers. This is what unblocks the modulation sources
+   already compiled and reported as unsupported (§4.10) — the evaluator needs no further work.
+4. **Preview clock** (M31, §8.12): audio as master, drop frames but never drift.
+5. **React studio** (ui-spec): canvas, timeline, schema-generated inspector, aspect switcher.
+
+Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
+offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
