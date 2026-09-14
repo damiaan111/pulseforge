@@ -3,7 +3,19 @@
 
 import { RenderSetupError } from './gl.ts';
 
-export type TargetFormat = 'rgba16f' | 'rgba8';
+/** rgb10a2 is the 10-bit output target for the HEVC master (export-spec §4.3). */
+export type TargetFormat = 'rgba16f' | 'rgba8' | 'rgb10a2';
+
+function internalFormat(gl: WebGL2RenderingContext, format: TargetFormat): number {
+  switch (format) {
+    case 'rgba16f':
+      return gl.RGBA16F;
+    case 'rgba8':
+      return gl.RGBA8;
+    case 'rgb10a2':
+      return gl.RGB10_A2;
+  }
+}
 
 export interface RenderTarget {
   readonly width: number;
@@ -16,11 +28,7 @@ export interface RenderTarget {
 function allocate(gl: WebGL2RenderingContext, width: number, height: number, format: TargetFormat): RenderTarget {
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  if (format === 'rgba16f') {
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, width, height);
-  } else {
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
-  }
+  gl.texStorage2D(gl.TEXTURE_2D, 1, internalFormat(gl, format), width, height);
   // Nearest: the compositor samples 1:1; filtering choices belong to effects that scale.
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);

@@ -96,6 +96,11 @@ Modules may reduce *fidelity* in preview but never composition (module-spec §7 
 
 ## 4. Readback — the likely bottleneck
 
+> **P0 result (D39, D50):** on the RTX 3060 through Electron's ANGLE/D3D11 backend, synchronous
+> `readPixels` beat the PBO ring, and bytes per frame — not GPU stalls — were the bottleneck.
+> Exports therefore convert to NV12 on the GPU (8-bit 4:2:0) and read synchronously. §4.2's PBO
+> design is implemented (`src/engine/render/readback.ts`) and kept as an option for re-measurement.
+
 ### 4.1 Why it matters
 4K RGBA8 is 33 MB per frame; at 60 fps that's ~2 GB/s across PCIe. Within budget for a x16 Gen4
 link — *if* the transfer is asynchronous. A synchronous `glReadPixels` stalls the GPU until the

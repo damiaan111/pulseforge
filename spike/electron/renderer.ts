@@ -1,6 +1,8 @@
-// Renderer side of the determinism spike.
+// Renderer side of the spikes.
 //
-// Pass A renders frames 0..N-1 in order on one engine. Pass B builds a second engine on a
+// Export mode: runs src/export/job.ts — the real export path — in this process.
+//
+// Determinism mode: pass A renders frames 0..N-1 in order on one engine. Pass B builds a second engine on a
 // separate WebGL2 context and renders the same frames in a scrambled order. Every frame's
 // RGBA bytes are hashed; any difference means hidden state or non-determinism.
 
@@ -13,7 +15,8 @@ import { hash32 } from '../../src/engine/core/prng.ts';
 import type { AnalysisSet } from '../../src/engine/core/analysis.ts';
 import { decodeAnalysis } from '../analysis-file.ts';
 import { spikeProject } from '../project.ts';
-import type { PassResult, SpikeRenderConfig, SpikeRenderResult } from './protocol.ts';
+import { runExport } from '../../src/export/job.ts';
+import type { DeterminismConfig, ExportConfig, PassResult, SpikeConfig, SpikeExportResult, SpikeRenderResult } from './protocol.ts';
 
 function createContext(): WebGL2RenderingContext {
   // The canvas itself is never drawn to; frames render into engine-owned framebuffers.
@@ -34,14 +37,14 @@ function createContext(): WebGL2RenderingContext {
 function newEngine(dither = true): Engine {
   return createEngine(createContext(), {
     quality: 'final',
-    output: { transfer: 'srgb', dither, flipY: true }, // D49
+    output: { transfer: 'srgb', dither, flipY: true, bitDepth: 8 }, // D49
   });
 }
 
 function runPass(
   engine: Engine,
   analysis: AnalysisSet,
-  config: SpikeRenderConfig,
+  config: DeterminismConfig,
   order: readonly number[],
   onFrame: (frameIndex: number, pixels: Uint8Array) => void,
   warnings: Set<string>,
@@ -70,8 +73,7 @@ function runPass(
   return result;
 }
 
-function main(): SpikeRenderResult {
-  const config = ipcRenderer.sendSync('spike-config') as SpikeRenderConfig;
+function runDeterminism(config: DeterminismConfig): SpikeRenderResult {
   const base: SpikeRenderResult = {
     ok: false,
     width: config.width,
@@ -117,5 +119,71 @@ function main(): SpikeRenderResult {
   }
 }
 
+/** A zero-delay yield: MessageChannel callbacks are not clamped or throttled like timers. */
+function createYield(): () => Promise<void> {
+  const channel = new MessageChannel();
+  const waiting: Array<() => void> = [];
+  channel.port1.onmessage = () => waiting.shift()?.();
+  return () =>
+    new Promise((resolve) => {
+      waiting.push(resolve);
+      channel.port2.postMessage(0);
+    });
+}
+
+async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
+  const base: SpikeExportResult = {
+    ok: false,
+    chromeVersion: process.versions['chrome'] ?? 'unknown',
+    electronVersion: process.versions['electron'] ?? 'unknown',
+  };
+  try {
+    const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
+    mkdirSync(config.scratchDir, { recursive: true });
+    let lastProgress = 0;
+    const result = await runExport({
+      gl: createContext(),
+      project: spikeProject(config.width, config.height),
+      analysis,
+      audio: {
+        source: { kind: 'file', path: config.audioPath, ffmpegExe: config.ffmpegExe },
+        placement: { leadInSamples: 0, clipInSamples: 0, clipOutSamples: undefined },
+        label: config.audioLabel,
+      },
+      durationTicks: config.durationTicks,
+      outputPath: config.outputPath,
+      scratchDir: config.scratchDir,
+      settings: config.settings,
+      ffmpegExe: config.ffmpegExe,
+      ffprobeExe: config.ffprobeExe,
+      readbackMode: config.readbackMode,
+      readbackDepth: config.readbackDepth,
+      maxQueuedWrites: config.maxQueuedWrites,
+      hashFrames: config.hashFrames,
+      bitexact: true,
+      keepPartial: false,
+      now: () => performance.now(),
+      yieldToEventLoop: createYield(),
+      onProgress: ({ collected, encoded, total }) => {
+        const t = performance.now();
+        if (t - lastProgress > 1000 || collected === total) {
+          lastProgress = t;
+          ipcRenderer.send('spike-progress', `frames read back ${collected}/${total}, encoded ${encoded}`);
+        }
+      },
+    });
+    return { ...base, ok: true, report: result.report, reportPath: result.reportPath, frameHashes: [...result.frameHashes] };
+  } catch (error) {
+    return { ...base, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+  }
+}
+
 // Let the page finish loading before blocking the renderer thread with GPU work.
-setTimeout(() => ipcRenderer.send('spike-done', main()), 0);
+setTimeout(() => {
+  const config = ipcRenderer.sendSync('spike-config') as SpikeConfig;
+  if (config.mode === 'export') {
+    void runExportMode(config).then((result) => ipcRenderer.send('spike-done', result));
+  } else {
+    ipcRenderer.send('spike-done', runDeterminism(config));
+  }
+}, 0);

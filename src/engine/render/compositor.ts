@@ -17,9 +17,11 @@ import type { RenderTarget, TargetPool } from './targets.ts';
 export type OutputTransfer = 'srgb' | 'bt709';
 
 export interface OutputOptions {
-  /** sRGB for preview, BT.709 for export (compositor-spec §2). */
+  /** sRGB for preview and export (D49); BT.709 kept for comparison measurements. */
   readonly transfer: OutputTransfer;
   readonly dither: boolean;
+  /** 8 → RGBA8 output; 10 → RGB10_A2 for the 10-bit HEVC master (export-spec §4.3). */
+  readonly bitDepth: 8 | 10;
   /** Write rows top-down, as video expects (export-spec §4.3). */
   readonly flipY: boolean;
 }
@@ -51,6 +53,7 @@ uniform bool u_dither;
 uniform bool u_flipY;
 uniform uint u_noiseSeed;
 uniform uint u_frame;
+uniform float u_levels; // 255 for 8-bit output, 1023 for 10-bit
 out vec4 outColor;
 ${HASH_GLSL}
 ${COLOR_GLSL}
@@ -67,7 +70,7 @@ void main() {
     uint h = pf_combine32(pf_combine32(pf_combine32(u_noiseSeed, u_frame), uint(src.x)), uint(src.y));
     float n1 = float(h >> 8u) / 16777216.0;
     float n2 = float(pf_mix32(h ^ 0x68e31da4u) >> 8u) / 16777216.0;
-    rgb += (n1 + n2 - 1.0) / 255.0;
+    rgb += (n1 + n2 - 1.0) / u_levels;
   }
   outColor = vec4(clamp(rgb, 0.0, 1.0), 1.0);
 }
@@ -87,6 +90,7 @@ export class Compositor {
     flipY: WebGLUniformLocation;
     noiseSeed: WebGLUniformLocation;
     frame: WebGLUniformLocation;
+    levels: WebGLUniformLocation;
   };
 
   constructor(gl: WebGL2RenderingContext, pool: TargetPool) {
@@ -106,11 +110,12 @@ export class Compositor {
       flipY: uniformLocation(gl, this.outputProgram, 'u_flipY'),
       noiseSeed: uniformLocation(gl, this.outputProgram, 'u_noiseSeed'),
       frame: uniformLocation(gl, this.outputProgram, 'u_frame'),
+      levels: uniformLocation(gl, this.outputProgram, 'u_levels'),
     };
   }
 
   /**
-   * Builds one frame into `output` (RGBA8, canvas-sized).
+   * Builds one frame into `output` (RGBA8 or RGB10_A2, canvas-sized).
    * `background` is linear premultiplied and opaque.
    */
   composite(
@@ -166,6 +171,7 @@ export class Compositor {
     gl.uniform1i(this.outputUniforms.flipY, options.flipY ? 1 : 0);
     gl.uniform1ui(this.outputUniforms.noiseSeed, frame.noiseSeed >>> 0);
     gl.uniform1ui(this.outputUniforms.frame, frame.frameIndex >>> 0);
+    gl.uniform1f(this.outputUniforms.levels, options.bitDepth === 10 ? 1023 : 255);
     drawFullscreenTriangle(gl, this.vao);
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.useProgram(null);

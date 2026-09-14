@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "spike:determinism": "node --disable-warning=ExperimentalWarning spike/determinism.ts"
+    "spike:determinism": "node --disable-warning=ExperimentalWarning spike/determinism.ts",
+    "spike:export": "node --disable-warning=ExperimentalWarning spike/export.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

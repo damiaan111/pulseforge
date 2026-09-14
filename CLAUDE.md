@@ -11,7 +11,7 @@ WebGL2, with a Python ML sidecar (Demucs, WhisperX) and FFmpeg/NVENC export.
 |---|---|---|
 | 0 | `docs/STATUS.md` | **Where the build is right now**: what is done, what is not, how to run and verify it, known issues, next step. Update it at the end of every step |
 | 1 | `PROJECT.md` | Vision, locked decisions, hardware envelope, architecture, all 40 must-haves, milestones, risks |
-| 2 | `docs/decisions.md` | **Authoritative.** 49 resolved decisions. Where a spec's "open questions" disagrees, this wins |
+| 2 | `docs/decisions.md` | **Authoritative.** 50 resolved decisions. Where a spec's "open questions" disagrees, this wins |
 | 3 | `docs/coverage-audit.md` | Map of which document specifies what |
 | 4 | The spec for whatever you're building | module · modulation · auto-director · export · lyrics · ui · compositor · data-formats |
 

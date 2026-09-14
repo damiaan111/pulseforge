@@ -11,15 +11,25 @@ import { createPrng, hash32 } from './core/prng.ts';
 import type { RenderProject } from './core/project.ts';
 import { frameTimeSeconds, timelineToSourceSeconds } from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
-import { requireContextFeatures, type ContextInfo } from './render/gl.ts';
+import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
+import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
+import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [barsModule];
 
+/** Recorded in render reports. Bump when rendering output changes. */
+export const ENGINE_VERSION = '0.1.0-p0';
+
 export interface EngineOptions {
   readonly quality: 'preview' | 'final';
   readonly output: OutputOptions;
+  /**
+   * Byte layout handed to readback. 'rgba': 4 bytes/pixel (RGBA8 or packed 10-bit).
+   * 'nv12': BT.709 limited-range 4:2:0 converted on the GPU (8-bit only; width % 4 == 0).
+   */
+  readonly packing?: 'rgba' | 'nv12';
   readonly modules?: readonly ModuleDefinition[];
 }
 
@@ -30,12 +40,58 @@ export interface FrameReport {
   readonly paramIssues: readonly { readonly layerId: string; readonly issues: readonly ParamIssue[] }[];
 }
 
+/** Non-blocking readback of rendered frames, oldest first (export-spec §4.2). */
+export interface FrameReadback {
+  readonly depth: number;
+  readonly bytesPerFrame: number;
+  hasFreeSlot(): boolean;
+  pendingCount(): number;
+  /** Queues the most recently rendered frame. */
+  submit(): void;
+  oldestReady(): boolean;
+  collectOldest(into: Uint8Array): void;
+  dispose(): void;
+}
+
 export interface Engine {
   readonly context: ContextInfo;
+  readonly options: EngineOptions;
   renderFrame(project: RenderProject, analysis: AnalysisSet, frameIndex: number): FrameReport;
-  /** Synchronous readback of the last frame, top-down RGBA8. Step 4 replaces this with async PBOs. */
+  /**
+   * Synchronous readback of the last frame, top-down; 4 bytes per pixel (RGBA8, or packed
+   * 2-10-10-10 little-endian at 10 bits). Blocks on the GPU — the baseline for measurement.
+   */
   readOutputSync(into: Uint8Array): void;
+  /** A PBO ring for `width`×`height` output at this engine's bit depth. */
+  createReadback(width: number, height: number, depth: number): FrameReadback;
+  /**
+   * The same interface over synchronous readPixels (depth 1: each frame is read straight into
+   * the caller's buffer before the next renders). Measured against the PBO ring in P0, because
+   * through ANGLE the "async" path is not necessarily faster.
+   */
+  createSyncReadback(width: number, height: number): FrameReadback;
+  /** Peak simultaneous pooled render targets (render report). */
+  readonly targetHighWaterMark: number;
   dispose(): void;
+}
+
+/**
+ * 10-bit export reads RGB10_A2 as UNSIGNED_INT_2_10_10_10_REV. ES 3.0 lets the implementation
+ * choose the second allowed read format, so confirm it before committing to a 10-bit render.
+ */
+function requireTenBitReadback(gl: WebGL2RenderingContext, pool: TargetPool): void {
+  const probe = pool.acquire(4, 4, 'rgb10a2');
+  gl.bindFramebuffer(gl.FRAMEBUFFER, probe.framebuffer);
+  const format = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT) as number;
+  const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) as number;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  pool.release(probe);
+  if (format !== gl.RGBA || type !== gl.UNSIGNED_INT_2_10_10_10_REV) {
+    throw new RenderSetupError(
+      `This GPU/driver cannot read back 10-bit frames (implementation read format 0x${format.toString(16)}, type 0x${type.toString(16)}). ` +
+        'Export 8-bit H.264/HEVC instead, or update the GPU driver.',
+    );
+  }
 }
 
 export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions): Engine {
@@ -55,17 +111,39 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
     return instance;
   }
 
+  const outputFormat = options.output.bitDepth === 10 ? 'rgb10a2' : 'rgba8';
+  if (outputFormat === 'rgb10a2') requireTenBitReadback(gl, pool);
+  const packing = options.packing ?? 'rgba';
+  if (packing === 'nv12' && (options.output.bitDepth !== 8 || !options.output.flipY)) {
+    throw new RenderSetupError('NV12 packing needs 8-bit, top-down (flipY) output');
+  }
+  const nv12 = packing === 'nv12' ? new Nv12Converter(gl, pool) : undefined;
+  const frameBytes = (width: number, height: number) =>
+    packing === 'nv12' ? nv12Bytes(width, height) : bytesPerFrame({ width, height, bitDepth: options.output.bitDepth });
+  const readPacked = (target: RenderTarget, into: Uint8Array) => {
+    if (nv12 !== undefined) nv12.readSync(into);
+    else readSync(gl, target, options.output.bitDepth, into);
+  };
+
   return {
     context,
+    options,
+
+    get targetHighWaterMark() {
+      return pool.highWaterMark;
+    },
 
     renderFrame(project, analysis, frameIndex) {
       if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
         throw new RangeError(`frameIndex must be a non-negative integer, got ${frameIndex}`);
       }
       const { width, height, fps } = project.canvas;
+      if (nv12 !== undefined && !nv12Supported(width, height)) {
+        throw new RenderSetupError(`NV12 export needs a width divisible by 4 and an even height, got ${width}×${height}`);
+      }
       if (output === undefined || output.width !== width || output.height !== height) {
         if (output !== undefined) pool.release(output);
-        output = pool.acquire(width, height, 'rgba8');
+        output = pool.acquire(width, height, outputFormat);
         for (const { instance } of instances.values()) instance.resize(width, height);
       }
 
@@ -110,24 +188,67 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         frameIndex,
         noiseSeed: hash32(project.seed, 'output-dither'),
       });
+      nv12?.convert(output);
 
       return { frameIndex, t, warnings, paramIssues };
     },
 
     readOutputSync(into) {
       if (output === undefined) throw new Error('readOutputSync called before any frame was rendered');
-      if (into.length !== output.width * output.height * 4) {
-        throw new RangeError(`readback buffer is ${into.length} bytes, expected ${output.width * output.height * 4}`);
+      const expected = frameBytes(output.width, output.height);
+      if (into.length !== expected) throw new RangeError(`readback buffer is ${into.length} bytes, expected ${expected}`);
+      readPacked(output, into);
+    },
+
+    createReadback(width, height, depth) {
+      if (nv12 !== undefined) {
+        // Measured in P0: through ANGLE the PBO ring is slower than readPixels, so the NV12
+        // path is only built synchronously. See docs/STATUS.md §5.
+        throw new RenderSetupError('async readback is not implemented for NV12 packing; use createSyncReadback');
       }
-      gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
-      gl.pixelStorei(gl.PACK_ALIGNMENT, 1); // explicit, or odd widths skew (export-spec §4.3)
-      gl.readPixels(0, 0, output.width, output.height, gl.RGBA, gl.UNSIGNED_BYTE, into);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const ring = new AsyncReadback(gl, { width, height, bitDepth: options.output.bitDepth }, depth);
+      return {
+        depth,
+        bytesPerFrame: bytesPerFrame(ring.format),
+        hasFreeSlot: () => ring.hasFreeSlot(),
+        pendingCount: () => ring.pendingCount(),
+        submit() {
+          if (output === undefined) throw new Error('readback.submit called before any frame was rendered');
+          ring.submit(output);
+        },
+        oldestReady: () => ring.oldestReady(),
+        collectOldest: (into) => ring.collectOldest(into),
+        dispose: () => ring.dispose(),
+      };
+    },
+
+    createSyncReadback(width, height) {
+      let pending = false;
+      return {
+        depth: 1,
+        bytesPerFrame: frameBytes(width, height),
+        hasFreeSlot: () => !pending,
+        pendingCount: () => (pending ? 1 : 0),
+        submit() {
+          if (output === undefined) throw new Error('readback.submit called before any frame was rendered');
+          if (output.width !== width || output.height !== height) throw new RangeError(`readback is ${width}×${height} but the output is ${output.width}×${output.height}`);
+          pending = true;
+        },
+        oldestReady: () => pending,
+        collectOldest(into) {
+          if (!pending || output === undefined) throw new Error('readback.collectOldest called with nothing pending');
+          // Safe to read now: with one slot, the pump collects before it renders the next frame.
+          readPacked(output, into);
+          pending = false;
+        },
+        dispose() {},
+      };
     },
 
     dispose() {
       for (const { instance } of instances.values()) instance.dispose();
       instances.clear();
+      nv12?.dispose();
       compositor.dispose();
       pool.dispose();
     },

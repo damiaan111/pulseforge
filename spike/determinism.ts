@@ -10,30 +10,16 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { build, type BuildOptions } from 'esbuild';
-import electronPath from 'electron';
 import { decodeMono48k } from '../src/analysis/decode.ts';
 import { ANALYSIS_VERSION, DEFAULT_SPECTRUM_SETTINGS, computeSourceAnalysis } from '../src/analysis/spectrum.ts';
-import { FFMPEG_EXE, ROOT } from '../setup/lib/paths.ts';
+import { FFMPEG_EXE } from '../setup/lib/paths.ts';
 import { encodeAnalysis } from './analysis-file.ts';
-import type { PassResult, SpikeRenderConfig, SpikeRenderResult } from './electron/protocol.ts';
+import type { DeterminismConfig, PassResult, SpikeRenderResult } from './electron/protocol.ts';
+import { SPIKE_OUT as OUT, bundleElectron as bundle, fail, median, runElectron as runElectronGeneric } from './harness.ts';
 import { synthesizeTestTrack } from './test-signal.ts';
-
-const OUT = join(ROOT, 'out', 'spike');
-
-function fail(what: string, fix: string[]): never {
-  console.error(`\n✖ ${what}\n\n  What to do:\n${fix.map((f, i) => `    ${i + 1}. ${f}`).join('\n')}\n`);
-  process.exit(1);
-}
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
-}
 
 function combinedHash(pass: PassResult): string {
   return createHash('sha256').update(pass.frameHashes.join('\n')).digest('hex');
@@ -43,36 +29,9 @@ function firstMismatch(a: PassResult, b: PassResult): number {
   return a.frameHashes.findIndex((hash, i) => hash !== b.frameHashes[i]);
 }
 
-async function bundle(): Promise<void> {
-  await mkdir(OUT, { recursive: true });
-  const common: BuildOptions = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'], sourcemap: 'linked', logLevel: 'error' };
-  await build({ ...common, entryPoints: [join(ROOT, 'spike', 'electron', 'main.ts')], outfile: join(OUT, 'main.cjs') });
-  await build({ ...common, entryPoints: [join(ROOT, 'spike', 'electron', 'renderer.ts')], outfile: join(OUT, 'renderer.js') });
-  await writeFile(
-    join(OUT, 'index.html'),
-    '<!doctype html><meta charset="utf-8"><title>pulseforge spike</title><script src="renderer.js"></script>\n',
-  );
-}
-
-function runElectron(config: SpikeRenderConfig): Promise<{ result: SpikeRenderResult; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(electronPath as unknown as string, [join(OUT, 'main.cjs')], {
-      env: { ...process.env, PULSEFORGE_SPIKE_CONFIG: JSON.stringify(config), ELECTRON_ENABLE_LOGGING: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    let stderr = '';
-    child.stdout.on('data', (c: Buffer) => (stderr = (stderr + c.toString()).slice(-20_000)));
-    child.stderr.on('data', (c: Buffer) => (stderr = (stderr + c.toString()).slice(-20_000)));
-    child.on('error', reject);
-    child.on('close', async () => {
-      try {
-        resolve({ result: JSON.parse(await readFile(config.resultFile, 'utf8')) as SpikeRenderResult, stderr });
-      } catch {
-        reject(new Error(`Electron exited without writing a result.\n${stderr.trim().split('\n').slice(-15).join('\n')}`));
-      }
-    });
-  });
+async function runElectron(config: DeterminismConfig): Promise<{ result: SpikeRenderResult; stderr: string }> {
+  const { result, log } = await runElectronGeneric<SpikeRenderResult>(config);
+  return { result, stderr: log };
 }
 
 async function main(): Promise<void> {
@@ -90,7 +49,8 @@ async function main(): Promise<void> {
   const frameCount = Math.round(seconds * 60);
 
   console.log('▶ Bundling spike harness');
-  await rm(OUT, { recursive: true, force: true });
+  await rm(join(OUT, 'raw-1'), { recursive: true, force: true });
+  await rm(join(OUT, 'raw-2'), { recursive: true, force: true });
   await bundle();
 
   console.log('▶ Analysis');
@@ -118,7 +78,8 @@ async function main(): Promise<void> {
   const runs: SpikeRenderResult[] = [];
   for (const run of [1, 2]) {
     console.log(`▶ Electron run ${run} of 2 (${width}×${height}, ${frameCount} frames, two passes)`);
-    const config: SpikeRenderConfig = {
+    const config: DeterminismConfig = {
+      mode: 'determinism',
       analysisFile,
       resultFile: join(OUT, `result-${run}.json`),
       rawDir: join(OUT, `raw-${run}`),

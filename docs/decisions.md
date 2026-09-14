@@ -4,7 +4,7 @@
 > where a spec's "open questions" section disagrees, this wins.
 > Decisions marked 🧑 were made by the owner; 🤖 are defaults I chose, and any of them can be
 > overridden by saying so.
-> Last updated: 2026-09-14 (D48–D49 added during P0 implementation).
+> Last updated: 2026-09-14 (D48–D50 added and D39 resolved during P0 implementation).
 
 ---
 
@@ -94,7 +94,8 @@
 
 | # | Question | Decision | Rationale |
 |---|---|---|---|
-| D39 🤖 | GPU NV12 conversion | **Build RGBA path first behind an interface; decide from P0 numbers** | It roughly halves PCIe traffic, but "necessary" depends on measured readback cost. The interface makes it a swap, not a rewrite. |
+| D39 🤖 | GPU NV12 conversion | ~~Build RGBA path first behind an interface; decide from P0 numbers~~ **Resolved by P0 measurement (2026-09-14): convert to NV12 on the GPU for 8-bit 4:2:0 exports (the H.264 default); RGBA/packed-10-bit + swscale for 10-bit and 4:4:4** | Measured on the RTX 3060 (1080p60 / 4K60 H.264, synthetic bars project): RGBA + swscale 104 / 28 fps; GPU NV12 198 / 57 fps. Readback and the stdin pipe both scale with bytes per frame and were the bottlenecks; NV12 is 12 bpp vs 32. Colour matches swscale (64 dB PSNR, identical decoded pixels). At 4K the limit is now NVENC itself (~11 ms/frame). Implementation: `src/engine/render/yuv.ts`. |
+| D50 🤖 | Readback strategy | **Synchronous `readPixels` by default; the async PBO ring is kept as an option** | Measured in P0, contradicting export-spec §4.2's assumption: through Chromium's ANGLE/D3D11 backend the PBO path is slower (1080p 78 vs 104 fps; 4K 23 vs 28 fps with RGBA), and deeper rings are slower still — `getBufferSubData` copies across the GPU-process boundary. Re-measure if Electron/ANGLE or the backend changes (`npm run spike:export -- --readback async`). |
 | D40 🤖 | Default quality | **CQ 17 for 8-bit H.264; CQ 19 for the 10-bit HEVC master** | Dark neon gradients band easily; the extra bitrate is cheap locally. Revisit after P0's encoder matrix. |
 | D41 🤖 | Determinism self-check | **Off by default; automatic for ranges under 30 s; always in CI** | Free where it's cheap, opt-in where it isn't. |
 | D42 🤖 | Partial re-render | **v1.x (Should)** | Needs the stateful warm-up path (export §8) to be solid first. |
