@@ -40,7 +40,11 @@ export function formatShaderLog(label: string, source: string, log: string): str
 export interface ContextInfo {
   readonly renderer: string;
   readonly vendor: string;
+  readonly version: string;
+  readonly shadingLanguageVersion: string;
   readonly maxTextureSize: number;
+  readonly maxRenderbufferSize: number;
+  readonly extensions: readonly string[];
 }
 
 /** Checks everything the compositor depends on; throws a specific message otherwise. */
@@ -57,7 +61,11 @@ export function requireContextFeatures(gl: WebGL2RenderingContext): ContextInfo 
   return {
     renderer: String(debug !== null ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)),
     vendor: String(debug !== null ? gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR)),
+    version: String(gl.getParameter(gl.VERSION)),
+    shadingLanguageVersion: String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION)),
     maxTextureSize: Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)),
+    maxRenderbufferSize: Number(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)),
+    extensions: gl.getSupportedExtensions() ?? [],
   };
 }
 

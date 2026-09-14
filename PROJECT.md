@@ -163,7 +163,7 @@ but this is the machine it is tuned for, and several decisions fall directly out
 Three things want this GPU: the WebGL2 renderer, Demucs, and WhisperX. Rough budgets:
 
 - **4K60 rendering** with a deep layer/effect stack: ~1–2 GB (each 4K RGBA16F target is ~66 MB, and ping-pong buffers multiply that fast).
-- **Demucs `htdemucs_ft`**: ~4–7 GB depending on segment length.
+- **Demucs**: `htdemucs` measured at 0.54 GB allocated / 0.71 GB reserved (P0); `htdemucs_ft` not yet measured, estimated ~4–7 GB before P0 and likely far less.
 - **WhisperX `large-v3` (float16)**: ~4–6 GB.
 
 Any two of those fit; all three at once will not. **Therefore: serialise GPU-heavy jobs.**
@@ -172,12 +172,28 @@ A single global GPU job queue in the shell process, with the renderer holding pr
 so a user on 6 GB isn't dead in the water, and free the torch model between jobs rather than
 keeping it warm.
 
-### Realistic performance expectations (to validate in P0, not to trust on paper)
-- **Stem separation**, `htdemucs_ft`, 4-minute track: roughly 1–2 minutes on this GPU. Plain `htdemucs` is ~4× faster at slightly lower quality — make it the default, `_ft` the "final render" option.
-- **WhisperX transcribe + align**, 4-minute vocal stem, `large-v3`: roughly 30–60 seconds.
-- **1080p60 export**: should comfortably exceed realtime on moderate projects — the shader work, not NVENC, is the bottleneck.
-- **4K60 export**: 4× the fragment cost. Expect below realtime on heavy stacks. This is exactly why the renderer is offline and deterministic — slow is fine, dropped frames are not.
-- **Readback bandwidth**: 4K RGBA at 60 fps is ~2 GB/s over PCIe. Well within budget, *provided* readback is asynchronous. Synchronous `glReadPixels` will dominate the frame time — measure it in P0.
+### Measured performance (P0, 2026-09-14 — replaces the planning estimates)
+
+Full report: [docs/validation/p0-full-report.md](docs/validation/p0-full-report.md). RTX 3060, driver 616.92,
+PCIe Gen3 x16, Electron 44 / ANGLE D3D11, FFmpeg n8.1.2, torch 2.13 + CUDA 13.0.
+
+| What | Planning estimate | Measured |
+|---|---|---|
+| Stem separation, `htdemucs`, 4-min track | ~15–30 s (¼ of `_ft`) | **8.6 s (28× realtime)**, peak VRAM **0.54 GB allocated / 0.71 GB reserved**; 12.6 s including Python start |
+| Stem separation, `htdemucs_ft` | 1–2 min | not measured yet — setup does not fetch `_ft` (D8); expect roughly 4× `htdemucs` |
+| WhisperX, 4-min vocal stem | 30–60 s | not measured (P6) |
+| 1080p60 export, H.264 | "comfortably above realtime" | **209 fps (3.5× realtime)** on a six-layer bars project |
+| 4K60 export, H.264 | "below realtime on heavy stacks" | **56 fps (0.93× realtime)** — bounded by NVENC p5 itself (~61 fps from a synthetic source) |
+| 1080p60 / 4K60 export, HEVC 10-bit master | — | **98 fps / 27 fps** (RGBA readback + CPU swscale; GPU P010 conversion is the obvious next win) |
+| Readback | "must be async; sync will dominate" | **Wrong on this stack.** Through ANGLE, sync `readPixels` beats the PBO ring (1080p 103 vs 69–80 fps, 4K 30 vs 22–23 fps). Bytes per frame were the bottleneck → GPU NV12 conversion (D39, D50) |
+| NVENC encode speed, p5 | — | 1080p: H.264 199 fps, HEVC 271–278 fps · 4K: H.264 61 fps, **HEVC 91–94 fps** (HEVC is faster than H.264 at 4K on Ampere, at ~¼ the size) |
+| A/V sync | "perfect" | flash on the exact expected frame for 18/18 clicks; video−audio 6.67 ms = the designed sub-frame rounding |
+| Determinism | required | engine frames, export raw frames and bit-exact MP4 bytes identical across processes |
+
+**What this changes:** 4K export is encoder-bound, not shader-bound, for light projects — heavy
+effects will lower it further, so the effect library's GPU cost matters mainly at 4K. Stems are cheap
+enough (seconds, under 1 GB VRAM) that the "mix-only while stems run" workflow is still worth building
+but rarely waited on, and the VRAM contention risk below is smaller for Demucs than estimated.
 
 ### Sizing implications
 Design every GPU-side buffer allocation to be configurable and to fail loudly, not silently

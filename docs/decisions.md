@@ -131,15 +131,17 @@
 
 ---
 
-## 10. What remains genuinely unknown
+## 10. What remained unknown — answered by P0 (2026-09-14)
 
-Not decisions — measurements. All of these wait on P0's validation script (export-spec §17) run on the RTX 3060:
+Measured by `npm run validate` on the RTX 3060; full numbers in PROJECT.md §4 and
+[validation/p0-full-report.md](validation/p0-full-report.md).
 
-1. Readback throughput, sync vs async, at 1080p and 4K — through WebGL2/ANGLE and including the frame transport into FFmpeg's stdin (export-spec §4.2) → sets pipeline depth, which process owns the export pipe, and whether D39 flips to NV12.
-2. NVENC encode speed across the preset/codec matrix → confirms D40 and the export-time estimates.
-3. End-to-end render fps on a representative project at 1080p60 and 4K60 → the number that determines whether 4K is comfortable or a compromise.
-4. `htdemucs` vs `htdemucs_ft` wall time and peak VRAM → confirms D8 and the GPU queue's budgets.
-5. Shader compile behaviour on NVIDIA vs the Intel dev machine → the first real test of PROJECT.md §14.
-6. Whether identical raw frames also yield identical MP4 files with bit-exact muxing on NVENC (export-spec §0, §17) → determines whether file-level hashes are usable in CI or only frame hashes.
+1. **Readback, sync vs async** → sync wins through ANGLE; bytes per frame were the bottleneck. D39 resolved (GPU NV12), D50 added (sync default). The renderer process owns the FFmpeg pipe in the spike; the app shell still has to choose its process arrangement.
+2. **NVENC encode matrix** → recorded. D40's CQ values stand (quality on real footage is not measurable from synthetic sources — revisit with real projects). Notable: HEVC p5 is faster than H.264 p5 at 4K (91 vs 61 fps) at ~¼ the size.
+3. **End-to-end fps** → 1080p60 H.264 209 fps (3.5×), 4K60 H.264 56 fps (0.93×, NVENC-bound), HEVC 10-bit 98 / 27 fps — on a light six-layer project; real effect stacks will be lower.
+4. **Demucs** → `htdemucs` 8.6 s for 4 min, 0.54 GB peak. `htdemucs_ft` **still unmeasured** (not provisioned).
+5. **Shader compile NVIDIA vs Intel** → all shaders compile and render on NVIDIA/ANGLE; the Intel side was never exercised (development moved to the RTX machine).
+6. **Bit-exact MP4s** → yes, byte-identical across runs for H.264 and HEVC 10-bit: file-level hashes are usable.
 
-Every performance figure in PROJECT.md §4 is a placeholder until that report exists.
+Still open: `htdemucs_ft` timings/VRAM, WhisperX (P6), throughput with real effects (P4), and D48's
+effect on fully saturated palette colours (STATUS.md §7).

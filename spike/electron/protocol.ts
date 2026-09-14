@@ -1,5 +1,7 @@
 // Messages between the spike orchestrators, the Electron main process and the renderer.
 
+import type { RenderProject } from '../../src/engine/core/project.ts';
+import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import type { RenderReport } from '../../src/export/report.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 
@@ -22,8 +24,8 @@ export interface ExportConfig {
   audioPath: string;
   audioLabel: string;
   durationTicks: number;
-  width: number;
-  height: number;
+  project: RenderProject;
+  dither: boolean;
   outputPath: string;
   scratchDir: string;
   settings: EncodeSettings;
@@ -47,7 +49,7 @@ export interface PassResult {
 export interface SpikeRenderResult {
   ok: boolean;
   error?: string;
-  context?: { renderer: string; vendor: string; maxTextureSize: number };
+  context?: ContextInfo;
   chromeVersion?: string;
   electronVersion?: string;
   width: number;

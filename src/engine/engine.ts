@@ -16,8 +16,10 @@ import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
+import { flashModule } from './modules/flash.ts';
+import { testPatternModule } from './modules/test-pattern.ts';
 
-export const BUILTIN_MODULES: readonly ModuleDefinition[] = [barsModule];
+export const BUILTIN_MODULES: readonly ModuleDefinition[] = [barsModule, testPatternModule, flashModule];
 
 /** Recorded in render reports. Bump when rendering output changes. */
 export const ENGINE_VERSION = '0.1.0-p0';

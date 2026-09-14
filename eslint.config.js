@@ -101,6 +101,8 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': ['error', ...NO_DEFAULT_EXPORTS],
       '@typescript-eslint/consistent-type-imports': 'error',
+      // `_`-prefixed names are deliberately unused (e.g. dropping a field via rest destructuring).
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true }],
     },
   },
   {

@@ -40,6 +40,8 @@ export interface ExportRequest {
   readonly bitexact: boolean;
   /** Keep a partial file when the export fails or is cancelled (export-spec §13). */
   readonly keepPartial: boolean;
+  /** Output dither; always on for real exports. Off only for exact colour measurement. */
+  readonly dither?: boolean;
   readonly now: () => number;
   readonly yieldToEventLoop: () => Promise<void>;
   readonly onProgress?: (progress: { readonly collected: number; readonly encoded: number; readonly total: number }) => void;
@@ -104,7 +106,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
   // quality: 'final' is forced on export (D20); output encoding per D49.
   const engine = createEngine(request.gl, {
     quality: 'final',
-    output: { transfer: 'srgb', dither: true, flipY: true, bitDepth: settings.bitDepth },
+    output: { transfer: 'srgb', dither: request.dither ?? true, flipY: true, bitDepth: settings.bitDepth },
     packing: settings.conversion === 'gpu-nv12' ? 'nv12' : 'rgba',
   });
   const readback = readbackMode === 'sync' ? engine.createSyncReadback(width, height) : engine.createReadback(width, height, request.readbackDepth);

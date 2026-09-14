@@ -143,8 +143,9 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
     let lastProgress = 0;
     const result = await runExport({
       gl: createContext(),
-      project: spikeProject(config.width, config.height),
+      project: config.project,
       analysis,
+      dither: config.dither,
       audio: {
         source: { kind: 'file', path: config.audioPath, ffmpegExe: config.ffmpegExe },
         placement: { leadInSamples: 0, clipInSamples: 0, clipOutSamples: undefined },

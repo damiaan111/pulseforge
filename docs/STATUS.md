@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — end of P0 step 4 (export pipe), D39 resolved, D50 added.
+> Last updated: 2026-09-14 — **P0 complete** (all eight validation checks pass on the RTX 3060).
 
 ---
 
@@ -11,47 +11,48 @@
 | Milestone | State |
 |---|---|
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
-| **P0 — Spike** | 🔶 steps 1–4 done; **step 5 (`npm run validate`) next** |
-| P1 — Provisioning | 🔶 core + stems tiers work (built in P0 step 2); lyrics/extras tiers and the offline CI job not started |
-| P2 … P8 | ⬜ not started |
+| **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
+| P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
+| **P2 — Engine** | ⬜ **next** (see §8) |
+| P3 … P8 | ⬜ not started |
 
-P0 steps (START-HERE.md):
+P0 steps:
 
 | # | Step | State | Commit |
 |---|---|---|---|
 | 1 | Scaffolding + engine boundary lint | ✅ | `2152b91` |
-| 2 | `npm run setup` provisioning | ✅ run on the RTX machine, `--verify` green | `2152b91` |
-| 3 | Minimal deterministic engine + GPU determinism spike | ✅ byte-identical at 1080p and 4K | `0a0f2ba` |
-| — | D48/D49 recorded, this document added | ✅ | `8d00833` |
-| 4 | Frame pump, readback, GPU NV12, NVENC export + audio mux, verification, render report | ✅ | (this commit) |
-| 5 | `npm run validate` (export-spec §17, eight checks → one pasteable report) | ⬜ next | |
+| 2 | `npm run setup` provisioning | ✅ | `2152b91` |
+| 3 | Deterministic engine + GPU determinism spike | ✅ | `0a0f2ba` |
+| — | D48/D49, this document | ✅ | `8d00833` |
+| 4 | Export pipe: readback, GPU NV12, NVENC, audio mux, verify, report | ✅ | `56cf79a` |
+| 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | (this commit) |
 
 ---
 
 ## 2. Environment (the RTX machine)
 
 - Repo: `D:\pulseforge` (must stay on D:, C: has ~19 GB free). Git branch `main`, no remote.
-- Hardware: Ryzen 7 3800X, RTX 3060 12 GB, driver 616.92, Windows 11.
-- Node 24.19 (system install). Setup and spike orchestrators run TypeScript directly via Node type stripping; Electron-side code is bundled with esbuild.
-- System-wide Python 3.11 and `C:\ffmpeg` exist on PATH — **never use them**; everything goes through
-  `vendor/` by absolute path (`setup/lib/paths.ts`).
-- Shell gotchas: do not edit files with PowerShell `Get-Content | -replace | Set-Content` (re-encodes UTF-8).
-  In the Bash tool, avoid `cd` (it moves the session's working directory); use absolute paths.
-  1×1 `crop` fails on 4:2:0 video in FFmpeg — crop at least 2×2.
+- Hardware: Ryzen 7 3800X (16 threads), 16 GB RAM, RTX 3060 12 GB, driver 616.92, PCIe Gen3 x16, Windows 11 (10.0.26200).
+- Node 24.19. Node-side scripts run TypeScript directly (type stripping); Electron-side code is bundled with esbuild.
+- System-wide Python 3.11 and `C:\ffmpeg` exist on PATH — **never use them**; everything goes through `vendor/` by absolute path.
+- Shell gotchas: never edit files with PowerShell `Get-Content | -replace | Set-Content` (re-encodes UTF-8).
+  In the Bash tool, avoid `cd` (it moves the session's working directory). FFmpeg `crop` needs ≥ 2×2 on 4:2:0.
+- Do not run GPU work (spikes, validate) concurrently with benchmarks — it skews timings.
 
 ---
 
 ## 3. Commands
 
-| Command | What it does | Needs |
+| Command | What it does | Time |
 |---|---|---|
-| `npm install` | dev dependencies (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | network once |
-| `npm run check` | typecheck + lint + all tests (103 at end of step 4; NVENC/FFmpeg tests skip without `vendor/`) | nothing |
-| `npm run setup` | provision `vendor/` (core + stems); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier core,stems` | network for first run |
-| `npm run spike:determinism` | GPU determinism proof (2 processes × sequential / shuffled / undithered); `--4k`, `--seconds N`, `--audio <file>` | Electron, GPU |
-| `npm run spike:export` | real export twice, compares raw frames + MP4 bytes, verifies, prints timings + encoder capability table; `--4k`, `--seconds N`, `--codec h264\|hevc`, `--conversion gpu-nv12\|swscale`, `--readback sync\|async`, `--depth N`, `--no-hash`, `--runs N`, `--audio <file>` | Electron, GPU, `vendor/ffmpeg` |
+| `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
+| `npm run check` | typecheck + lint + 112 tests (GPU/FFmpeg/Python tests skip without `vendor/`) | ~10 s |
+| `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
+| `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
+| `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
+| `npm run spike:export` | real export ×2 with comparison + timings; `--4k`, `--seconds`, `--codec h264\|hevc`, `--conversion gpu-nv12\|swscale`, `--readback sync\|async`, `--depth`, `--no-hash`, `--runs`, `--audio` | ~1 min |
 
-Outputs land in `out/spike/` (gitignored): stills, `export/export-run*.mp4`, `*.report.json`.
+Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other checks marked skipped.
 
 ---
 
@@ -59,150 +60,115 @@ Outputs land in `out/spike/` (gitignored): stills, `export/export-run*.mp4`, `*.
 
 ### 4.1 Tooling
 - TypeScript strict + `exactOptionalPropertyTypes`, `erasableSyntaxOnly`, `.ts` import extensions.
-- ESLint engine boundary on `src/engine/**` (Electron/React/Node built-ins, shell/ui/export/ml imports,
-  dynamic import, Date/performance/timers/rAF, DOM globals incl. `globalThis`, fetch/crypto, live audio,
-  Math.random). Proven by `tests/lint/engine-boundary.test.ts`. Named exports only.
-- Stay on TypeScript `~6.0.3` until typescript-eslint supports 7.
+- ESLint engine boundary on `src/engine/**` (proven by `tests/lint/engine-boundary.test.ts`); named exports only;
+  `_`-prefixed unused names allowed. Stay on TypeScript `~6.0.3` until typescript-eslint supports 7.
 
-### 4.2 Provisioning (`setup/`) — unchanged since step 2
-- Pins in `setup/manifest.ts`: FFmpeg n8.1.2 LGPL (BtbN autobuild-2026-09-14-13-17), python-build-standalone
-  3.11.16+20260901, uv 0.12.13, htdemucs weights (full SHA-256 pinned).
-- `setup/python/requirements.lock.txt` (committed): torch 2.13.0+cu130, demucs 4.1.0, numpy (explicit).
-- Flow, isolation and offline Demucs loading as described in the step-2 commit; `vendor/` is 8.2 GB.
+### 4.2 Provisioning (`setup/`)
+- Pins in `setup/manifest.ts`: FFmpeg n8.1.2 LGPL, python-build-standalone 3.11.16, uv 0.12.13, htdemucs weights.
+- `setup/python/requirements.lock.txt`: torch 2.13.0+cu130, demucs 4.1.0, numpy (explicit — demucs omits it off macOS).
+- Wheelhouse in `vendor/wheelhouse/`, offline install, isolation from system Python, `vendor.lock.json`, `LICENSES.md`.
 
 ### 4.3 Engine (`src/engine/`)
 | File | Contents |
 |---|---|
-| `core/time.ts` | Rational fps, 48 kHz ticks, `frameCount` (BigInt-exact), `frameTimeSeconds`, `frameStartTick` (floor), `timelineToSourceSeconds` |
-| `core/prng.ts` | keyed `hash32`/`random01`/`createPrng` + bit-identical `HASH_GLSL`; outputs pinned by snapshot |
-| `core/color.ts` | sRGB/linear/BT.709 transfer, hex parsing, premultiply, hue-preserving tone shoulder (`TONEMAP_KNEE = 0.9`, D48) + `COLOR_GLSL` |
-| `core/params.ts` | P0 param schema subset + `resolveParams` (defaults → clamp → coerce; unknown keys preserved/reported) |
-| `core/analysis.ts` | `AnalysisTrack`/`AnalysisSet`, linear-interp clamped sampling |
-| `core/module.ts`, `core/project.ts` | module manifest + render contract; `RenderProject` P0 snapshot (seed, canvas, audio placement, layers) |
-| `render/gl.ts` | context requirements (EXT_color_buffer_float), shader compile errors with source lines, fullscreen triangle |
+| `core/time.ts` | rational fps, 48 kHz ticks, `frameCount`, `frameTimeSeconds`, `frameStartTick`, `timelineToSourceSeconds` |
+| `core/prng.ts` | keyed `hash32`/`random01`/`createPrng` + `HASH_GLSL` (outputs pinned by snapshot) |
+| `core/color.ts` | transfer functions, hex, premultiply, D48 tone shoulder (`TONEMAP_KNEE = 0.9`) + `COLOR_GLSL` |
+| `core/params.ts` | param schema subset + `resolveParams` |
+| `core/analysis.ts` | analysis tracks and sampling |
+| `core/module.ts`, `core/project.ts` | module contract; `RenderProject` P0 snapshot |
+| `render/gl.ts` | context requirements + `ContextInfo` (renderer, versions, limits, extensions), shader errors with source lines |
 | `render/targets.ts` | pooled `rgba16f` / `rgba8` / `rgb10a2` targets |
-| `render/compositor.ts` | linear premultiplied compositing (normal/add/screen), output pass: tonemap → sRGB/BT.709 OETF → seeded TPDF dither (scaled to 8 or 10 bits) → RGBA8 or RGB10_A2, optional Y flip |
-| `render/yuv.ts` | **GPU BT.709 limited-range NV12**, packed into RGBA8 targets (Y: w/4×h, UV: w/4×h/2) so readback uses only RGBA/UNSIGNED_BYTE; needs width % 4 == 0 |
-| `render/readback.ts` | `AsyncReadback` PBO ring (readPixels→PIXEL_PACK_BUFFER, fenceSync, non-blocking poll, getBufferSubData); `readSync`; 10-bit via UNSIGNED_INT_2_10_10_10_REV |
-| `modules/bars.ts` | `core.visualizer.bars` v0.1.0 |
-| `engine.ts` | `createEngine(gl, {quality, output: {transfer, dither, flipY, bitDepth}, packing: 'rgba'\|'nv12'})`; `renderFrame(project, analysis, frameIndex)`; `readOutputSync`; `createSyncReadback` / `createReadback(depth)` (same `FrameReadback` interface); 10-bit read format probed at creation; `ENGINE_VERSION = '0.1.0-p0'` |
+| `render/compositor.ts` | linear premultiplied compositing (normal/add/screen) → tonemap → OETF → seeded dither (8/10-bit) → output |
+| `render/yuv.ts` | GPU BT.709 limited-range NV12 packed into RGBA8 targets |
+| `render/readback.ts` | async PBO ring + sync readback (8- and 10-bit) |
+| `modules/bars.ts` | `core.visualizer.bars` |
+| `modules/test-pattern.ts` | `core.test.pattern` — 24 fixed patches (`TEST_PATTERN_COLORS`) for colour measurement |
+| `modules/flash.ts` | `core.test.flash` — full-frame flash on a timeline schedule (`flashLit`) for sync measurement |
+| `engine.ts` | `createEngine(gl, {quality, output, packing})`, `renderFrame`, `readOutputSync`, `createSyncReadback`, `createReadback`; `ENGINE_VERSION = '0.1.0-p0'` |
 
-### 4.4 Analysis (`src/analysis/`) — unchanged since step 3
-- FFT 2048 → 64 log bins (30 Hz–16 kHz) + `bass` band at 240 Hz, dBFS-mapped 0..1; `ANALYSIS_VERSION = 1`.
-- `decodeMono48k` via vendored FFmpeg with PCM SHA-256.
-- Not yet: onsets, BPM/beat grid, RMS/peak/centroid/flux, stems analysis, on-disk AnalysisCache, workers.
+### 4.4 Analysis (`src/analysis/`)
+- FFT 2048 → 64 log bins + `bass` band at 240 Hz; `decodeMono48k` via vendored FFmpeg. `ANALYSIS_VERSION = 1`.
+- Not yet: onsets, beat grid, RMS/peak/centroid/flux, stems analysis, on-disk AnalysisCache, workers.
 
-### 4.5 Export (`src/export/`) — new in step 4
-| File | Contents |
-|---|---|
-| `ffmpeg-args.ts` | `EncodeSettings` (codec, bitDepth, chroma, preset, cq, conversion `gpu-nv12`\|`swscale`, audio kbps), D40 defaults (H.264 8-bit CQ 17 **gpu-nv12**; HEVC 10-bit CQ 19 swscale), `settingsProblems`, `resolveConversion` (falls back to swscale when NV12 impossible), `buildFfmpegArgs` (rawvideo stdin, `-progress pipe:1`, `setparams` colour stamping, NVENC p5/tune hq/vbr/cq/lookahead 32/bf 3/GOP 2 s, all four BT.709 tags, `hvc1` for HEVC, AAC 320k, bit-exact flags, faststart), `formatCommandLine` |
-| `pump.ts` | `pumpFrames`: render → readback submit → FIFO collect → `onFrame` (hash) → sink write; bounded buffer pool (`depth + maxQueuedWrites`) gives backpressure; cancel; per-stage timing stats. No GL/Node types (unit-tested with fakes) |
-| `encoder.ts` | `startEncoder`: FFmpeg child, stdin sink that resolves on write callback, encoder-side frame count from `-progress`, `diagnoseEncoderFailure` (NVENC unavailable, unknown encoder, disk full, pixel format, permissions) |
-| `audio.ts` | `samplesForFrames` (exact rational), `placeAudio` (clip-in/out, lead-in, pad/cut to video length, reports adjustment), `encodeWavFloat32`, `decodeStereo48k`, `prepareExportAudio` |
-| `verify.ts` | `probeFile` (ffprobe `-count_packets`), `checkOutput`: exact frame count, size, rate, codec, pix_fmt (swscale), all four colour tags, audio within one frame |
-| `encoder-probe.ts` | `probeEncoders`: actually opens each NVENC variant (H.264 8-bit 420/444, HEVC 8/10-bit 420/444, AV1) on a 320×240 clip |
-| `report.ts` | `RenderReport` v1 type (output hash, project hash, settings, command line, readback mode/depth, audio adjustment, timings, GPU, verification, warnings) |
-| `job.ts` | `runExport(request)`: settings → frame count → audio prep → args → engine (quality forced `final`, D20; sRGB, D49; packing from conversion) → sync/async readback → pump → encoder finish → ffprobe verify → report JSON at `<output>.report.json`; deletes partial output on failure unless `keepPartial` |
+### 4.5 Export (`src/export/`)
+`ffmpeg-args.ts` (settings, D40 defaults, gpu-nv12/swscale, colour tags via `setparams`, bit-exact), `pump.ts`
+(bounded pipeline), `encoder.ts` (FFmpeg process + diagnosis), `audio.ts` (exact placement), `verify.ts` (ffprobe
+checks), `encoder-probe.ts`, `report.ts`, `job.ts` (`runExport`, optional `dither: false` for measurement).
 
-### 4.6 Spike harness (`spike/`)
-- `harness.ts`: esbuild bundling of `spike/electron/{main,renderer}.ts` into `out/spike/`, `runElectron` (config via env var, `PROGRESS` lines relayed), helpers.
-- `electron/main.ts`: hidden window, `--use-angle=d3d11`, `nodeIntegration` renderer (spike-grade security).
-- `electron/renderer.ts`: `determinism` mode (step 3 passes) and `export` mode (calls `runExport`, yields via MessageChannel).
-- `determinism.ts`, `export.ts`: orchestrators; `test-signal.ts` synthetic track; `analysis-file.ts` spike-only analysis hand-off; `project.ts` the P0 bars project.
+### 4.6 ML sidecar
+- `python/pulseforge_ml/` (`python -m pulseforge_ml`, cwd = `python/`): JSON lines on stdout
+  (`progress` / `log` / `result` / `error`). Commands: `health` (python, torch, CUDA, cuDNN, demucs) and
+  `separate` (raw float32 PCM in, htdemucs via `get_model(name, repo=vendor/models/demucs)`, per-segment
+  progress from Demucs' callback, timings, peak VRAM, per-stem RMS, optional stem output files).
+- `src/ml/sidecar.ts`: `runSidecar` (spawn, parse, progress callbacks, `SidecarError` with stderr tail), `parseSidecarLine`.
+- Not yet: long-lived process, cancellation, supervisor/restart, GPU job queue (M27/M28), WhisperX.
+
+### 4.7 Spike and validation harness (`spike/`)
+- `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
+- `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
+- `validate.ts` + `validate/`: `context.ts`, `media.ts` (FFmpeg decode helpers), `projects.ts` (pattern, click, heavy projects; click track), `checks-render.ts` (2 determinism, 3 readback, 4 colour), `checks-system.ts` (1 environment, 5 encoders, 6 throughput, 7 stems, 8 sync).
 
 ---
 
-## 5. Measured results (RTX 3060, driver 616.92, ANGLE D3D11, Electron 44.3.0 / Chrome 152)
+## 5. Measured results
 
-### Determinism
-| What | Result |
-|---|---|
-| Engine, 1080p60 600 frames, 4K60 300 frames | byte-identical across 2 processes × (sequential, shuffled on fresh context, undithered) |
-| Export raw frames (RGBA and NV12, 8- and 10-bit) | identical across 2 export runs |
-| Export MP4 files with bit-exact muxing (H.264 and HEVC 10-bit) | **byte-identical across runs** — file-level hashes are usable (decisions §10 item 6 answered) |
+The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:
 
-### Export throughput (synthetic bars project, 5–10 s, no frame hashing unless noted)
-| Path | 1080p60 | 4K60 |
-|---|---|---|
-| async PBO ring depth 3, RGBA, swscale | 77 fps | 22 fps |
-| async PBO depth 1 / 6 | 78 / 76 fps | 23 / 22 fps |
-| sync readPixels, RGBA, swscale | 104 fps | 28 fps |
-| sync, RGBA handed to NVENC (no swscale) | 104 fps | 27 fps — and mis-tagged full range → rejected |
-| **sync, GPU NV12 (default for H.264)** | **198 fps (3.3× realtime)** | **57 fps (0.95× realtime)** |
-| HEVC 10-bit, async depth 3, swscale, with hashing | 58 fps | not measured |
-
-Per-frame costs at 4K isolated with FFmpeg alone: swscale ~3 ms, NVENC encode ~11 ms (p5, lookahead 32),
-RGBA through a pipe ~20 ms. With GPU NV12 the 4K limit is NVENC. Frame hashing (SHA-256) costs ~4 ms at
-1080p RGBA and ~16 ms at 4K RGBA.
-
-### Colour
-- GPU NV12 vs swscale exports of the same frames: PSNR 64 dB (Y 72 dB), SSIM 0.99994; decoded pixels identical.
-- Fill `#ff2d95` decodes as (250, 42, 145); background `#0b0614` as (11, 4, 20). The fill's 255 red channel is
-  1.0 linear, above the D48 knee (0.9), so the tone shoulder compresses it slightly; the background's green
-  shift is 4:2:0 chroma + 8-bit round trip. See §7.
-
-### Encoder capabilities (probe)
-H.264 8-bit 4:2:0 ✔ · H.264 8-bit 4:4:4 ✔ · HEVC 8-bit 4:2:0 ✔ · HEVC 10-bit 4:2:0 ✔ · HEVC 8-bit 4:4:4 ✔ ·
-HEVC 10-bit 4:4:4 ✔ · AV1 ✖ (Ampere, as expected).
-
-### Other
-- Analysis of 10 s audio: ~150 ms single-threaded. torch 2.13.0+cu130 sees the RTX 3060.
-- Not yet measured: Demucs wall time/VRAM, A/V click-track sync, ramp colour round trip, full encoder
-  preset matrix, representative (multi-layer) project throughput. All are `npm run validate` items.
+- **Determinism:** engine frames, export raw frames (NV12 and 10-bit) and bit-exact MP4 bytes are identical across processes.
+- **Readback:** sync beats async PBO through ANGLE; GPU NV12 is fastest (1080p 197 fps, 4K 58 fps on the bars project).
+- **Throughput (six-layer bars, 60 s):** H.264 1080p60 209 fps, 4K60 56 fps (NVENC-bound); HEVC 10-bit 98 / 27 fps.
+- **NVENC p5:** 1080p H.264 199 / HEVC ~275 fps; 4K H.264 61 / HEVC ~92 fps. AV1 unavailable (Ampere).
+- **Colour:** GPU NV12, swscale and HEVC 10-bit all within 1.2 code values of expected; black luma 16 / 64; all four tags present.
+- **Stems:** `htdemucs` 4-min track in 8.6 s (28× realtime), 0.54 GB peak allocated; Python start + model load ~4 s.
+- **Sync:** flash on the expected frame for 18/18 clicks; video−audio 6.67 ms (designed sub-frame rounding at a 1.01 s phase). Analysis sees clicks 5.8 ms early (centred FFT window).
 
 ---
 
 ## 6. Decisions made during implementation
 
-- **D48** tone curve = hue-preserving highlight shoulder, knee 0.9 (owner confirmed).
-- **D49** output transfer = sRGB OETF for preview and export, files tagged BT.709 (owner confirmed).
-- **D39 resolved** by measurement: GPU NV12 for 8-bit 4:2:0 exports; swscale for 10-bit/4:4:4.
-- **D50** synchronous readback by default; PBO ring kept as an option (slower through ANGLE).
-- uv has no download command → pip downloads the wheelhouse (PROJECT.md §3).
-- torch pinned to CUDA 13.0 wheels (`cu130`), driver R580+.
-- Spectrum bins use the peak FFT bin in range (engine-local, easy to change).
-- FFmpeg 8 drops `-color_trc`/`-color_primaries` for filtered frames → colour tags are stamped with `setparams` in the filter chain.
+- **D48** tone shoulder, knee 0.9 (owner). **D49** sRGB OETF, tagged BT.709 (owner).
+- **D39 resolved** → GPU NV12 for 8-bit 4:2:0; swscale for 10-bit/4:4:4. **D50** sync readback default.
+- **D40** CQ values unchanged pending real-footage quality checks; HEVC is faster than H.264 at 4K.
+- uv has no download command → pip fills the wheelhouse. torch on `cu130` (driver R580+).
+- FFmpeg 8 needs `setparams` to keep colour tags on filtered frames.
 
 ---
 
 ## 7. Known gaps, debts and open questions
 
-- **Tone shoulder touches fully saturated authored colours.** With knee 0.9, any channel at 255 (1.0 linear) is
-  compressed to ~250. D48 says "below the knee is untouched", which is true, but pure palette primaries sit above
-  it. Options if the owner objects: raise the knee to 1.0 with the roll-off only above 1.0 (needs headroom above
-  white, i.e. compress from (1, ∞) into (0.97, 1]), or accept. Not changed without the owner.
-- `RenderProject` is a P0 subset; no real document schema, migrations or undo (`src/project/`).
-- One module (bars). No effects, masks, groups, text, palette roles, aspect overrides, modulation.
-- `quality: 'preview'` is plumbed but unused.
-- Async PBO readback is not implemented for NV12 packing (sync only, by measurement).
-- The spike renderer uses `nodeIntegration` + `contextIsolation: false`; the app shell must decide how the
-  export process gets Node access (utility process + shared memory, or a dedicated export window).
-- Audio stream-copy when untouched (export-spec §7) not implemented — always AAC 320k.
-- No render queue, pause/resume, disk-space precheck, live thumbnail, motion blur, SSAA (export-spec §9, §12–14).
-- Unknown modules warn instead of rendering the visible placeholder module-spec §9 asks for.
-- Frame hashing runs on the render thread; move to a worker if it is kept on for long exports.
+- **Tone shoulder touches fully saturated colours** (#ffffff → luma 232 instead of 235; pure primaries ~250/255).
+  Owner kept D48 knowing the knee; flag again if palette-exact output becomes a requirement.
+- `htdemucs_ft` not provisioned or measured (manifest entry needed: it is a bag of 4 models, each weight file pinned).
+- HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
+  (16-bit samples packed like NV12) would likely close the gap.
+- `RenderProject` is a P0 subset; no document schema, migrations, undo (`src/project/` empty).
+- One visual module plus two test modules. No effects, masks, groups, text, palette roles, aspect overrides, modulation.
+- `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
+- Spike renderer uses `nodeIntegration` + `contextIsolation: false`; the app shell must choose a safe process layout.
+- Export: no queue, pause/resume, disk-space precheck, thumbnails, motion blur, SSAA, audio stream-copy.
+- Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
+- The sidecar is spawned per command; M27 needs a supervised long-lived process with cancellation.
 
 ---
 
-## 8. Next step (P0 step 5) — `npm run validate`
+## 8. Next: P2 — Engine (PROJECT.md §10)
 
-The eight checks of export-spec §17, one pasteable report, reusing what exists:
+Goal: *"Engine renders a multi-layer project from a hand-written JSON file, headlessly, correctly at
+16:9 / 9:16 / 1:1. Golden-frame tests green. The engine/shell import boundary is lint-enforced."*
 
-1. **Environment** — GPU/driver (`nvidia-smi`), CUDA/torch (vendored Python probe), FFmpeg build, WebGL2
-   renderer/limits/extensions, ANGLE backend, PCIe link (`nvidia-smi -q`).
-2. **Determinism** — reuse `spike/determinism.ts` logic (raw frames) + export MP4 hash comparison.
-3. **Readback benchmark** — sync vs async depths 1–4 at 1080p/4K, RGBA and NV12 (the matrix in §5 above).
-4. **Colour correctness** — render a known ramp/patch project, export via gpu-nv12 and swscale (+ HEVC 10-bit),
-   decode, compare against expected BT.709 limited-range values; check tags.
-5. **Encoder matrix** — H.264/HEVC × 420/444 × p1/p5/p7 at 1080p/4K: encode fps + size (FFmpeg lavfi source,
-   `encoder-probe.ts` style).
-6. **Throughput** — 60 s at 1080p60 and 4K60 on a representative project (needs a heavier test project than one
-   bars layer: several bars layers with add/screen blends as a stand-in until more modules exist).
-7. **Stems** — Demucs `htdemucs` (and `htdemucs_ft`, which setup does not fetch yet — fetch on demand or report
-   "not installed") on a 4-minute track: wall time + peak VRAM via `torch.cuda.max_memory_allocated`.
-   Needs a minimal sidecar script in `python/pulseforge_ml/`.
-8. **Sync** — click-track project (a visual impulse on each click via a band/onset-driven parameter), export,
-   decode, find the frame where luminance jumps vs the audio transient sample; must be within one frame.
+Suggested order (each a commit, STATUS updated each time):
 
-Then: paste the report into STATUS.md §5, replace PROJECT.md §4 estimates, revisit D40 with the encoder matrix,
-mark P0 done, and start P1/P2.
+1. **Project document v1** (`src/project/`): schema per PROJECT.md §7 / data-formats §1 — ids, integer ticks,
+   rational fps, layers with transform/opacity/blend/params/effects/modulations, unknown-field preservation,
+   `schemaVersion` + migration chain scaffold with a fixture test; a `toRenderProject` snapshot function.
+2. **Layout & aspect system** (PROJECT.md §8.11, module-spec §6): relative transforms + anchors + scale reference,
+   per-aspect overrides, resolution in `src/engine/core/layout.ts`; compositor applies layer transforms.
+3. **Param resolution pipeline complete** (module-spec §5): base → aspect override → (automation slot) →
+   modulation → clamp → coerce, with the modulation evaluator (modulation-spec §4–§9: precomputed envelopes,
+   curves, look-ahead, accumulation) in `src/engine/core/modulation.ts`, CPU-tested.
+4. **Effect chain contract + first effects** (module-spec §8, compositor-spec §4): scratch targets, padding,
+   bloom and vignette as the first two.
+5. **Golden frames** (export-spec §16): `tests/golden/` references generated on this machine from JSON projects at
+   16:9 / 9:16 / 1:1, checked by a `npm run golden` (Electron) command; `--update` to regenerate deliberately.
+6. **Headless render CLI** stub (`pulseforge render project.json -o out.mp4`) reusing `runExport`.

@@ -14,7 +14,8 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run test",
     "spike:determinism": "node --disable-warning=ExperimentalWarning spike/determinism.ts",
-    "spike:export": "node --disable-warning=ExperimentalWarning spike/export.ts"
+    "spike:export": "node --disable-warning=ExperimentalWarning spike/export.ts",
+    "validate": "node --disable-warning=ExperimentalWarning spike/validate.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

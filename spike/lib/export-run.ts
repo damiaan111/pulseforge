@@ -1,0 +1,132 @@
+// Runs the real export (src/export/job.ts) in Electron one or more times and compares runs.
+// Used by `npm run spike:export` and by `npm run validate`.
+
+import { createHash } from 'node:crypto';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { encodeAnalysis } from '../analysis-file.ts';
+import { computeSourceAnalysis, ANALYSIS_VERSION } from '../../src/analysis/spectrum.ts';
+import type { RenderProject } from '../../src/engine/core/project.ts';
+import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
+import type { RenderReport } from '../../src/export/report.ts';
+import { FFMPEG_EXE, VENDOR } from '../../setup/lib/paths.ts';
+import type { ExportConfig, SpikeExportResult } from '../electron/protocol.ts';
+import { runElectron } from '../harness.ts';
+
+export const FFPROBE_EXE = join(VENDOR, 'ffmpeg', 'bin', 'ffprobe.exe');
+
+export interface ExportRunOptions {
+  readonly workDir: string;
+  readonly name: string;
+  readonly project: RenderProject;
+  /** Mono 48 kHz analysis input. */
+  readonly analysisPcm: Float32Array;
+  /** The audio file muxed into the export. */
+  readonly audioPath: string;
+  readonly audioLabel: string;
+  readonly durationTicks: number;
+  readonly settings: EncodeSettings;
+  readonly readbackMode: 'sync' | 'async';
+  readonly readbackDepth: number;
+  readonly hashFrames: boolean;
+  readonly dither: boolean;
+  readonly runs: number;
+  readonly onProgress?: (line: string) => void;
+}
+
+export interface ExportRun {
+  readonly run: number;
+  readonly outputPath: string;
+  readonly report: RenderReport;
+  readonly frameHashes: readonly string[];
+  readonly fileSha256: string;
+  readonly chromeVersion: string;
+  readonly electronVersion: string;
+}
+
+export interface ExportRunSummary {
+  readonly runs: readonly ExportRun[];
+  readonly first: ExportRun;
+  /** undefined when frames were not hashed or only one run. */
+  readonly framesIdentical: boolean | undefined;
+  readonly firstFrameMismatch: number | undefined;
+  readonly filesIdentical: boolean | undefined;
+  readonly verified: boolean;
+}
+
+export class ExportRunError extends Error {
+  readonly log: string;
+  constructor(message: string, log: string) {
+    super(message);
+    this.name = 'ExportRunError';
+    this.log = log;
+  }
+}
+
+export async function runExportSpike(options: ExportRunOptions): Promise<ExportRunSummary> {
+  await mkdir(options.workDir, { recursive: true });
+  const analysisFile = join(options.workDir, `${options.name}.analysis.bin`);
+  await writeFile(analysisFile, encodeAnalysis('mix', computeSourceAnalysis(options.analysisPcm), { analysisVersion: ANALYSIS_VERSION }));
+
+  const runs: ExportRun[] = [];
+  for (let run = 1; run <= options.runs; run++) {
+    const outputPath = join(options.workDir, `${options.name}-run${run}.mp4`);
+    const config: ExportConfig = {
+      mode: 'export',
+      analysisFile,
+      resultFile: join(options.workDir, `${options.name}-run${run}.result.json`),
+      audioPath: options.audioPath,
+      audioLabel: options.audioLabel,
+      durationTicks: options.durationTicks,
+      project: options.project,
+      dither: options.dither,
+      outputPath,
+      scratchDir: join(options.workDir, `${options.name}-scratch-${run}`),
+      settings: options.settings,
+      readbackMode: options.readbackMode,
+      hashFrames: options.hashFrames,
+      readbackDepth: options.readbackDepth,
+      maxQueuedWrites: 4,
+      ffmpegExe: FFMPEG_EXE,
+      ffprobeExe: FFPROBE_EXE,
+    };
+    const { result, log } = await runElectron<SpikeExportResult>(config, options.onProgress);
+    if (!result.ok || result.report === undefined) {
+      throw new ExportRunError(`export "${options.name}" run ${run} failed: ${result.error ?? 'no report'}`, log);
+    }
+    runs.push({
+      run,
+      outputPath,
+      report: result.report,
+      frameHashes: result.frameHashes ?? [],
+      fileSha256: createHash('sha256').update(await readFile(outputPath)).digest('hex'),
+      chromeVersion: result.chromeVersion ?? 'unknown',
+      electronVersion: result.electronVersion ?? 'unknown',
+    });
+  }
+
+  const first = runs[0];
+  if (first === undefined) throw new ExportRunError('runs must be at least 1', '');
+  let firstFrameMismatch: number | undefined;
+  if (options.hashFrames && runs.length > 1) {
+    for (const other of runs.slice(1)) {
+      const index = first.frameHashes.findIndex((hash, i) => hash !== other.frameHashes[i]);
+      if (index !== -1) {
+        firstFrameMismatch = index;
+        break;
+      }
+    }
+  }
+  return {
+    runs,
+    first,
+    framesIdentical: options.hashFrames && runs.length > 1 ? firstFrameMismatch === undefined : undefined,
+    firstFrameMismatch,
+    filesIdentical: runs.length > 1 ? runs.every((r) => r.fileSha256 === first.fileSha256) : undefined,
+    verified: runs.every((r) => r.report.verification.ok),
+  };
+}
+
+export function perFrameMs(report: RenderReport, total: number): string {
+  return `${(total / report.timing.frames).toFixed(2)} ms`;
+}
