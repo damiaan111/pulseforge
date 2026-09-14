@@ -183,7 +183,7 @@ async function main(): Promise<void> {
     `Audio:            ${sourceLabel}`,
     `PCM SHA-256:      ${pcmSha256}`,
     `Analysis:         v${ANALYSIS_VERSION}, ${DEFAULT_SPECTRUM_SETTINGS.bins} log bins @ 240 Hz, FFT ${DEFAULT_SPECTRUM_SETTINGS.fftSize}, ${analysisMs.toFixed(0)} ms`,
-    `Output encoding:  BT.709 OETF, dithered, RGBA8, top-down`,
+    `Output encoding:  sRGB OETF (D49), dithered, RGBA8, top-down`,
     '',
     ...passes.map(([name, pass]) => `  ${name.padEnd(34)} ${combinedHash(pass)}`),
     `  ${'run 1 / undithered'.padEnd(34)} ${combinedHash(undithered1)}`,

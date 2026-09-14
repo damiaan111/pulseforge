@@ -199,6 +199,7 @@ reverse — gives washed-out blacks or crushed shadows, and it is *the* most com
 looks subtly wrong compared to the preview.
 
 So the rules are explicit:
+- Encode with the **sRGB OETF** in the compositor's output pass, the same as preview (D49), so the export matches what was seen while editing.
 - Convert with the **BT.709** matrix for HD/UHD.
 - Write **limited range** (`color_range: tv`) by default and tag it, matching what players expect.
 - Always write all four tags — `colorspace`, `color_primaries`, `color_trc`, `color_range`. An untagged file is interpreted by guesswork, and different players guess differently.

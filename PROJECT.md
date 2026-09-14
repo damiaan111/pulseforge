@@ -625,7 +625,7 @@ week one, not month four.
 
 ## 12. Open questions — resolved
 
-**All resolved — see [docs/decisions.md](docs/decisions.md)** for the full log of 47 decisions with rationale.
+**All resolved — see [docs/decisions.md](docs/decisions.md)** for the full log of decisions (D1–D49) with rationale.
 
 Headline resolutions: Electron · name *Pulseforge* · **full layer groups in v1** · **video backgrounds via frame cache** · **MP4 only, no CPU encoder path** · managed asset library · filmic tone mapping · fast model defaults with quality on demand · auto-director offered on import.
 

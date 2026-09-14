@@ -4,7 +4,7 @@
 > where a spec's "open questions" section disagrees, this wins.
 > Decisions marked 🧑 were made by the owner; 🤖 are defaults I chose, and any of them can be
 > overridden by saying so.
-> Last updated: 2026-09-14.
+> Last updated: 2026-09-14 (D48–D49 added during P0 implementation).
 
 ---
 
@@ -46,6 +46,8 @@
 | D18 🤖 | Depth output from 2D layers | **No — depth is 3D-only in v1** | Synthetic depth for fake DOF is a nice idea and a second half-working depth system. |
 | D19 🤖 | Preview vs final pixel-diff budget | **Structural similarity only, no strict budget** | Conformance test 3 uses an SSIM threshold. A strict per-pixel budget would ban legitimate quality reductions. |
 | D20 🤖 | Force `quality: final` on export | **Yes, forced** | Trusting module authors to opt in is how a preview shortcut silently ships in a 4K render. |
+| D48 🧑 | How D7's tone curve is realised | **Hue-preserving highlight shoulder: identity up to 0.9 linear on the largest channel, exponential roll-off towards 1.0 above; all channels scaled by the same ratio** (`src/engine/core/color.ts`, `TONEMAP_KNEE`) | Chosen over a literal ACES fit (confirmed by the owner, 2026-09-14): ACES also darkens and shifts ordinary palette colours, so `#ff00ff` would not render as `#ff00ff`. The shoulder only touches overdriven values — glows and additive stacks — which is what D7 asked for. |
+| D49 🧑 | Output transfer function | **sRGB OETF for both preview and export**; export files are still tagged BT.709 (primaries/matrix/trc) and limited range | Replaces compositor-spec §2's "BT.709 OETF for export" (confirmed by the owner, 2026-09-14). The content is authored on sRGB monitors; encoding it with the BT.709 camera OETF and decoding with BT.1886 would render exports darker and more contrasty than the preview. P0's colour check (export-spec §17 item 4) records the decoded values. |
 
 ---
 

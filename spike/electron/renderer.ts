@@ -34,7 +34,7 @@ function createContext(): WebGL2RenderingContext {
 function newEngine(dither = true): Engine {
   return createEngine(createContext(), {
     quality: 'final',
-    output: { transfer: 'bt709', dither, flipY: true },
+    output: { transfer: 'srgb', dither, flipY: true }, // D49
   });
 }
 

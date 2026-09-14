@@ -9,8 +9,9 @@ WebGL2, with a Python ML sidecar (Demucs, WhisperX) and FFmpeg/NVENC export.
 
 | Order | Document | What it gives you |
 |---|---|---|
+| 0 | `docs/STATUS.md` | **Where the build is right now**: what is done, what is not, how to run and verify it, known issues, next step. Update it at the end of every step |
 | 1 | `PROJECT.md` | Vision, locked decisions, hardware envelope, architecture, all 40 must-haves, milestones, risks |
-| 2 | `docs/decisions.md` | **Authoritative.** 47 resolved decisions. Where a spec's "open questions" disagrees, this wins |
+| 2 | `docs/decisions.md` | **Authoritative.** 49 resolved decisions. Where a spec's "open questions" disagrees, this wins |
 | 3 | `docs/coverage-audit.md` | Map of which document specifies what |
 | 4 | The spec for whatever you're building | module · modulation · auto-director · export · lyrics · ui · compositor · data-formats |
 
@@ -38,10 +39,17 @@ on Ampere. Probe capabilities and hide unsupported options rather than failing a
 - Comment density and naming follow the surrounding code.
 - Commit messages end with: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`
 
-## Current phase: P0
+## Current phase
 
-See `START-HERE.md`. Build the spike and the validation script — no UI, no app shell beyond what
-the spike needs. P0 exists to replace the estimates in `PROJECT.md` §4 with measured numbers.
+See `docs/STATUS.md` for the live state. P0 (`START-HERE.md`) builds the spike and the validation
+script — no UI, no app shell beyond what the spike needs — to replace the estimates in
+`PROJECT.md` §4 with measured numbers.
+
+The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept
+detailed enough that a fresh session can take over mid-project. Commit at the end of each step.
+
+- Edit files with the Edit/Write tools, never PowerShell text replacement (PowerShell 5.1
+  re-encodes UTF-8 and corrupts the docs' punctuation).
 
 ## Development split
 

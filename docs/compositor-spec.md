@@ -51,8 +51,8 @@ module output (linear, premultiplied)
    → effects (linear)
    → blend (linear)
    → global effects (linear)
-   → tone/gamut handling
-   → OETF encode (sRGB for preview, BT.709 for export)
+   → tone/gamut handling          (hue-preserving highlight shoulder — D48)
+   → OETF encode (sRGB, for preview and export — D49)
    → 8/10-bit quantise + optional dither
 ```
 
@@ -177,7 +177,8 @@ the core guarantee intact.
 All settled in [decisions.md](decisions.md):
 - **Layer groups: yes, full, in v1** (D3 → M38). §6 is normative, not speculative.
 - **Video frame cache: yes** (D4 → M39), with proxy sequences for preview.
-- **Tone mapping: filmic / ACES-like** (D7). Single fixed curve in v1; the pipeline stays able to swap it.
+- **Tone mapping: filmic / ACES-like** (D7), realised as a hue-preserving highlight shoulder (D48). Single fixed curve in v1; the pipeline stays able to swap it.
+- **Output transfer: sRGB for preview and export** (D49).
 - **Preview stays dithered 8-bit**; 10-bit is an export format only (D17).
 - **Depth is 3D-only** — 2D layers do not declare synthetic depth (D18).
 
