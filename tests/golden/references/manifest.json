@@ -1,0 +1,111 @@
+{
+  "engineVersion": "0.1.0-p0",
+  "generatedOn": "2026-09-14T21:12:55.543Z",
+  "records": [
+    {
+      "key": "neon-bars-16x9-00000",
+      "width": 640,
+      "height": 360,
+      "sha256": "5f63378585f26cb3ea988c436457e8f6ca4003e7729d42d3b01820ef1822466a",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-16x9-00045",
+      "width": 640,
+      "height": 360,
+      "sha256": "ac5bbdc6f503603a50898643ea9e3520428e66b6d7458a8db7f949645e09ff22",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-16x9-00090",
+      "width": 640,
+      "height": 360,
+      "sha256": "f2f29012326a17d2d1f6befffd9bd699a8cc389ed7916bafd21042432d660270",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-9x16-00000",
+      "width": 360,
+      "height": 640,
+      "sha256": "ad71b32cdb54ce90cde2b2034b10988f034a4c3141a7fc03aedc2a9685a5bb24",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-9x16-00045",
+      "width": 360,
+      "height": 640,
+      "sha256": "4aa85d09c34a81a5e427ce070f8b46974dc20f775001f0797c39e405e12244d9",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-9x16-00090",
+      "width": 360,
+      "height": 640,
+      "sha256": "883719c1d8acf128ebc20f0cbc7ed0331f2847bf0ddb312b7843cb702e6c8a42",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-1x1-00000",
+      "width": 480,
+      "height": 480,
+      "sha256": "5552812becf4839c5ffd3bc63804ca95f426512c0209fad72713b523d9e2c16c",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-1x1-00045",
+      "width": 480,
+      "height": 480,
+      "sha256": "f17065caf6e3f7c73c68e75ac72c1777fbd0952d8f3d5209b6086668ae1648ab",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-1x1-00090",
+      "width": 480,
+      "height": 480,
+      "sha256": "cf276a74cde7c6bbd6945e4dcb4c0118e9452d8a762c2f4f16caac304a08981c",
+      "notes": []
+    },
+    {
+      "key": "layered-16x9-00000",
+      "width": 640,
+      "height": 360,
+      "sha256": "c26335a97e6b3988ffc4c10d1b535a01a26c0d278007a3ccb4b08cf70015c8d2",
+      "notes": []
+    },
+    {
+      "key": "layered-16x9-00030",
+      "width": 640,
+      "height": 360,
+      "sha256": "4ec5267c23bce4f6b456f3d968a985503052d79a254bf5201f73c2fa3b8c3fa5",
+      "notes": []
+    },
+    {
+      "key": "layered-16x9-00075",
+      "width": 640,
+      "height": 360,
+      "sha256": "f4abdf387d9d9acd8a4cc2a5d0e4c8d6bc2a1c6f4f9735040d9ea471f16229d0",
+      "notes": []
+    },
+    {
+      "key": "layered-9x16-00000",
+      "width": 360,
+      "height": 640,
+      "sha256": "dbf3d9b4c063f64afa75d18dec4974b1472b8ba02c74dc963a18c87b47d61d6f",
+      "notes": []
+    },
+    {
+      "key": "layered-9x16-00030",
+      "width": 360,
+      "height": 640,
+      "sha256": "e4b8eb53038ee4e84715a3d40437e0eda863f2dfc892922e5a9f72cd5ccba961",
+      "notes": []
+    },
+    {
+      "key": "layered-9x16-00075",
+      "width": 360,
+      "height": 640,
+      "sha256": "c9d06b5b4929af88f34c22be8678883a19b83ae7ef24ab9544bc210c19829c2c",
+      "notes": []
+    }
+  ]
+}

@@ -49,3 +49,8 @@ tmp/
 Thumbs.db
 Desktop.ini
 *.swp
+
+# Golden-frame working files: the .actual.png written when a comparison fails is
+# evidence for that run only, never a committed reference.
+tests/golden/references/*.actual.png
+tests/golden/references/*.rgba

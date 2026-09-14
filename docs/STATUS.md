@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–4 (document, layout, modulation, effects) done**.
+> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–5 done (document, layout, modulation, effects, golden frames)**.
 
 ---
 
@@ -13,7 +13,7 @@
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
-| **P2 — Engine** | 🔶 **in progress** — steps 1–4 of 6 done (see §8) |
+| **P2 — Engine** | 🔶 **in progress** — steps 1–5 of 6 done (see §8) |
 | P3 … P8 | ⬜ not started |
 
 P2 steps:
@@ -24,7 +24,7 @@ P2 steps:
 | 2 | Layout & aspect system | ✅ | `830bea9` |
 | 3 | Param resolution + modulation evaluator | ✅ | `91c18db` |
 | 4 | Effect chain contract + bloom/vignette | ✅ | `TBD` |
-| 5 | Golden frames | ⬜ | |
+| 5 | Golden frames | ✅ | `TBD` |
 | 6 | Headless render CLI | ⬜ | |
 
 P0 steps:
@@ -39,7 +39,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check`, then continue with §8 (P2 step 5). Keep STATUS.md updated and commit after each step."*
+run `npm run check`, then continue with §8 (P2 step 6). Keep STATUS.md updated and commit after each step."*
 
 ---
 
@@ -63,6 +63,7 @@ run `npm run check`, then continue with §8 (P2 step 5). Keep STATUS.md updated 
 | `npm run check` | typecheck + lint + 233 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
+| `npm run golden` | re-render the golden set and compare with the committed references; `--update`, `--only <name>` | ~40 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
 | `npm run spike:export` | real export ×2 with comparison + timings; `--4k`, `--seconds`, `--codec h264\|hevc`, `--conversion gpu-nv12\|swscale`, `--readback sync\|async`, `--depth`, `--no-hash`, `--runs`, `--audio` | ~1 min |
 
@@ -230,6 +231,36 @@ frame at 320×180 and 640×360 (resolution independence), vignette darkens edges
 centre, chain order changes the image, a disabled effect is byte-identical to no effect, and an
 unknown effect module is reported rather than dropped.
 
+### 4.12 Golden frames (P2 step 5) — `npm run golden`
+The end-to-end check, and the thing that makes the determinism contract enforceable rather than
+aspirational: it runs whole project **documents** through the real path — load → migrate → parse
+→ `toRenderProject` → engine → compositor → readback — at several canvas shapes, and compares
+pixels against committed references.
+
+- `tests/golden/projects/*.pvproj` — `neon-bars` (bars + bloom + a global vignette, with
+  per-aspect overrides) and `layered` (two layers, transform with rotation and non-uniform
+  scale, screen and add blends, a time range, a band-driven binding and an LFO on an *effect*
+  parameter).
+- `tests/golden/goldens.json` — which project renders at which canvases and frames. One project
+  is rendered at 16:9, 9:16 and 1:1, because that is the M30 promise being tested.
+- `tests/golden/references/` — `manifest.json` (per-frame SHA-256 **plus the snapshot notes**)
+  and a PNG per frame. 684 KB for 15 frames. `.actual.png` is written on failure and gitignored.
+- Audio is the fixed synthetic track from `spike/test-signal.ts`, so the set needs no media
+  asset in the repo.
+- Tolerance, per export-spec §16: a **hash match is a pass**, full stop — that is the contract on
+  this machine. A mismatch is measured (`spike/lib/compare.ts`: SSIM over 8×8 windows, max
+  channel delta, MAE, share of changed pixels); within the cross-machine budget (SSIM ≥ 0.995,
+  max Δ ≤ 8) it is reported as `near` and named as a different GPU/driver, beyond it as `FAIL`.
+- The manifest stores the snapshot notes too, so a change in *what the engine silently cannot do*
+  fails the run even when the pixels are identical.
+- `--update` rewrites references (read the diff before committing — it is the record of what a
+  change did to every project's appearance); `--only <name>` narrows the run. Exit code 1 on
+  failure. Takes ~40 s.
+
+Verified: 15/15 identical across two consecutive runs. A deliberate one-bar change to
+`neon-bars` was caught at 16:9 (SSIM 0.835, max Δ 217) while 9:16 and 1:1 stayed identical —
+because those aspects override `barCount`, which is the aspect system visible in the output.
+
 ### 4.9 Spike and validation harness (`spike/`)
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
@@ -302,7 +333,5 @@ Suggested order (each a commit, STATUS updated each time):
 2. ✅ **Layout & aspect system** — see §4.8. GPU-verified in `tests/golden/layout-gpu.test.ts`.
 3. ✅ **Param resolution + modulation evaluator** — see §4.10.
 4. ✅ **Effect chain contract + bloom and vignette** — see §4.11.
-   bloom and vignette as the first two.
-5. **Golden frames** (export-spec §16): `tests/golden/` references generated on this machine from JSON projects at
-   16:9 / 9:16 / 1:1, checked by a `npm run golden` (Electron) command; `--update` to regenerate deliberately.
+5. ✅ **Golden frames** — see §4.12.
 6. **Headless render CLI** stub (`pulseforge render project.json -o out.mp4`) reusing `runExport`.
