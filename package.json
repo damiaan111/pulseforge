@@ -17,7 +17,9 @@
     "spike:export": "node --disable-warning=ExperimentalWarning spike/export.ts",
     "validate": "node --disable-warning=ExperimentalWarning spike/validate.ts",
     "golden": "node --disable-warning=ExperimentalWarning spike/golden.ts",
-    "render": "node --disable-warning=ExperimentalWarning src/cli/render.ts"
+    "render": "node --disable-warning=ExperimentalWarning src/cli/render.ts",
+    "dev": "node --disable-warning=ExperimentalWarning scripts/app.ts --dev",
+    "build": "node --disable-warning=ExperimentalWarning scripts/app.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -28,5 +30,6 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.0",
     "vitest": "^5.0.0"
-  }
+  },
+  "main": "dist/app/main.js"
 }

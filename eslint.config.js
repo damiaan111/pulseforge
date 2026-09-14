@@ -73,6 +73,37 @@ const engineRestrictedGlobals = [
   })),
 ];
 
+// ---------------------------------------------------------------------------
+// Renderer boundary (src/shell/main.ts).
+//
+// The studio runs sandboxed, with no Node integration: it cannot require `fs`, and it will
+// later run drop-in modules from modules/ (module-spec §12). Everything it needs arrives over
+// the narrow IPC bridge in src/shell/ipc.ts.
+//
+// The app build already enforces this — scripts/app.ts bundles the renderer with
+// platform: 'browser', so a Node import fails the build — but failing at edit time with a
+// sentence beats failing at bundle time with a resolver error.
+// ---------------------------------------------------------------------------
+
+const RENDERER = 'Renderer boundary:';
+
+const rendererRestrictedImports = {
+  patterns: [
+    {
+      group: ['node:*', ...NODE_BUILTINS, ...NODE_BUILTINS.map((m) => `${m}/*`)],
+      message: `${RENDERER} the studio runs sandboxed with no Node integration. File, process and network access belong to the main process — add a channel to src/shell/ipc.ts instead.`,
+    },
+    {
+      group: ['electron', 'electron/*'],
+      message: `${RENDERER} the studio may not import Electron directly; it sees only what preload.ts exposes on window.pulseforge.`,
+    },
+    {
+      group: ['**/shell/main*', '**/shell/project-io*'],
+      message: `${RENDERER} main-process modules run with full privileges and must not be bundled into the page. Import from src/shell/ipc.ts for the shared types.`,
+    },
+  ],
+};
+
 const NO_DEFAULT_EXPORTS = [
   {
     selector: 'ExportDefaultDeclaration',
@@ -103,6 +134,12 @@ export default defineConfig(
       '@typescript-eslint/consistent-type-imports': 'error',
       // `_`-prefixed names are deliberately unused (e.g. dropping a field via rest destructuring).
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true }],
+    },
+  },
+  {
+    files: ['src/ui/**/*.ts', 'src/ui/**/*.tsx'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': ['error', rendererRestrictedImports],
     },
   },
   {

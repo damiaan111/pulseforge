@@ -9,11 +9,12 @@ import { computeSourceAnalysis, ANALYSIS_VERSION } from '../../src/analysis/spec
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import type { RenderReport } from '../../src/export/report.ts';
-import { FFMPEG_EXE, VENDOR } from '../../setup/lib/paths.ts';
+import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
 import type { ExportConfig, SpikeExportResult } from '../electron/protocol.ts';
 import { runElectron } from '../harness.ts';
 
-export const FFPROBE_EXE = join(VENDOR, 'ffmpeg', 'bin', 'ffprobe.exe');
+// Re-exported so the spike orchestrators have one import site for the vendored tools.
+export { FFPROBE_EXE };
 
 export interface ExportRunOptions {
   readonly workDir: string;

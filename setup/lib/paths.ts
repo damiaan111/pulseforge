@@ -24,6 +24,7 @@ export const PY_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements.
 // Vendored executables. Always invoked by absolute path, never resolved from PATH
 // (PROJECT.md §3) — a system-wide python or ffmpeg must never be picked up.
 export const FFMPEG_EXE = join(VENDOR, 'ffmpeg', 'bin', 'ffmpeg.exe');
+export const FFPROBE_EXE = join(VENDOR, 'ffmpeg', 'bin', 'ffprobe.exe');
 export const PYTHON_EXE = join(VENDOR, 'python', 'python.exe');
 export const UV_EXE = join(VENDOR, 'uv', 'uv.exe');
 

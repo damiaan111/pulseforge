@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- A second CSP alongside the header the main process sets (shell/main.ts). Belt and
+         braces: the header is authoritative, this one survives if the page is ever opened
+         outside the app's session. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'"
+    />
+    <title>Pulseforge</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" class="loading">Starting…</main>
+    <script type="module" src="./boot.js"></script>
+  </body>
+</html>

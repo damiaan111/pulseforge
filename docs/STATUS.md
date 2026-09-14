@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — **P0 and P2 complete**: the engine renders multi-layer projects
+> Last updated: 2026-09-14 — **P0 and P2 complete**, P3 started: the engine renders multi-layer projects
 > headlessly at 16:9 / 9:16 / 1:1, golden frames are green, and `npm run render` produces an MP4
 > from a project file. Next: P3 (§9).
 
@@ -16,7 +16,18 @@
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
-| P3 … P8 | ⬜ not started |
+| **P3 — Studio** | 🔶 **in progress** — step 1 of 5 done (see §9) |
+| P4 … P8 | ⬜ not started |
+
+P3 steps:
+
+| # | Step | State | Commit |
+|---|---|---|---|
+| 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `TBD` |
+| 2 | Command/undo stack (M8) | ⬜ | |
+| 3 | Analysis pipeline for real (M4) | ⬜ | |
+| 4 | Preview clock (M31) | ⬜ | |
+| 5 | React studio (ui-spec) | ⬜ | |
 
 P2 steps:
 
@@ -41,7 +52,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check` and `npm run golden`, then continue with §9 (P3 step 1). Keep STATUS.md updated
+run `npm run check` and `npm run golden`, then continue with §9 (P3 step 2). Keep STATUS.md updated
 and commit after each step."*
 
 ---
@@ -63,9 +74,12 @@ and commit after each step."*
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 244 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 263 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
+| `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
+| `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
+| `npm run dev -- --smoke` | launch, self-check the security posture, screenshot to `out/smoke.png`, exit | ~5 s |
 | `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
 | `npm run golden` | re-render the golden set and compare with the committed references; `--update`, `--only <name>` | ~40 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
@@ -354,7 +368,6 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   §7 sketches the shape, it does not pin field names.
 - One visual module plus two test modules. No effects, masks, groups, text, palette roles, aspect overrides, modulation.
 - `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
-- Spike renderer uses `nodeIntegration` + `contextIsolation: false`; the app shell must choose a safe process layout.
 - Export: no queue, pause/resume, disk-space precheck, thumbnails, motion blur, SSAA, audio stream-copy.
 - Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
 - The sidecar is spawned per command; M27 needs a supervised long-lived process with cancellation.
@@ -376,6 +389,39 @@ Goal: *"Engine renders a multi-layer project from a hand-written JSON file, head
 
 ---
 
+### 4.14 App shell (`src/shell/`, `src/ui/`) — P3 step 1
+| File | Contents |
+|---|---|
+| `shell/main.ts` | Electron main: the security posture (below), window, IPC handlers, environment report, `--smoke` self-check |
+| `shell/preload.ts` | the only bridge: `contextBridge.exposeInMainWorld('pulseforge', …)`, CommonJS because a sandboxed preload has no ESM loader |
+| `shell/ipc.ts` | the channel contract, shared by main, preload and UI so all three agree by construction |
+| `shell/project-io.ts` | atomic writes (temp file + rename in the same directory) and the pre-migration `.bak` |
+| `ui/boot.ts`, `ui/view-model.ts`, `ui/index.html`, `ui/styles.css` | the renderer: open/save, project summary, loader issues, snapshot notes, environment |
+| `scripts/app.ts` | three esbuild bundles → `dist/app/`; `npm run build` / `dev` / `dev -- --smoke` |
+
+**The security posture** — this closes the `nodeIntegration` gap carried since P0:
+- Sandboxed renderer, `contextIsolation: true`, `nodeIntegration: false`, `app.enableSandbox()`.
+- Navigation and `window.open` denied; external links go to the OS browser, never an in-app window.
+- **Every non-local request is blocked at the session level**, with a loud console error naming the
+  URL. PROJECT.md §3's "runs fully offline after setup" is enforced in code, so a stray CDN link
+  fails visibly here rather than working on this machine and breaking on a disconnected one.
+- Strict CSP (header + meta), permission requests denied, `webview` disabled.
+- The renderer parses and serialises projects itself with the pure `src/project/`; only main
+  touches the filesystem. A **lint rule** on `src/ui/**` blocks Node and Electron imports, and the
+  renderer bundle is built with esbuild's `platform: 'browser'` so a stray `node:fs` fails the
+  build. `tests/lint/engine-boundary.test.ts` proves both boundaries fire.
+
+`npm run dev -- --smoke` verifies the posture on every run and screenshots the window: it asserts
+the page rendered, the bridge is reachable, the renderer has **no Node** (`require`, `process`,
+`__dirname` all undefined) and **cannot reach the network**. All four pass.
+
+Also here: `pulseforge song.pvproj` opens a project from the command line (the file-association
+path), and `FFPROBE_EXE` moved to `setup/lib/paths.ts` so the vendored tools have one definition.
+
+Not yet: undo/commands, autosave and crash recovery, the React studio, menus and shortcuts.
+
+---
+
 ## 9. Next: P3 — Studio (PROJECT.md §10)
 
 Goal: *"Load audio, trim/fade, add/edit layers, live preview on the audio master clock, timeline,
@@ -387,9 +433,7 @@ already do headlessly.
 
 Suggested order (each a commit, STATUS updated each time):
 
-1. **App shell** (`src/shell/`): Electron main with a **safe process layout** — the spike renderer
-   uses `nodeIntegration` + `contextIsolation: false`, which the app must not. Preload + typed IPC,
-   file dialogs, project open/save with the backup that `backupPathFor` already names.
+1. ✅ **App shell** — see §4.14.
 2. **Command/undo stack** (`src/project/commands.ts`, M8): every mutation an undoable command.
    Pure and CPU-testable; do it before any UI so the UI has nothing to unpick later.
 3. **Analysis pipeline for real** (M4): onsets, beat grid, RMS/peak/centroid/flux, the on-disk

@@ -73,3 +73,40 @@ describe('engine boundary', () => {
     expect(messages.some((m) => m.includes('no-restricted-properties'))).toBe(true);
   });
 });
+
+// The studio runs sandboxed with no Node integration (src/shell/main.ts). The app build also
+// catches this — the renderer is bundled with platform: 'browser' — but a sentence at edit time
+// beats a resolver error at bundle time, and a typo in the glob would turn the rule off silently.
+describe('renderer boundary', () => {
+  const UI_FILE = 'src/ui/__boundary_fixture__.ts';
+
+  const forbidden: Array<[string, string]> = [
+    ['node: built-in', `import { readFileSync } from 'node:fs';\nexport const x = readFileSync;`],
+    ['bare built-in', `import { join } from 'path';\nexport const x = join;`],
+    ['Electron directly', `import { ipcRenderer } from 'electron';\nexport const x = ipcRenderer;`],
+    ['the main process', `import { readProjectText } from '../shell/project-io.ts';\nexport const x = readProjectText;`],
+  ];
+
+  it.each(forbidden)('rejects %s inside src/ui/', async (_name, code) => {
+    const messages = await lint(UI_FILE, code);
+    expect(messages.some((m) => m.includes('no-restricted-imports'))).toBe(true);
+  });
+
+  it('allows the shared IPC types and the pure project and engine code', async () => {
+    const code = [
+      `import type { PulseforgeApi } from '../shell/ipc.ts';`,
+      `import { loadDocument } from '../project/load.ts';`,
+      `import { ticksToSeconds } from '../engine/core/time.ts';`,
+      `export function open(api: PulseforgeApi, text: string): number {`,
+      `  void api;`,
+      `  return ticksToSeconds(loadDocument(text).document.audio.durationTicks);`,
+      `}`,
+    ].join('\n');
+    expect(await lint(UI_FILE, code)).toEqual([]);
+  });
+
+  it('does not apply renderer rules to the main process, which needs Node', async () => {
+    const code = `import { readFileSync } from 'node:fs';\nexport const read = () => readFileSync('x', 'utf8');`;
+    expect(await lint('src/shell/__boundary_fixture__.ts', code)).toEqual([]);
+  });
+});
