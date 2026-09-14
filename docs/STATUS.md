@@ -22,7 +22,7 @@ P2 steps:
 |---|---|---|---|
 | 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `ce8b68f` |
 | 2 | Layout & aspect system | ✅ | `830bea9` |
-| 3 | Param resolution + modulation evaluator | ✅ | `TBD` |
+| 3 | Param resolution + modulation evaluator | ✅ | `91c18db` |
 | 4 | Effect chain contract + bloom/vignette | ⬜ | |
 | 5 | Golden frames | ⬜ | |
 | 6 | Headless render CLI | ⬜ | |
@@ -60,7 +60,7 @@ run `npm run check`, then continue with §8 (P2 step 4). Keep STATUS.md updated 
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 224 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 225 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |

@@ -17,7 +17,7 @@
 // nothing anywhere reads a clock or a frame counter.
 
 import { ANALYSIS_RATE, sampleTrack, type AnalysisSet, type AnalysisTrack } from './analysis.ts';
-import { hash32, random01 } from './prng.ts';
+import { random01 } from './prng.ts';
 
 // ---------------------------------------------------------------------------
 // The binding, as the engine sees it
@@ -449,11 +449,6 @@ export function compileModulation(options: CompileOptions): ModulationProgram {
 // Evaluation
 // ---------------------------------------------------------------------------
 
-/** How many derived envelope tracks a program built — for the render report. */
-export function targetCount(program: ModulationProgram): number {
-  return program.targets.size;
-}
-
 /**
  * The accumulated value for one target at time t (modulation-spec §4 steps 6–8, §9.1).
  * `base` is the value after the aspect override and automation; the result is **not** clamped
@@ -487,9 +482,4 @@ export function modulateValue(program: ModulationProgram, target: string, base: 
     }
   }
   return accumulator;
-}
-
-/** Stable sub-seed for a binding's random sources, so a reroll is an explicit act (§8). */
-export function bindingSeed(seed: number, bindingId: string): number {
-  return hash32(seed, 'binding', bindingId);
 }
