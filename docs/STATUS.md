@@ -23,7 +23,7 @@ P3 steps:
 
 | # | Step | State | Commit |
 |---|---|---|---|
-| 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `TBD` |
+| 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `cab80a0` |
 | 2 | Command/undo stack (M8) | ⬜ | |
 | 3 | Analysis pipeline for real (M4) | ⬜ | |
 | 4 | Preview clock (M31) | ⬜ | |
@@ -64,6 +64,9 @@ and commit after each step."*
 - Node 24.19. Node-side scripts run TypeScript directly (type stripping); Electron-side code is bundled with esbuild.
 - System-wide Python 3.11 and `C:\ffmpeg` exist on PATH — **never use them**; everything goes through `vendor/` by absolute path.
 - Shell gotchas: never edit files with PowerShell `Get-Content | -replace | Set-Content` (re-encodes UTF-8).
+  Python's `pathlib.write_text` has the same hazard in a different form — it translates `\n` to
+  `\r\n` on Windows, against `.gitattributes`' `eol=lf`. Use the editor's own edit tooling, or
+  `sed -i`, for text edits.
   In the Bash tool, avoid `cd` (it moves the session's working directory). FFmpeg `crop` needs ≥ 2×2 on 4:2:0.
 - Do not run GPU work (spikes, validate) concurrently with benchmarks — it skews timings.
 
