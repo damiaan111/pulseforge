@@ -90,11 +90,9 @@ export interface ModulationBinding {
    * compensates detection and envelope lag so hits land on the beat instead of behind it.
    * Negative delays the reaction.
    *
-   * Note for the owner: D23 states the default as "−30 ms lag compensation", but with §4's
-   * literal formula a negative offset samples *earlier* audio and makes the lag worse, which
-   * is the opposite of what D23 asks for. The behaviour D23 wants is implemented here; the
-   * stored default is therefore +30. If the sign convention should be flipped instead (so the
-   * field reads "lag" rather than "look-ahead"), that is a one-line change plus a migration.
+   * The convention is settled by D51: D23's "−30 ms lag compensation" describes the lag being
+   * cancelled, not the stored value. Read literally against §4's formula a negative offset
+   * would sample earlier audio and make the lag worse, so the default is +30.
    */
   readonly lookAheadMs: number;
   readonly amount: number;

@@ -228,14 +228,10 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - **D40** CQ values unchanged pending real-footage quality checks; HEVC is faster than H.264 at 4K.
 - uv has no download command → pip fills the wheelhouse. torch on `cu130` (driver R580+).
 - FFmpeg 8 needs `setparams` to keep colour tags on filtered frames.
-- **D23's look-ahead sign is inconsistent with modulation-spec §4 — flagged for the owner.**
-  §4 step 1 samples `source(t + lookAhead)`, so a *positive* offset is what lets a binding see an
-  event early and cancel detection lag. D23 states the default as "−30 ms lag compensation";
-  applied literally to §4's formula that samples *earlier* audio and makes the lag worse. The
-  behaviour D23 asks for is what is implemented (hits land on the beat), so the stored default is
-  **+30 ms** and positive means "looks ahead". If the field should instead be named and stored as
-  a lag (negative = compensation), that is a one-line change plus a migration — say so and it
-  will be changed. Nothing else in the system depends on the sign.
+- **D51** (owner, 2026-09-14) settles the look-ahead sign: positive means "looks ahead", default
+  **+30 ms**, sampling `source(t + lookAheadMs)`. D23's "−30 ms" describes the lag being
+  compensated, not the stored field — read literally against modulation-spec §4 it would have
+  increased the lag rather than cancelling it.
 - Envelope `mode: linear` is specified only as "symmetric smoothing"; implemented as a single
   time constant of `(attack + release) / 2`, so switching modes does not jump.
 

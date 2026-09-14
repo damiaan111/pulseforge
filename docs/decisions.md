@@ -4,7 +4,7 @@
 > where a spec's "open questions" section disagrees, this wins.
 > Decisions marked 🧑 were made by the owner; 🤖 are defaults I chose, and any of them can be
 > overridden by saying so.
-> Last updated: 2026-09-14 (D48–D50 added and D39 resolved during P0 implementation).
+> Last updated: 2026-09-14 (D48–D50 added and D39 resolved during P0 implementation; D51 added during P2).
 
 ---
 
@@ -61,6 +61,7 @@
 | D24 🤖 | `pitch` as a source | **Deferred to Could-have** | Monophonic pitch tracking per stem is real work for a niche use. |
 | D25 🤖 | Modulating discrete parameters | **Allowed, marked advanced** | Threshold semantics for bool/enum/int. Enables "switch blend mode on the drop"; flagged because it's also an easy way to make something look broken. |
 | D26 🤖 | Matrix graph view | **List in v1; graph is Could-have** | The list is faster to work in. The graph photographs better, which is not a reason. |
+| D51 🧑 | Look-ahead sign convention (raised during P2 step 3) | **Positive means "looks ahead"**: the binding samples `source(t + lookAheadMs)`, and the default is **+30 ms** | D23 writes the default as "−30 ms lag compensation", but modulation-spec §4 step 1's literal formula makes a negative offset sample *earlier* audio, which increases the lag instead of cancelling it — the opposite of what D23 asks for. Confirmed by the owner (2026-09-14): keep the behaviour D23 intends (hits land on the beat) and store the sign that produces it. D23's "−30 ms" should be read as describing the lag being compensated, not the stored field. No migration needed — v1 ships with this convention. |
 
 ---
 

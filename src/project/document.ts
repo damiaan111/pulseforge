@@ -305,9 +305,8 @@ export interface ModulationBinding {
   readonly envelope: EnvelopeSpec;
   readonly quantise: QuantiseSpec | null;
   /**
-   * Sampling offset: positive looks ahead and compensates detection lag so hits land on the
-   * beat; negative delays the reaction. See the note on `ModulationBinding.lookAheadMs` in
-   * `src/engine/core/modulation.ts` about D23's opposite sign convention.
+   * Sampling offset (D51): positive looks ahead and compensates detection lag so hits land on
+   * the beat; negative delays the reaction.
    */
   readonly lookAheadMs: number;
   readonly amount: number;
@@ -327,11 +326,7 @@ export interface ModulationBinding {
 
 export const DEFAULT_ENVELOPE: EnvelopeSpec = { attackMs: 5, releaseMs: 120, mode: 'peak', extra: {} };
 export const DEFAULT_CURVE: CurveSpec = { type: 'linear', amount: 0, extra: {} };
-/**
- * D23: 30 ms of lag compensation, so hits land on the beat rather than behind it. D23 writes
- * this as "−30 ms"; with modulation-spec §4's `source(t + lookAhead)` the sign has to be
- * positive to produce the behaviour D23 describes. See `ModulationBinding.lookAheadMs`.
- */
+/** D23 + D51: 30 ms of lag compensation, so hits land on the beat rather than behind it. */
 export const DEFAULT_LOOK_AHEAD_MS = 30;
 
 // ---------------------------------------------------------------------------
