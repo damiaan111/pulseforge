@@ -6,6 +6,16 @@ import type { Rational } from './time.ts';
 
 export type BlendMode = 'normal' | 'add' | 'screen';
 
+/**
+ * When a layer is on screen, in timeline ticks (PROJECT.md §8.10). A layer is drawn on the
+ * frames whose start tick falls in [inTicks, outTicks); `outTicks: null` means "to the end".
+ * Absent means "always", so a project built without time ranges behaves exactly as before.
+ */
+export interface LayerTimeRange {
+  readonly inTicks: number;
+  readonly outTicks: number | null;
+}
+
 export interface LayerSpec {
   readonly id: string;
   readonly module: string;
@@ -13,6 +23,14 @@ export interface LayerSpec {
   readonly opacity: number;
   readonly blend: BlendMode;
   readonly params: Readonly<Record<string, unknown>>;
+  readonly timeRange?: LayerTimeRange;
+}
+
+/** Frame-start-tick membership; the one place the range rule is spelled out. */
+export function layerIsLive(range: LayerTimeRange | undefined, tick: number): boolean {
+  if (range === undefined) return true;
+  if (tick < range.inTicks) return false;
+  return range.outTicks === null || tick < range.outTicks;
 }
 
 export interface RenderProject {

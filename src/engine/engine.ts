@@ -8,8 +8,8 @@ import { parseHexColor, toLinearPremultiplied } from './core/color.ts';
 import type { ModuleDefinition, ModuleInstance, RenderContext } from './core/module.ts';
 import { resolveParams, type ParamIssue } from './core/params.ts';
 import { createPrng, hash32 } from './core/prng.ts';
-import type { RenderProject } from './core/project.ts';
-import { frameTimeSeconds, timelineToSourceSeconds } from './core/time.ts';
+import { layerIsLive, type RenderProject } from './core/project.ts';
+import { frameStartTick, frameTimeSeconds, timelineToSourceSeconds } from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
 import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
 import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
@@ -163,9 +163,11 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         warn: (message) => warnings.push(message),
       };
 
+      const tick = frameStartTick(frameIndex, fps);
       const layers: CompositeLayer[] = [];
       for (const layer of project.layers) {
         if (!layer.enabled) continue;
+        if (!layerIsLive(layer.timeRange, tick)) continue;
         const definition = registry.get(layer.module);
         if (definition === undefined) {
           // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).

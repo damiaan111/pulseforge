@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — **P0 complete** (all eight validation checks pass on the RTX 3060).
+> Last updated: 2026-09-14 — P0 complete; **P2 step 1 (project document v1) done**.
 
 ---
 
@@ -13,8 +13,19 @@
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
-| **P2 — Engine** | ⬜ **next** (see §8) |
+| **P2 — Engine** | 🔶 **in progress** — step 1 of 6 done (see §8) |
 | P3 … P8 | ⬜ not started |
+
+P2 steps:
+
+| # | Step | State | Commit |
+|---|---|---|---|
+| 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `TBD` |
+| 2 | Layout & aspect system | ⬜ | |
+| 3 | Param resolution + modulation evaluator | ⬜ | |
+| 4 | Effect chain contract + bloom/vignette | ⬜ | |
+| 5 | Golden frames | ⬜ | |
+| 6 | Headless render CLI | ⬜ | |
 
 P0 steps:
 
@@ -107,7 +118,25 @@ checks), `encoder-probe.ts`, `report.ts`, `job.ts` (`runExport`, optional `dithe
 - `src/ml/sidecar.ts`: `runSidecar` (spawn, parse, progress callbacks, `SidecarError` with stderr tail), `parseSidecarLine`.
 - Not yet: long-lived process, cancellation, supervisor/restart, GPU job queue (M27/M28), WhisperX.
 
-### 4.7 Spike and validation harness (`spike/`)
+### 4.7 Project document (`src/project/`) — P2 step 1
+| File | Contents |
+|---|---|
+| `document.ts` | `ProjectDocument` v1 types: canvas, audio clip/placement, analysis settings, palette, layers (module + group, nesting per M38), transform, time range, effects, modulation bindings, per-aspect overrides. `CURRENT_SCHEMA_VERSION = 1`, `RESERVED_DOCUMENT_KEYS`, `walkLayers`, `aspectBucket` |
+| `ids.ts` | ULID-style 26-char Crockford base32 ids, injectable clock/RNG, `createTestIdFactory` for fixtures |
+| `parse.ts` | `parseDocument` → `{ document, issues }`. Refuses (throws) a non-object, a missing `schemaVersion` and a future version; everything else is a reported, repaired issue. Every node keeps an `extra` bag of undeclared fields |
+| `migrate.ts` | ordered `v(n) → v(n+1)` chain, forward-compat refusal, missing-step refusal, `backupPathFor` (`song.v3.bak`). Empty at v1 by design |
+| `serialize.ts` | stable key order, `extra` written back, trailing newline |
+| `load.ts` | text → migrate → parse, reporting `migratedFrom` so the shell knows to back up |
+| `create.ts` | `createDocument` / `createModuleLayer` / `createGroupLayer` / `createEffect` / `createBinding`, default bands, D8 stem model |
+| `snapshot.ts` | `toRenderProject` (flattens groups, applies solo/disabled-parent, carries time ranges) + `timelineDurationTicks`. Returns **notes** naming everything the document asks for that the engine cannot render yet |
+
+Engine side: `LayerSpec.timeRange` (optional) and `layerIsLive`; `renderFrame` skips layers outside
+their range, using the frame's start tick.
+
+Not yet: undo/commands, presets, asset library, lyrics/automation/export-preset slots (reserved,
+round-tripped untouched).
+
+### 4.8 Spike and validation harness (`spike/`)
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
 - `validate.ts` + `validate/`: `context.ts`, `media.ts` (FFmpeg decode helpers), `projects.ts` (pattern, click, heavy projects; click track), `checks-render.ts` (2 determinism, 3 readback, 4 colour), `checks-system.ts` (1 environment, 5 encoders, 6 throughput, 7 stems, 8 sync).
@@ -145,7 +174,13 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - `htdemucs_ft` not provisioned or measured (manifest entry needed: it is a bag of 4 models, each weight file pinned).
 - HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
   (16-bit samples packed like NV12) would likely close the gap.
-- `RenderProject` is a P0 subset; no document schema, migrations, undo (`src/project/` empty).
+- `RenderProject` is still a subset of the document: transforms, effects, modulations, masks,
+  group compositing and aspect overrides parse and round-trip but are not rendered (steps 2–4).
+  `toRenderProject` returns a note for each, so nothing is lost silently.
+- No undo/command stack or presets yet (M8, M25).
+- Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
+  single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
+  §7 sketches the shape, it does not pin field names.
 - One visual module plus two test modules. No effects, masks, groups, text, palette roles, aspect overrides, modulation.
 - `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
 - Spike renderer uses `nodeIntegration` + `contextIsolation: false`; the app shell must choose a safe process layout.
@@ -162,9 +197,7 @@ Goal: *"Engine renders a multi-layer project from a hand-written JSON file, head
 
 Suggested order (each a commit, STATUS updated each time):
 
-1. **Project document v1** (`src/project/`): schema per PROJECT.md §7 / data-formats §1 — ids, integer ticks,
-   rational fps, layers with transform/opacity/blend/params/effects/modulations, unknown-field preservation,
-   `schemaVersion` + migration chain scaffold with a fixture test; a `toRenderProject` snapshot function.
+1. ✅ **Project document v1** (`src/project/`) — see §4.7. 47 tests in `tests/project/`.
 2. **Layout & aspect system** (PROJECT.md §8.11, module-spec §6): relative transforms + anchors + scale reference,
    per-aspect overrides, resolution in `src/engine/core/layout.ts`; compositor applies layer transforms.
 3. **Param resolution pipeline complete** (module-spec §5): base → aspect override → (automation slot) →
