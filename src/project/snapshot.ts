@@ -4,18 +4,19 @@
 // sees a ProjectDocument: it sees a flat, resolved RenderProject, which is what makes headless
 // rendering and golden-frame tests possible.
 //
-// The snapshot is built up across P2. Where the document asks for something this build's
-// engine cannot yet draw — a transform, an effect chain, a blend mode the compositor lacks —
-// the request is **reported as a note, never dropped** (CLAUDE.md constraint 4). A caller that
-// ignores the notes still gets a correct render of everything that is implemented; a caller
-// that surfaces them tells the user exactly what is missing and why.
+// Where the document asks for something this build's engine cannot yet draw — a mask, a blend
+// mode the compositor lacks, a group's own transform — the request is **reported as a note,
+// never dropped** (CLAUDE.md constraint 4). A caller that ignores the notes still gets a
+// correct render of everything that is implemented; a caller that surfaces them tells the user
+// exactly what is missing and why.
 
 import { isIdentityTransform, type LayerTransform } from '../engine/core/layout.ts';
 import type { ModulationBinding } from '../engine/core/modulation.ts';
-import type { BlendMode, LayerSpec, RenderProject } from '../engine/core/project.ts';
+import type { BlendMode, EffectSpec, LayerSpec, RenderProject } from '../engine/core/project.ts';
 import {
   aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer,
-  type ModulationBinding as DocumentBinding, type ProjectDocument,
+  type EffectSpec as DocumentEffect, type ModulationBinding as DocumentBinding,
+  type ProjectDocument,
 } from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
@@ -33,6 +34,11 @@ export interface SnapshotResult {
 
 /** Blend modes the compositor implements today; the rest fall back to `normal` with a note. */
 const ENGINE_BLEND_MODES: readonly BlendMode[] = ['normal', 'add', 'screen'];
+
+/** Document effect → engine effect: the id, the module and the stored params, nothing else. */
+function toEngineEffect(effect: DocumentEffect): EffectSpec {
+  return { id: effect.id, module: effect.module, enabled: effect.enabled, params: effect.params };
+}
 
 /**
  * Document binding → engine binding. The two are deliberately separate types: the engine may
@@ -90,9 +96,10 @@ function resolveParams(layer: Layer & { params: Readonly<Record<string, unknown>
 }
 
 /**
- * Flattens groups into the engine's flat layer list. Group nesting itself (M38 — shared
- * transform, opacity, blend and effect chain) lands with the compositor work in P2 step 2;
- * until then a group's children render in place and the group's own settings are reported.
+ * Flattens groups into the engine's flat layer list. Group *compositing* (M38 — children
+ * rendered into one target, then the group's own transform, opacity, blend and effects applied
+ * to that result) is still to come; until then a group's children render in place and the
+ * group's own settings are reported rather than silently ignored.
  */
 export function toRenderProject(document: ProjectDocument): SnapshotResult {
   const notes: SnapshotNote[] = [];
@@ -124,9 +131,6 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     if (parents.some((parent) => !isIdentityTransform(resolveTransform(parent, parent.aspectOverrides[aspect])))) {
       notes.push({ path, detail: 'a parent group has a transform; group transforms do not yet compose onto their children (M38)' });
     }
-    if (layer.effects.length > 0) {
-      notes.push({ path, detail: `${layer.effects.length} effect(s) are not yet applied (P2 step 4)` });
-    }
     if (layer.maskLayerId !== null) {
       notes.push({ path, detail: 'masking (S7) is not implemented; the layer renders unmasked' });
     }
@@ -147,11 +151,8 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       timeRange: { inTicks: layer.timeRange.inTicks, outTicks: layer.timeRange.outTicks },
       transform: resolveTransform(layer, override),
       modulations: layer.modulations.map(toEngineBinding),
+      effects: layer.effects.map(toEngineEffect),
     });
-  }
-
-  if (document.globalEffects.length > 0) {
-    notes.push({ path: 'globalEffects', detail: `${document.globalEffects.length} global effect(s) are not yet applied (P2 step 4)` });
   }
 
   const project: RenderProject = {
@@ -170,6 +171,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     layers,
     durationTicks: timelineDurationTicks(document),
     globalModulations: document.globalModulations.map(toEngineBinding),
+    globalEffects: document.globalEffects.map(toEngineEffect),
   };
 
   return { project, notes, aspect };

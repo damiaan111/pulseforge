@@ -26,6 +26,8 @@ interface ParamCommon {
   readonly description?: string;
   readonly modulatable?: boolean;
   readonly aspectOverridable?: boolean;
+  /** Hidden behind the inspector's "show advanced" disclosure (module-spec §13). */
+  readonly advanced?: boolean;
 }
 
 export interface FloatParam extends ParamCommon {
@@ -46,6 +48,7 @@ export interface IntParam extends ParamCommon {
   readonly default: number;
   readonly min: number;
   readonly max: number;
+  readonly step?: number;
 }
 
 export interface BoolParam extends ParamCommon {

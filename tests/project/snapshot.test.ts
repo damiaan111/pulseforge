@@ -64,10 +64,24 @@ describe('toRenderProject', () => {
     expect(toRenderProject(document).project.layers[0]?.timeRange).toEqual({ inTicks: 48_000, outTicks: 96_000 });
   });
 
-  it('notes every feature the engine cannot yet render, instead of dropping it', () => {
-    const { notes } = toRenderProject(fixtureDocument());
-    const text = notes.map((n) => n.detail).join('\n');
-    expect(text).toContain('effect(s) are not yet applied');
+  it('carries the layer effect chain into the snapshot', () => {
+    const effects = toRenderProject(fixtureDocument()).project.layers[0]?.effects;
+    expect(effects).toEqual([{
+      id: '0000000000E000000000000001',
+      module: 'core.effect.bloom',
+      enabled: true,
+      params: { threshold: 0.8, intensity: 1.2 },
+    }]);
+  });
+
+  it('notes what the engine still cannot render, instead of dropping it', () => {
+    const document = fixtureDocument();
+    const masked = {
+      ...document,
+      layers: [{ ...document.layers[0]!, maskLayerId: '0000000000K000000000000002' }, ...document.layers.slice(1)],
+    };
+    const text = toRenderProject(masked).notes.map((n) => n.detail).join('\n');
+    expect(text).toContain('masking (S7) is not implemented');
   });
 
   it('carries modulation bindings and the timeline duration into the snapshot', () => {

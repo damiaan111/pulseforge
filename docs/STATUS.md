@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–3 (document, layout, modulation) done**.
+> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–4 (document, layout, modulation, effects) done**.
 
 ---
 
@@ -13,7 +13,7 @@
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
-| **P2 — Engine** | 🔶 **in progress** — steps 1–3 of 6 done (see §8) |
+| **P2 — Engine** | 🔶 **in progress** — steps 1–4 of 6 done (see §8) |
 | P3 … P8 | ⬜ not started |
 
 P2 steps:
@@ -23,7 +23,7 @@ P2 steps:
 | 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `ce8b68f` |
 | 2 | Layout & aspect system | ✅ | `830bea9` |
 | 3 | Param resolution + modulation evaluator | ✅ | `91c18db` |
-| 4 | Effect chain contract + bloom/vignette | ⬜ | |
+| 4 | Effect chain contract + bloom/vignette | ✅ | `TBD` |
 | 5 | Golden frames | ⬜ | |
 | 6 | Headless render CLI | ⬜ | |
 
@@ -39,7 +39,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check`, then continue with §8 (P2 step 4). Keep STATUS.md updated and commit after each step."*
+run `npm run check`, then continue with §8 (P2 step 5). Keep STATUS.md updated and commit after each step."*
 
 ---
 
@@ -60,7 +60,7 @@ run `npm run check`, then continue with §8 (P2 step 4). Keep STATUS.md updated 
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 225 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 233 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
@@ -98,7 +98,9 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
 | `render/compositor.ts` | linear premultiplied compositing (normal/add/screen) → tonemap → OETF → seeded dither (8/10-bit) → output |
 | `render/yuv.ts` | GPU BT.709 limited-range NV12 packed into RGBA8 targets |
 | `render/readback.ts` | async PBO ring + sync readback (8- and 10-bit) |
+| `render/effects.ts` | `runEffectChain` — ping-ponged pooled targets, stated ownership (§4.11) |
 | `modules/bars.ts` | `core.visualizer.bars` |
+| `modules/bloom.ts`, `modules/vignette.ts` | `core.effect.bloom` (bright-pass + separable Gaussian + additive), `core.effect.vignette` |
 | `modules/test-pattern.ts` | `core.test.pattern` — 24 fixed patches (`TEST_PATTERN_COLORS`) for colour measurement |
 | `modules/flash.ts` | `core.test.flash` — full-frame flash on a timeline schedule (`flashLit`) for sync measurement |
 | `engine.ts` | `createEngine(gl, {quality, output, packing})`, `renderFrame`, `readOutputSync`, `createSyncReadback`, `createReadback`; `ENGINE_VERSION = '0.1.0-p0'` |
@@ -200,6 +202,34 @@ byte-identical frames whether the frames are reached in order or jumped to, and 
 differ from each other (so the check is not vacuous). `npm run spike:determinism` still produces
 hash `5f0ade89…` — the unmodulated path is byte-for-byte unchanged from P0.
 
+### 4.11 Effect chain (P2 step 4)
+- `src/engine/render/effects.ts`: `runEffectChain` ping-pongs pooled targets, one per pass. The
+  ownership contract is stated once — it **consumes** the source and returns a target the caller
+  releases exactly once — so an empty chain and a five-pass chain free the same way.
+- An effect never writes to its input: reading and writing one attachment is undefined in GL and
+  shows up as driver-dependent tearing.
+- `RenderContext` gained `input` (the layer's texture, effects only), `outputTarget` (the bound,
+  cleared target — a multi-pass module binds its own framebuffers and needs the way back) and
+  `targets` (the pool, for scratch). `CompositeLayer.draw` now takes its target.
+- Chains run per layer *before* the transform and blend (compositor-spec §1), and once more over
+  the finished composite for `globalEffects`. Layer chains address as
+  `layers.<id>.effects.<effectId>.params.<key>`, global as `global.effects.…`, so effect
+  parameters are modulatable through the same paths as everything else (module-spec §4).
+- `core.effect.bloom`: bright-pass at half resolution, separable 9-tap Gaussian ping-ponged with
+  a widening step, additive composite. Works in linear light on RGBA16F — bloom in sRGB is why
+  glows look grey and muddy. The blur step is `radius × referenceScale`, never a pixel count.
+- `core.effect.vignette`: aspect-corrected falloff with a `roundness` blend between a circle and
+  the frame's own shape. Premultiplied, so edges do not gain a halo.
+- `expandsBounds` is declared on the manifest but not yet acted on: layer targets are
+  canvas-sized, so a halo already has the whole frame to spread into. Padding becomes real only
+  when targets are sized to layer bounds.
+
+GPU-verified in `tests/golden/effects-gpu.test.ts` (7 checks): bloom lights pixels the plain
+render leaves black, a wider radius reaches further, the glow covers the same *fraction* of the
+frame at 320×180 and 640×360 (resolution independence), vignette darkens edges and leaves the
+centre, chain order changes the image, a disabled effect is byte-identical to no effect, and an
+unknown effect module is reported rather than dropped.
+
 ### 4.9 Spike and validation harness (`spike/`)
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
@@ -244,9 +274,10 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - `htdemucs_ft` not provisioned or measured (manifest entry needed: it is a bag of 4 models, each weight file pinned).
 - HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
   (16-bit samples packed like NV12) would likely close the gap.
-- `RenderProject` is still a subset of the document: transforms, effects, modulations, masks,
-  group compositing and aspect overrides parse and round-trip but are not rendered (steps 2–4).
-  `toRenderProject` returns a note for each, so nothing is lost silently.
+- Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7) and
+  **group compositing** (M38 — a group's own transform, opacity, blend and effects applied to its
+  composited children). Blend modes beyond normal/add/screen fall back with a note.
+- Two effects exist (bloom, vignette) against M12's target of ten.
 - No undo/command stack or presets yet (M8, M25).
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
   single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
@@ -270,7 +301,7 @@ Suggested order (each a commit, STATUS updated each time):
 1. ✅ **Project document v1** (`src/project/`) — see §4.7. 47 tests in `tests/project/`.
 2. ✅ **Layout & aspect system** — see §4.8. GPU-verified in `tests/golden/layout-gpu.test.ts`.
 3. ✅ **Param resolution + modulation evaluator** — see §4.10.
-4. **Effect chain contract + first effects** (module-spec §8, compositor-spec §4): scratch targets, padding,
+4. ✅ **Effect chain contract + bloom and vignette** — see §4.11.
    bloom and vignette as the first two.
 5. **Golden frames** (export-spec §16): `tests/golden/` references generated on this machine from JSON projects at
    16:9 / 9:16 / 1:1, checked by a `npm run golden` (Electron) command; `--update` to regenerate deliberately.

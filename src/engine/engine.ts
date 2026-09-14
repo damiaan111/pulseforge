@@ -5,16 +5,18 @@
 
 import type { AnalysisSet } from './core/analysis.ts';
 import { parseHexColor, toLinearPremultiplied } from './core/color.ts';
-import type { ModuleDefinition, ModuleInstance, RenderContext } from './core/module.ts';
+import type { ModuleDefinition, ModuleInstance } from './core/module.ts';
 import {
-  IDENTITY_LAYER_TRANSFORM, isIdentityTransform, layerMatrix, referenceLength, type Mat3,
+  IDENTITY_LAYER_TRANSFORM, isIdentityTransform, layerMatrix, referenceLength,
+  type Mat3, type ScaleReference,
 } from './core/layout.ts';
 import {
   compileModulation, modulateValue, type ModulationIssue, type ModulationProgram,
 } from './core/modulation.ts';
-import { resolveParams, type ParamIssue } from './core/params.ts';
+import { resolveParams, type ParamIssue, type ResolveOptions } from './core/params.ts';
 import { createPrng, hash32 } from './core/prng.ts';
-import { layerIsLive, type RenderProject } from './core/project.ts';
+import { layerIsLive, type EffectSpec, type RenderProject } from './core/project.ts';
+import type { EffectPass } from './render/effects.ts';
 import { frameStartTick, frameTimeSeconds, ticksToSeconds, timelineToSourceSeconds } from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
 import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
@@ -22,10 +24,12 @@ import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
+import { bloomModule } from './modules/bloom.ts';
+import { vignetteModule } from './modules/vignette.ts';
 import { flashModule } from './modules/flash.ts';
 import { testPatternModule } from './modules/test-pattern.ts';
 
-export const BUILTIN_MODULES: readonly ModuleDefinition[] = [barsModule, testPatternModule, flashModule];
+export const BUILTIN_MODULES: readonly ModuleDefinition[] = [barsModule, bloomModule, vignetteModule, testPatternModule, flashModule];
 
 /** Recorded in render reports. Bump when rendering output changes. */
 export const ENGINE_VERSION = '0.1.0-p0';
@@ -200,6 +204,54 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
 
       const program = programFor(project, analysis);
       const tick = frameStartTick(frameIndex, fps);
+
+      /** Parameter keys under `prefix` that actually carry a binding (module-spec §4). */
+      const modulationFor = (prefix: string): ResolveOptions => {
+        const keys = new Set<string>();
+        for (const target of program.targets.keys()) {
+          if (target.startsWith(prefix)) keys.add(target.slice(prefix.length));
+        }
+        if (keys.size === 0) return {};
+        return { modulated: keys, modulate: (key, base) => modulateValue(program, prefix + key, base, t) };
+      };
+
+      const canvasFor = (reference: ScaleReference) => ({
+        width,
+        height,
+        aspect: width / height,
+        referenceScale: referenceLength(width, height, reference),
+      });
+
+      /** Builds the effect passes for one chain, reporting anything it cannot run. */
+      const buildEffects = (
+        specs: readonly EffectSpec[],
+        pathPrefix: string,
+        owner: string,
+        canvas: ReturnType<typeof canvasFor>,
+      ): EffectPass[] => {
+        const passes: EffectPass[] = [];
+        for (const spec of specs) {
+          if (!spec.enabled) continue;
+          const definition = registry.get(spec.module);
+          if (definition === undefined) {
+            warnings.push(`${owner}: unknown effect module "${spec.module}" is not applied`);
+            continue;
+          }
+          if (definition.manifest.kind !== 'effect') {
+            warnings.push(`${owner}: module "${spec.module}" is a ${definition.manifest.kind}, not an effect; it is not applied`);
+            continue;
+          }
+          const resolved = resolveParams(definition.manifest.params, spec.params, modulationFor(`${pathPrefix}${spec.id}.params.`));
+          if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
+          const instance = instanceFor(spec.id, definition);
+          passes.push({
+            id: spec.id,
+            draw: (input, target) => instance.render({ ...frameContext, canvas, targets: pool, input, outputTarget: target }, resolved.values),
+          });
+        }
+        return passes;
+      };
+
       const layers: CompositeLayer[] = [];
       for (const layer of project.layers) {
         if (!layer.enabled) continue;
@@ -212,29 +264,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         }
         // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
         // evaluator; everything else resolves exactly as it did before modulation existed.
-        const prefix = `layers.${layer.id}.params.`;
-        const modulatedKeys = new Set<string>();
-        for (const target of program.targets.keys()) {
-          if (target.startsWith(prefix)) modulatedKeys.add(target.slice(prefix.length));
-        }
-        const resolved = resolveParams(definition.manifest.params, layer.params, modulatedKeys.size === 0
-          ? {}
-          : { modulated: modulatedKeys, modulate: (key, base) => modulateValue(program, prefix + key, base, t) });
+        const resolved = resolveParams(definition.manifest.params, layer.params, modulationFor(`layers.${layer.id}.params.`));
         if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
         const instance = instanceFor(layer.id, definition);
 
         // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
         // on 'min' and a full-bleed background on 'max' each get the number they need.
         const transform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
-        const ctx: RenderContext = {
-          ...frameContext,
-          canvas: {
-            width,
-            height,
-            aspect: width / height,
-            referenceScale: referenceLength(width, height, transform.scaleReference),
-          },
-        };
+        const canvas = canvasFor(transform.scaleReference);
 
         let inverseTransform: Mat3 | undefined;
         if (!isIdentityTransform(transform)) {
@@ -251,7 +288,8 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         layers.push({
           opacity: Math.min(1, Math.max(0, layer.opacity)),
           blend: layer.blend,
-          draw: () => instance.render(ctx, resolved.values),
+          draw: (target) => instance.render({ ...frameContext, canvas, targets: pool, input: null, outputTarget: target }, resolved.values),
+          effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas),
           ...(inverseTransform === undefined ? {} : { inverseTransform }),
         });
       }
@@ -260,10 +298,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       if (parseHexColor(project.canvas.background) === undefined) {
         warnings.push(`canvas background "${project.canvas.background}" is not a valid colour; using black`);
       }
+      // The global chain has no layer of its own, so its sizes follow the smaller canvas
+      // dimension — the reference that behaves the same in landscape and vertical.
+      const globalEffects = buildEffects(project.globalEffects ?? [], 'global.effects.', 'global effects', canvasFor('min'));
+
       compositor.composite(output, { ...background, a: 1 }, layers, options.output, {
         frameIndex,
         noiseSeed: hash32(project.seed, 'output-dither'),
-      });
+      }, globalEffects);
       nv12?.convert(output);
 
       return { frameIndex, t, warnings, paramIssues, modulationIssues: program.issues };

@@ -18,6 +18,14 @@ export interface LayerTimeRange {
   readonly outTicks: number | null;
 }
 
+/** One entry in a layer's or the project's effect chain (module-spec §8). */
+export interface EffectSpec {
+  readonly id: string;
+  readonly module: string;
+  readonly enabled: boolean;
+  readonly params: Readonly<Record<string, unknown>>;
+}
+
 export interface LayerSpec {
   readonly id: string;
   readonly module: string;
@@ -33,6 +41,8 @@ export interface LayerSpec {
   readonly transform?: LayerTransform;
   /** Bindings targeting this layer's parameters (modulation-spec §1). */
   readonly modulations?: readonly ModulationBinding[];
+  /** Post-process chain on this layer alone, bottom of the list first. */
+  readonly effects?: readonly EffectSpec[];
 }
 
 /** Frame-start-tick membership; the one place the range rule is spelled out. */
@@ -68,4 +78,6 @@ export interface RenderProject {
   readonly durationTicks?: number;
   /** Bindings targeting the global effect chain. */
   readonly globalModulations?: readonly ModulationBinding[];
+  /** Post-process chain over the finished composite. */
+  readonly globalEffects?: readonly EffectSpec[];
 }

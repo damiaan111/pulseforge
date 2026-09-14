@@ -12,6 +12,7 @@ import { COLOR_GLSL, type RGBA } from '../core/color.ts';
 import { IDENTITY_MAT3, type Mat3 } from '../core/layout.ts';
 import type { BlendMode } from '../core/project.ts';
 import { HASH_GLSL } from '../core/prng.ts';
+import { runEffectChain, type EffectPass } from './effects.ts';
 import { FULLSCREEN_VERT, createProgram, drawFullscreenTriangle, uniformLocation } from './gl.ts';
 import type { RenderTarget, TargetPool } from './targets.ts';
 
@@ -30,8 +31,10 @@ export interface OutputOptions {
 export interface CompositeLayer {
   readonly opacity: number;
   readonly blend: BlendMode;
-  /** Draws into the bound, cleared, transparent RGBA16F target. */
-  readonly draw: () => void;
+  /** Draws into `target`, which is bound, cleared and transparent RGBA16F. */
+  readonly draw: (target: RenderTarget) => void;
+  /** This layer's effect chain, bottom of the list first (module-spec §8). */
+  readonly effects?: readonly EffectPass[];
   /**
    * Canvas pixels → layer pixels (`layerMatrix().inverse`). Omit for an untransformed layer,
    * which takes the exact 1:1 path. A degenerate transform is skipped by the caller, never
@@ -153,19 +156,20 @@ export class Compositor {
     layers: readonly CompositeLayer[],
     options: OutputOptions,
     frame: { readonly frameIndex: number; readonly noiseSeed: number },
+    globalEffects: readonly EffectPass[] = [],
   ): void {
     const gl = this.gl;
     const { width, height } = output;
     resetState(gl, width, height);
 
-    const composite = this.pool.acquire(width, height, 'rgba16f');
+    let composite = this.pool.acquire(width, height, 'rgba16f');
     gl.bindFramebuffer(gl.FRAMEBUFFER, composite.framebuffer);
     gl.clearColor(background.r, background.g, background.b, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     for (const layer of layers) {
       if (!(layer.opacity > 0)) continue;
-      const target = this.pool.acquire(width, height, 'rgba16f');
+      let target = this.pool.acquire(width, height, 'rgba16f');
       gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
       resetState(gl, width, height);
       gl.clearColor(0, 0, 0, 0);
@@ -173,7 +177,13 @@ export class Compositor {
       // Modules draw premultiplied "over" by default; they may change blend state themselves.
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      layer.draw();
+      layer.draw(target);
+
+      // Effects run on the layer alone, before its transform and blend (compositor-spec §1).
+      // runEffectChain consumes `target` and hands back one to release.
+      if (layer.effects !== undefined && layer.effects.length > 0) {
+        target = runEffectChain(gl, this.pool, target, layer.effects);
+      }
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, composite.framebuffer);
       resetState(gl, width, height);
@@ -195,6 +205,10 @@ export class Compositor {
       drawFullscreenTriangle(gl, this.vao);
       gl.bindTexture(gl.TEXTURE_2D, null);
       this.pool.release(target);
+    }
+
+    if (globalEffects.length > 0) {
+      composite = runEffectChain(gl, this.pool, composite, globalEffects);
     }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
