@@ -2,6 +2,7 @@
 // The full document, its migrations and undo live in src/project/; the engine only
 // ever sees an immutable snapshot like this one.
 
+import type { LayerTransform } from './layout.ts';
 import type { Rational } from './time.ts';
 
 export type BlendMode = 'normal' | 'add' | 'screen';
@@ -24,6 +25,11 @@ export interface LayerSpec {
   readonly blend: BlendMode;
   readonly params: Readonly<Record<string, unknown>>;
   readonly timeRange?: LayerTimeRange;
+  /**
+   * Placement on the canvas, with any per-aspect override already applied. Absent means the
+   * identity transform, which composites 1:1 — the path P0 projects take.
+   */
+  readonly transform?: LayerTransform;
 }
 
 /** Frame-start-tick membership; the one place the range rule is spelled out. */

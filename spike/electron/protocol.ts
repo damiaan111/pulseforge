@@ -37,7 +37,37 @@ export interface ExportConfig {
   ffprobeExe: string;
 }
 
-export type SpikeConfig = DeterminismConfig | ExportConfig;
+/**
+ * Render named frames of a given project and write their raw RGBA out. The general-purpose
+ * headless render path: used to check layout on the GPU, and the basis for golden frames
+ * (export-spec §16).
+ */
+export interface FramesConfig {
+  mode: 'frames';
+  analysisFile: string;
+  resultFile: string;
+  rawDir: string;
+  project: RenderProject;
+  frames: number[];
+  dither: boolean;
+}
+
+export interface SpikeFramesResult {
+  ok: boolean;
+  error?: string;
+  context?: ContextInfo;
+  chromeVersion?: string;
+  electronVersion?: string;
+  width: number;
+  height: number;
+  /** Absolute paths, in the same order as the requested frames. */
+  files: string[];
+  frameHashes: string[];
+  warnings: string[];
+  paramIssues: string[];
+}
+
+export type SpikeConfig = DeterminismConfig | ExportConfig | FramesConfig;
 
 export interface PassResult {
   /** SHA-256 of each frame's RGBA bytes, by frame index. */

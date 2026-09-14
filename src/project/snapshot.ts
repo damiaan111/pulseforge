@@ -10,8 +10,9 @@
 // ignores the notes still gets a correct render of everything that is implemented; a caller
 // that surfaces them tells the user exactly what is missing and why.
 
+import { isIdentityTransform, type LayerTransform } from '../engine/core/layout.ts';
 import type { BlendMode, LayerSpec, RenderProject } from '../engine/core/project.ts';
-import { aspectBucket, walkLayers, type AspectBucket, type Layer, type ProjectDocument } from './document.ts';
+import { aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer, type ProjectDocument } from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
 export interface SnapshotNote {
@@ -29,10 +30,19 @@ export interface SnapshotResult {
 /** Blend modes the compositor implements today; the rest fall back to `normal` with a note. */
 const ENGINE_BLEND_MODES: readonly BlendMode[] = ['normal', 'add', 'screen'];
 
-function isIdentityTransform(layer: Layer): boolean {
-  const t = layer.transform;
-  return t.x === 0.5 && t.y === 0.5 && t.scaleX === 1 && t.scaleY === 1
-    && t.rotationDeg === 0 && t.skewXDeg === 0 && t.skewYDeg === 0;
+/**
+ * Base → aspect override, step 2 of the value resolution pipeline (module-spec §5). The
+ * override *replaces* the properties it declares and leaves the rest inheriting the base —
+ * which is why `AspectOverride.transform` is a partial and not a whole transform.
+ */
+function resolveTransform(layer: Layer, override: AspectOverride | undefined): LayerTransform {
+  const { extra: _extra, ...base } = layer.transform;
+  return override === undefined ? base : { ...base, ...override.transform };
+}
+
+function resolveParams(layer: Layer & { params: Readonly<Record<string, unknown>> }, override: AspectOverride | undefined): Readonly<Record<string, unknown>> {
+  if (override === undefined || Object.keys(override.params).length === 0) return layer.params;
+  return { ...layer.params, ...override.params };
 }
 
 /**
@@ -53,8 +63,11 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     const path = `layers[${index}]`;
     index += 1;
 
+    const override = layer.aspectOverrides[aspect];
+
     if (layer.kind === 'group') {
-      if (layer.opacity !== 1 || layer.blend !== 'normal' || layer.effects.length > 0 || !isIdentityTransform(layer)) {
+      if (layer.opacity !== 1 || layer.blend !== 'normal' || layer.effects.length > 0
+        || !isIdentityTransform(resolveTransform(layer, override))) {
         notes.push({ path, detail: `group "${layer.name || layer.id}" has its own transform, opacity, blend or effects; group compositing (M38) is not implemented yet, so its children render in place` });
       }
       continue;
@@ -64,8 +77,8 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     const hiddenByParent = parents.some((parent) => !parent.enabled);
     const enabled = layer.enabled && !hiddenByParent && (!anySoloed || layer.soloed);
 
-    if (!isIdentityTransform(layer)) {
-      notes.push({ path, detail: 'layer transform is not yet applied by the compositor (P2 step 2)' });
+    if (parents.some((parent) => !isIdentityTransform(resolveTransform(parent, parent.aspectOverrides[aspect])))) {
+      notes.push({ path, detail: 'a parent group has a transform; group transforms do not yet compose onto their children (M38)' });
     }
     if (layer.effects.length > 0) {
       notes.push({ path, detail: `${layer.effects.length} effect(s) are not yet applied (P2 step 4)` });
@@ -76,11 +89,6 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     if (layer.maskLayerId !== null) {
       notes.push({ path, detail: 'masking (S7) is not implemented; the layer renders unmasked' });
     }
-    const override = layer.aspectOverrides[aspect];
-    if (override !== undefined && (Object.keys(override.transform).length > 0 || Object.keys(override.params).length > 0)) {
-      notes.push({ path, detail: `overrides for aspect ${aspect} are not yet applied (P2 step 2)` });
-    }
-
     let blend: BlendMode = 'normal';
     if (ENGINE_BLEND_MODES.includes(layer.blend as BlendMode)) {
       blend = layer.blend as BlendMode;
@@ -94,8 +102,9 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       enabled,
       opacity: layer.opacity,
       blend,
-      params: layer.params,
+      params: resolveParams(layer, override),
       timeRange: { inTicks: layer.timeRange.inTicks, outTicks: layer.timeRange.outTicks },
+      transform: resolveTransform(layer, override),
     });
   }
 

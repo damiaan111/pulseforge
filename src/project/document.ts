@@ -14,6 +14,7 @@
 // are not reported as unknown, because their absence from this version is deliberate, not a
 // mistake in the file.
 
+import { ANCHORS, SCALE_REFERENCES, type Anchor, type ScaleReference } from '../engine/core/layout.ts';
 import type { Rational } from '../engine/core/time.ts';
 
 export const CURRENT_SCHEMA_VERSION = 1;
@@ -121,16 +122,11 @@ export type LayerKind = 'module' | 'group';
 export const BLEND_MODES = ['normal', 'add', 'screen', 'multiply', 'overlay'] as const;
 export type DocumentBlendMode = (typeof BLEND_MODES)[number];
 
-export const ANCHORS = [
-  'top-left', 'top-center', 'top-right',
-  'center-left', 'center', 'center-right',
-  'bottom-left', 'bottom-center', 'bottom-right',
-] as const;
-export type Anchor = (typeof ANCHORS)[number];
-
-/** Which canvas dimension a layer's size follows (PROJECT.md §8.11). */
-export const SCALE_REFERENCES = ['width', 'height', 'min', 'max', 'diagonal'] as const;
-export type ScaleReference = (typeof SCALE_REFERENCES)[number];
+// Anchors and scale references are defined by the engine's layout module, which is what
+// consumes them; re-exported here so document code has one import site and the two can
+// never drift apart.
+export { ANCHORS, SCALE_REFERENCES };
+export type { Anchor, ScaleReference };
 
 /**
  * Position and size as fractions of the canvas, never pixels, so scaling to any resolution

@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — P0 complete; **P2 step 1 (project document v1) done**.
+> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–2 (project document, layout & aspect) done**.
 
 ---
 
@@ -13,15 +13,15 @@
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
-| **P2 — Engine** | 🔶 **in progress** — step 1 of 6 done (see §8) |
+| **P2 — Engine** | 🔶 **in progress** — steps 1–2 of 6 done (see §8) |
 | P3 … P8 | ⬜ not started |
 
 P2 steps:
 
 | # | Step | State | Commit |
 |---|---|---|---|
-| 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `TBD` |
-| 2 | Layout & aspect system | ⬜ | |
+| 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `ce8b68f` |
+| 2 | Layout & aspect system | ✅ | `TBD` |
 | 3 | Param resolution + modulation evaluator | ⬜ | |
 | 4 | Effect chain contract + bloom/vignette | ⬜ | |
 | 5 | Golden frames | ⬜ | |
@@ -39,7 +39,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check`, then continue with §8 (P2 step 1). Keep STATUS.md updated and commit after each step."*
+run `npm run check`, then continue with §8 (P2 step 3). Keep STATUS.md updated and commit after each step."*
 
 ---
 
@@ -60,7 +60,7 @@ run `npm run check`, then continue with §8 (P2 step 1). Keep STATUS.md updated 
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 112 tests (GPU/FFmpeg/Python tests skip without `vendor/`) | ~10 s |
+| `npm run check` | typecheck + lint + 182 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
@@ -136,7 +136,33 @@ their range, using the frame's start tick.
 Not yet: undo/commands, presets, asset library, lyrics/automation/export-preset slots (reserved,
 round-tripped untouched).
 
-### 4.8 Spike and validation harness (`spike/`)
+### 4.8 Layout & aspect (P2 step 2)
+- `src/engine/core/layout.ts`: `ANCHORS`, `SCALE_REFERENCES` (the single definition — `src/project/`
+  re-exports them), `LayerTransform`, `referenceLength`, `anchorFraction`, affine `Mat3` helpers,
+  `layerMatrix` (forward + inverse), `isIdentityTransform`.
+- Matrix is built in **document space** (y down, positive rotation clockwise) as
+  `translate(position) · rotate · skew · scale · translate(−anchor)`, then conjugated into the
+  compositor's y-up space. Identity in → identity out, so an untransformed layer takes the exact
+  1:1 `texelFetch` blit and its pixels are unchanged from P0.
+- `isIdentityTransform` compares the position against the **anchor fraction**, not against 0.5:
+  anchored top-left at (0.5, 0.5) is a real move. Getting this wrong makes the transform work
+  everywhere except that combination.
+- Compositor: `CompositeLayer.inverseTransform` (optional). When present the layer pass samples
+  with the inverse matrix, bilinear, with an explicit bounds test — `CLAMP_TO_EDGE` alone smears
+  border texels across the canvas. Pooled targets are set to `LINEAR` at sample time.
+- `RenderContext.canvas.referenceScale` is **per layer**, from that layer's `scaleReference`, so a
+  logo on `min` and a full-bleed background on `max` each get the number they need.
+- A collapsed transform (zero scale) is reported as a warning and the layer is skipped, rather
+  than dividing by a zero determinant.
+- `toRenderProject` applies the aspect override (step 2 of module-spec §5): the override replaces
+  only the properties it declares, both for `transform` and for `params`.
+- Group transforms still do not compose onto children (M38, step 4 territory) — noted, not dropped.
+
+Verified on the GPU by `tests/golden/layout-gpu.test.ts` (Electron + the new `frames` spike mode,
+`spike/lib/frames-run.ts`): orientation, centre-anchored scale, top-left anchor, and no edge
+smearing, checked against the test pattern's known patch positions. Skipped where Electron is absent.
+
+### 4.9 Spike and validation harness (`spike/`)
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
 - `validate.ts` + `validate/`: `context.ts`, `media.ts` (FFmpeg decode helpers), `projects.ts` (pattern, click, heavy projects; click track), `checks-render.ts` (2 determinism, 3 readback, 4 colour), `checks-system.ts` (1 environment, 5 encoders, 6 throughput, 7 stems, 8 sync).
@@ -198,8 +224,7 @@ Goal: *"Engine renders a multi-layer project from a hand-written JSON file, head
 Suggested order (each a commit, STATUS updated each time):
 
 1. ✅ **Project document v1** (`src/project/`) — see §4.7. 47 tests in `tests/project/`.
-2. **Layout & aspect system** (PROJECT.md §8.11, module-spec §6): relative transforms + anchors + scale reference,
-   per-aspect overrides, resolution in `src/engine/core/layout.ts`; compositor applies layer transforms.
+2. ✅ **Layout & aspect system** — see §4.8. GPU-verified in `tests/golden/layout-gpu.test.ts`.
 3. **Param resolution pipeline complete** (module-spec §5): base → aspect override → (automation slot) →
    modulation → clamp → coerce, with the modulation evaluator (modulation-spec §4–§9: precomputed envelopes,
    curves, look-ahead, accumulation) in `src/engine/core/modulation.ts`, CPU-tested.

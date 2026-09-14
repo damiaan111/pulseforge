@@ -46,6 +46,12 @@ export interface RenderContext {
     readonly width: number;
     readonly height: number;
     readonly aspect: number;
+    /**
+     * Pixels per unit for this layer's declared `scaleReference` (PROJECT.md §8.11,
+     * module-spec §6). Any size in `space: 'canvas'` multiplies by this, which is what keeps
+     * a line width or a logo the same physical size when the canvas shape changes.
+     */
+    readonly referenceScale: number;
   };
   readonly analysis: AnalysisSet;
   /** Seconds into the source audio for this frame (timeline mapping already applied). */

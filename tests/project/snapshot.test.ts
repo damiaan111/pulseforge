@@ -67,18 +67,42 @@ describe('toRenderProject', () => {
   it('notes every feature the engine cannot yet render, instead of dropping it', () => {
     const { notes } = toRenderProject(fixtureDocument());
     const text = notes.map((n) => n.detail).join('\n');
-    expect(text).toContain('transform is not yet applied');
     expect(text).toContain('effect(s) are not yet applied');
     expect(text).toContain('modulation binding(s) are not yet evaluated');
   });
 
-  it('notes an aspect override only when that aspect is the one being rendered', () => {
-    // The fixture's override is for 9:16; at 16:9 it is correctly not in play.
+  it('carries the layer transform through, with the aspect override applied', () => {
+    // The fixture's bars layer sits at y 0.75, anchored bottom-centre, and overrides y to
+    // 0.62 in vertical — the whole point of per-aspect overrides (PROJECT.md §8.11).
     const landscape = fixtureDocument();
-    expect(toRenderProject(landscape).notes.some((n) => n.detail.includes('overrides for aspect'))).toBe(false);
+    const inLandscape = toRenderProject(landscape);
+    expect(inLandscape.aspect).toBe('16:9');
+    expect(inLandscape.project.layers[0]?.transform).toMatchObject({ y: 0.75, anchor: 'bottom-center', scaleReference: 'width' });
 
     const vertical = { ...landscape, canvas: { ...landscape.canvas, width: 1080, height: 1920 } };
-    expect(toRenderProject(vertical).notes.some((n) => n.detail.includes('overrides for aspect 9:16'))).toBe(true);
+    const inVertical = toRenderProject(vertical);
+    expect(inVertical.aspect).toBe('9:16');
+    // Only the overridden property changes; everything else still inherits the base.
+    expect(inVertical.project.layers[0]?.transform).toMatchObject({ y: 0.62, anchor: 'bottom-center', scaleReference: 'width' });
+  });
+
+  it('applies overridden params over the base params, leaving the rest alone', () => {
+    const vertical = (() => {
+      const d = fixtureDocument();
+      return { ...d, canvas: { ...d.canvas, width: 1080, height: 1920 } };
+    })();
+    const params = toRenderProject(vertical).project.layers[0]?.params;
+    expect(params).toMatchObject({ barCount: 24, source: 'drums', glow: 0.4 });
+    expect(toRenderProject(fixtureDocument()).project.layers[0]?.params).toMatchObject({ barCount: 64 });
+  });
+
+  it('notes a group transform, which does not yet compose onto its children', () => {
+    const child = layer('0000000000K000000000000002');
+    const group = createGroupLayer([child], { id: '0000000000G000000000000001', transform: { x: 0.25 } });
+    const document = { ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }), layers: [group] };
+    const text = toRenderProject(document).notes.map((n) => n.detail).join('\n');
+    expect(text).toContain('group compositing (M38) is not implemented');
+    expect(text).toContain('do not yet compose onto their children');
   });
 
   it('falls back on a blend mode the compositor lacks, and says which', () => {

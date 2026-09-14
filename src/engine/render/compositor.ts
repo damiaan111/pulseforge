@@ -9,6 +9,7 @@
 // compositing and premultiplied alpha throughout.
 
 import { COLOR_GLSL, type RGBA } from '../core/color.ts';
+import { IDENTITY_MAT3, type Mat3 } from '../core/layout.ts';
 import type { BlendMode } from '../core/project.ts';
 import { HASH_GLSL } from '../core/prng.ts';
 import { FULLSCREEN_VERT, createProgram, drawFullscreenTriangle, uniformLocation } from './gl.ts';
@@ -31,16 +32,37 @@ export interface CompositeLayer {
   readonly blend: BlendMode;
   /** Draws into the bound, cleared, transparent RGBA16F target. */
   readonly draw: () => void;
+  /**
+   * Canvas pixels → layer pixels (`layerMatrix().inverse`). Omit for an untransformed layer,
+   * which takes the exact 1:1 path. A degenerate transform is skipped by the caller, never
+   * passed here as null.
+   */
+  readonly inverseTransform?: Mat3;
 }
 
 const LAYER_FRAG = /* glsl */ `#version 300 es
 precision highp float;
 uniform sampler2D u_layer;
 uniform float u_opacity;
+uniform bool u_transformed;
+uniform mat3 u_inverse;   // canvas pixels -> layer pixels
 out vec4 outColor;
 void main() {
+  vec4 src;
+  if (u_transformed) {
+    vec2 size = vec2(textureSize(u_layer, 0));
+    vec2 p = (u_inverse * vec3(gl_FragCoord.xy, 1.0)).xy;
+    // Outside the layer's own bounds there is nothing to draw. CLAMP_TO_EDGE would smear the
+    // border texels across the rest of the canvas, which is the classic "streaky background"
+    // artefact when a layer is scaled down.
+    src = any(lessThan(p, vec2(0.0))) || any(greaterThan(p, size))
+      ? vec4(0.0)
+      : texture(u_layer, p / size);
+  } else {
+    src = texelFetch(u_layer, ivec2(gl_FragCoord.xy), 0);
+  }
   // Premultiplied: opacity scales colour and alpha together.
-  outColor = texelFetch(u_layer, ivec2(gl_FragCoord.xy), 0) * u_opacity;
+  outColor = src * u_opacity;
 }
 `;
 
@@ -81,7 +103,12 @@ export class Compositor {
   private readonly pool: TargetPool;
   private readonly vao: WebGLVertexArrayObject;
   private readonly layerProgram: WebGLProgram;
-  private readonly layerUniforms: { layer: WebGLUniformLocation; opacity: WebGLUniformLocation };
+  private readonly layerUniforms: {
+    layer: WebGLUniformLocation;
+    opacity: WebGLUniformLocation;
+    transformed: WebGLUniformLocation;
+    inverse: WebGLUniformLocation;
+  };
   private readonly outputProgram: WebGLProgram;
   private readonly outputUniforms: {
     composite: WebGLUniformLocation;
@@ -101,6 +128,8 @@ export class Compositor {
     this.layerUniforms = {
       layer: uniformLocation(gl, this.layerProgram, 'u_layer'),
       opacity: uniformLocation(gl, this.layerProgram, 'u_opacity'),
+      transformed: uniformLocation(gl, this.layerProgram, 'u_transformed'),
+      inverse: uniformLocation(gl, this.layerProgram, 'u_inverse'),
     };
     this.outputProgram = createProgram(gl, 'compositor.output', FULLSCREEN_VERT, OUTPUT_FRAG);
     this.outputUniforms = {
@@ -153,8 +182,16 @@ export class Compositor {
       gl.useProgram(this.layerProgram);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      const transformed = layer.inverseTransform !== undefined;
+      // Pooled targets default to NEAREST (targets.ts); a resampled layer needs bilinear,
+      // and the filter is set every time because the pool hands the same texture around.
+      const filter = transformed ? gl.LINEAR : gl.NEAREST;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
       gl.uniform1i(this.layerUniforms.layer, 0);
       gl.uniform1f(this.layerUniforms.opacity, Math.min(1, layer.opacity));
+      gl.uniform1i(this.layerUniforms.transformed, transformed ? 1 : 0);
+      gl.uniformMatrix3fv(this.layerUniforms.inverse, false, layer.inverseTransform ?? IDENTITY_MAT3);
       drawFullscreenTriangle(gl, this.vao);
       gl.bindTexture(gl.TEXTURE_2D, null);
       this.pool.release(target);

@@ -16,7 +16,10 @@ import type { AnalysisSet } from '../../src/engine/core/analysis.ts';
 import { decodeAnalysis } from '../analysis-file.ts';
 import { spikeProject } from '../project.ts';
 import { runExport } from '../../src/export/job.ts';
-import type { DeterminismConfig, ExportConfig, PassResult, SpikeConfig, SpikeExportResult, SpikeRenderResult } from './protocol.ts';
+import type {
+  DeterminismConfig, ExportConfig, FramesConfig, PassResult, SpikeConfig, SpikeExportResult,
+  SpikeFramesResult, SpikeRenderResult,
+} from './protocol.ts';
 
 function createContext(): WebGL2RenderingContext {
   // The canvas itself is never drawn to; frames render into engine-owned framebuffers.
@@ -119,6 +122,48 @@ function runDeterminism(config: DeterminismConfig): SpikeRenderResult {
   }
 }
 
+/** Renders the requested frames of a supplied project and writes each one's raw RGBA. */
+function runFrames(config: FramesConfig): SpikeFramesResult {
+  const { width, height } = config.project.canvas;
+  const base: SpikeFramesResult = {
+    ok: false,
+    width,
+    height,
+    files: [],
+    frameHashes: [],
+    chromeVersion: process.versions['chrome'] ?? 'unknown',
+    electronVersion: process.versions['electron'] ?? 'unknown',
+    warnings: [],
+    paramIssues: [],
+  };
+  try {
+    const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
+    mkdirSync(config.rawDir, { recursive: true });
+    const engine = newEngine(config.dither);
+    const pixels = new Uint8Array(width * height * 4);
+    const warnings = new Set<string>();
+    const paramIssues = new Set<string>();
+    const files: string[] = [];
+    const frameHashes: string[] = [];
+
+    for (const frameIndex of config.frames) {
+      const report = engine.renderFrame(config.project, analysis, frameIndex);
+      engine.readOutputSync(pixels);
+      for (const w of report.warnings) warnings.add(w);
+      for (const p of report.paramIssues) for (const i of p.issues) paramIssues.add(`${p.layerId}.${i.key}: ${i.detail}`);
+      const file = join(config.rawDir, `frame-${String(frameIndex).padStart(5, '0')}.rgba`);
+      writeFileSync(file, pixels);
+      files.push(file);
+      frameHashes.push(createHash('sha256').update(pixels).digest('hex'));
+    }
+    const context = engine.context;
+    engine.dispose();
+    return { ...base, ok: true, context, files, frameHashes, warnings: [...warnings], paramIssues: [...paramIssues] };
+  } catch (error) {
+    return { ...base, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+  }
+}
+
 /** A zero-delay yield: MessageChannel callbacks are not clamped or throttled like timers. */
 function createYield(): () => Promise<void> {
   const channel = new MessageChannel();
@@ -184,6 +229,8 @@ setTimeout(() => {
   const config = ipcRenderer.sendSync('spike-config') as SpikeConfig;
   if (config.mode === 'export') {
     void runExportMode(config).then((result) => ipcRenderer.send('spike-done', result));
+  } else if (config.mode === 'frames') {
+    ipcRenderer.send('spike-done', runFrames(config));
   } else {
     ipcRenderer.send('spike-done', runDeterminism(config));
   }

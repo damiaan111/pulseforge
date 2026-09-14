@@ -6,6 +6,9 @@
 import type { AnalysisSet } from './core/analysis.ts';
 import { parseHexColor, toLinearPremultiplied } from './core/color.ts';
 import type { ModuleDefinition, ModuleInstance, RenderContext } from './core/module.ts';
+import {
+  IDENTITY_LAYER_TRANSFORM, isIdentityTransform, layerMatrix, referenceLength, type Mat3,
+} from './core/layout.ts';
 import { resolveParams, type ParamIssue } from './core/params.ts';
 import { createPrng, hash32 } from './core/prng.ts';
 import { layerIsLive, type RenderProject } from './core/project.ts';
@@ -152,15 +155,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       const t = frameTimeSeconds(frameIndex, fps);
       const warnings: string[] = [];
       const paramIssues: { layerId: string; issues: readonly ParamIssue[] }[] = [];
-      const ctx: RenderContext = {
+      const frameContext = {
         time: { t, frameIndex, fps },
-        canvas: { width, height, aspect: width / height },
         analysis,
         audioSeconds: timelineToSourceSeconds(t, project.audio),
         prng: createPrng(project.seed),
         gl,
         quality: options.quality,
-        warn: (message) => warnings.push(message),
+        warn: (message: string) => warnings.push(message),
       };
 
       const tick = frameStartTick(frameIndex, fps);
@@ -177,10 +179,37 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         const resolved = resolveParams(definition.manifest.params, layer.params);
         if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
         const instance = instanceFor(layer.id, definition);
+
+        // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
+        // on 'min' and a full-bleed background on 'max' each get the number they need.
+        const transform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
+        const ctx: RenderContext = {
+          ...frameContext,
+          canvas: {
+            width,
+            height,
+            aspect: width / height,
+            referenceScale: referenceLength(width, height, transform.scaleReference),
+          },
+        };
+
+        let inverseTransform: Mat3 | undefined;
+        if (!isIdentityTransform(transform)) {
+          const inverse = layerMatrix(transform, width, height).inverse;
+          if (inverse === null) {
+            // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
+            // out loud, because an invisible layer with no explanation is a long afternoon.
+            warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
+            continue;
+          }
+          inverseTransform = inverse;
+        }
+
         layers.push({
           opacity: Math.min(1, Math.max(0, layer.opacity)),
           blend: layer.blend,
           draw: () => instance.render(ctx, resolved.values),
+          ...(inverseTransform === undefined ? {} : { inverseTransform }),
         });
       }
 
