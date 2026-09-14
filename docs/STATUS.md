@@ -16,7 +16,7 @@
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
-| **P3 — Studio** | 🔶 **in progress** — step 1 of 5 done (see §9) |
+| **P3 — Studio** | 🔶 **in progress** — steps 1–2 of 5 done (see §9) |
 | P4 … P8 | ⬜ not started |
 
 P3 steps:
@@ -24,7 +24,7 @@ P3 steps:
 | # | Step | State | Commit |
 |---|---|---|---|
 | 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `cab80a0` |
-| 2 | Command/undo stack (M8) | ⬜ | |
+| 2 | Command/undo stack (M8) | ✅ | `TBD` |
 | 3 | Analysis pipeline for real (M4) | ⬜ | |
 | 4 | Preview clock (M31) | ⬜ | |
 | 5 | React studio (ui-spec) | ⬜ | |
@@ -52,7 +52,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check` and `npm run golden`, then continue with §9 (P3 step 2). Keep STATUS.md updated
+run `npm run check` and `npm run golden`, then continue with §9 (P3 step 3). Keep STATUS.md updated
 and commit after each step."*
 
 ---
@@ -77,7 +77,7 @@ and commit after each step."*
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 263 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 313 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -423,6 +423,43 @@ path), and `FFPROBE_EXE` moved to `setup/lib/paths.ts` so the vendored tools hav
 
 Not yet: undo/commands, autosave and crash recovery, the React studio, menus and shortcuts.
 
+### 4.15 Commands and undo (P3 step 2) — M8, ui-spec §10
+- `src/project/history.ts` — **the document is immutable, so history is a list of documents, not
+  a list of inverse operations.** Undo restores a previous reference; there is no `revert` to
+  write and so no way for apply and revert to disagree, which is the bug every apply/revert
+  design eventually has. Commands rebuild only the path they touch and share the rest, so an
+  entry costs a handful of small objects rather than a copy of the project (pinned by a test).
+- Merge keys collapse a slider drag into one undo step; `seal()` (pointer-up, blur) ends a run so
+  the next edit of the same parameter is its own step. Keys include the edit target, so dragging
+  in 16:9 and then in 9:16 stays two steps — they are two different stored values.
+- Bounded (200 steps), labelled and **browsable**: `entries` + `jumpTo` give "undo twelve steps"
+  in one click. `dirty` tracks the last save in both directions, and reads dirty when the saved
+  point falls out of a trimmed history rather than claiming the file matches.
+- `modifiedAt` is stamped here from an injectable clock, so commands stay pure and tests are
+  byte-stable. Selection and panel state never enter history — undoing a selection is maddening.
+- `src/project/commands.ts` — params, transforms, flags, name, opacity, blend, time range, mask,
+  add/remove/move/duplicate layer, effects (add/remove/reorder/bypass/params), modulation
+  bindings, canvas, audio, seed, palette.
+- **Aspect-aware editing (D44)** is explicit in the API: most edits take an `EditTarget` of
+  `'base'` or an aspect bucket. An override stores only the properties actually edited.
+  `clearParamOverride` / `clearAspectOverride` are the inspector's reset-to-base.
+- `duplicateLayer` regenerates every id (ids are never reused) **and retargets the copy's
+  bindings at the copy** — otherwise duplicating a layer silently gives you two bindings driving
+  the original. `removeLayer` clears masks that pointed at what it deleted.
+- `moveLayer`'s `index` is into the destination list *after* the layer is removed. Documented
+  and tested because a drop indicator counts positions in the list as it looks now, and the two
+  differ by one whenever a layer moves down within its own parent.
+- Wired into the renderer: labelled Undo/Redo buttons, a clickable history list, Ctrl+Z /
+  Ctrl+Shift+Z / Ctrl+S, click a layer to hide it, double-click to rename. Every mutation goes
+  through the stack — there is no second path that skips undo.
+
+The launch smoke check now waits for `document.body.dataset.pulseforgeReady` before asserting,
+and drives one real edit through the command stack. **That gate was added because the screenshot
+disagreed with the checks**: they were racing the renderer's async startup and passing against an
+empty project. Anything driving the window from outside must wait on that flag.
+
+Not yet: autosave, crash recovery, multi-select editing, keyframes.
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
@@ -437,8 +474,7 @@ already do headlessly.
 Suggested order (each a commit, STATUS updated each time):
 
 1. ✅ **App shell** — see §4.14.
-2. **Command/undo stack** (`src/project/commands.ts`, M8): every mutation an undoable command.
-   Pure and CPU-testable; do it before any UI so the UI has nothing to unpick later.
+2. ✅ **Command/undo stack** — see §4.15.
 3. **Analysis pipeline for real** (M4): onsets, beat grid, RMS/peak/centroid/flux, the on-disk
    `AnalysisCache` (data-formats §4) and workers. This is what unblocks the modulation sources
    already compiled and reported as unsupported (§4.10) — the evaluator needs no further work.

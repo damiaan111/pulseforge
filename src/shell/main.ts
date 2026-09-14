@@ -253,6 +253,20 @@ app.whenReady().then(async () => {
   // preload bridge is reachable and the renderer rendered, then quit with a status. Four lines
   // of app code buys a check that the app still *starts*, which no unit test can tell you.
   if (process.env['PULSEFORGE_SMOKE'] === '1') {
+    // Wait for the renderer to finish its async startup. Without this the checks race the
+    // first paint and pass against an empty project — which they silently did until a
+    // screenshot showed the window in a state the checks claimed it was not in.
+    const settled = await window.webContents.executeJavaScript(`new Promise((done) => {
+      const deadline = Date.now() + 10000;
+      const poll = () => {
+        if (document.body.dataset.pulseforgeReady === 'true') done(true);
+        else if (Date.now() > deadline) done(false);
+        else setTimeout(poll, 25);
+      };
+      poll();
+    })`) as boolean;
+    if (!settled) console.error('[smoke] FAIL the renderer did not finish starting within 10 s');
+
     const checks = await window.webContents.executeJavaScript(`(async () => {
       // Does the renderer have Node? It must not — sandbox + contextIsolation.
       const noNode = typeof require === 'undefined' && typeof module === 'undefined'
@@ -260,15 +274,24 @@ app.whenReady().then(async () => {
       // Can it reach the network? It must not, by CSP and by the session-level block.
       let offline = false;
       try { await fetch('https://example.com/'); } catch { offline = true; }
+      // Drive one real edit through the command stack, so the smoke check covers
+      // command → history → re-render and not just "the page painted".
+      const before = document.querySelectorAll('#app .layer').length;
+      document.querySelector('#app .layer')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const undoEnabled = [...document.querySelectorAll('#app header button')]
+        .some((b) => b.textContent.startsWith('Undo ') && !b.disabled);
+
       return {
         rendered: document.querySelector('#app header') !== null,
         bridge: typeof window.pulseforge?.openProject === 'function',
         noNode,
         offline,
+        // Only meaningful when a project was opened; with none there is nothing to click.
+        undoable: before === 0 || undoEnabled,
       };
     })()`) as Record<string, boolean>;
 
-    const failed = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
+    const failed = [...(settled ? [] : ["settled"]), ...Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name)];
     for (const [name, ok] of Object.entries(checks)) console.log(`[smoke] ${ok ? 'ok  ' : 'FAIL'} ${name}`);
 
     // A picture of what launched, so "does the chrome actually render" has an answer that is

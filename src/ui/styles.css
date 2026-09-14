@@ -126,3 +126,15 @@ li { margin-bottom: 4px; }
 .layer .name { font-weight: 600; }
 .layer .meta { color: var(--text-dim); font-size: 12px; }
 .layer.disabled { opacity: 0.5; }
+.layer:hover { border-color: #3a3a46; }
+
+/* Deliberately a different class from .layer: the two lists look similar but mean entirely
+   different things, and sharing a class made the DOM ambiguous to anything selecting on it. */
+.history-entry {
+  padding: 4px 10px;
+  border-left: 2px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.history-entry:hover { color: var(--text); }
+.history-entry.current { border-left-color: var(--accent); color: var(--text); font-weight: 600; }
