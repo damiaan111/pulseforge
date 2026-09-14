@@ -94,7 +94,7 @@ a new upstream release and using it.
 
 - **Portable interpreter**, not a system Python: a `python-build-standalone` distribution unpacked into `vendor/python/`. Never touches the machine's Python, never modifies PATH, uninstalls with `rm -rf`.
 - **`uv`** as installer and resolver — fast, and produces a genuinely reproducible lockfile.
-- **Vendored wheelhouse**: setup runs `uv pip download` against a pinned lock into `vendor/wheelhouse/`, then installs with `--no-index --find-links=vendor/wheelhouse`. The wheels stay on disk, so the env can be *rebuilt* offline later, not just used offline. This is the detail that usually gets skipped and is exactly what breaks a year from now.
+- **Vendored wheelhouse**: `uv pip compile --generate-hashes --only-binary :all:` produces the committed lock (`setup/python/requirements.lock.txt`); the vendored interpreter's `pip download --require-hashes` fills `vendor/wheelhouse/` from it (uv has no download command); `uv pip install --no-index --offline --find-links=vendor/wheelhouse` installs. The wheels stay on disk, so the env can be *rebuilt* offline later, not just used offline. This is the detail that usually gets skipped and is exactly what breaks a year from now.
 - **Sidecar process, not a library**: Node spawns `vendor/python/python.exe -m pulseforge_ml …` and talks JSON-lines over stdio. The app never depends on Python being importable, and a crashed sidecar never takes the UI with it.
 - **Health check at startup**: verify interpreter, torch CUDA availability and model files; if anything is missing, say precisely what and offer to re-run setup — never silently reach out.
 
@@ -104,7 +104,7 @@ a new upstream release and using it.
 |---|---|---|---|
 | FFmpeg + FFprobe (Windows, NVENC build) | decode, encode, mux | ~120 MB | Pinned build URL + checksum. LGPL build keeps licensing clean. **Keep the downloaded archive in `vendor/`** — upstream autobuild releases get pruned, so a pinned URL alone does not guarantee a rebuild. |
 | Portable Python 3.11 | ML sidecar interpreter | ~40 MB | `python-build-standalone`, unpacked to `vendor/python/`. |
-| PyTorch (CUDA 12.x build) + deps | runs Demucs & WhisperX on the GPU | ~2.8 GB | The single biggest item. Must be the CUDA wheel, not CPU. |
+| PyTorch (CUDA build — pinned `cu130`, needs driver R580+) + deps | runs Demucs & WhisperX on the GPU | ~2.8 GB | The single biggest item. Must be the CUDA wheel, not CPU. |
 | Demucs + `htdemucs_ft` weights | stem separation (best quality) | ~1 GB | `_ft` is 4 fine-tuned models — slower, noticeably cleaner. `htdemucs` (~320 MB) as the fast option. |
 | `htdemucs_6s` weights | 6-stem: + guitar, piano | ~330 MB | Optional; trivial addition once the env exists. |
 | WhisperX + faster-whisper (CTranslate2) | lyric transcription & alignment | ~200 MB | |
