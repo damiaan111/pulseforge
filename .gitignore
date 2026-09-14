@@ -1,0 +1,47 @@
+# Provisioned by `npm run setup` — never committed (multi-GB, machine-specific)
+vendor/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+release/
+*.tsbuildinfo
+
+# Caches: analysis, stems, waveform peaks, glyph atlases, video frame caches.
+# All rebuildable by definition (PROJECT.md M33) — deleting them costs time, never data.
+cache/
+.cache/
+*.analysis.bin
+
+# Render outputs and reports
+renders/
+*.mp4
+*.mkv
+*.webm
+*.mov
+
+# Audio test material (keep the repo light; add specific fixtures with `git add -f`)
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.opus
+
+# Local settings and scratch
+.env
+.env.local
+settings.local.json
+scratch/
+tmp/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+*.swp
