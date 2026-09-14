@@ -16,7 +16,7 @@
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
-| **P3 — Studio** | 🔶 **in progress** — steps 1–2 of 5 done (see §9) |
+| **P3 — Studio** | 🔶 **in progress** — steps 1–3 of 5 done (see §9) |
 | P4 … P8 | ⬜ not started |
 
 P3 steps:
@@ -25,7 +25,7 @@ P3 steps:
 |---|---|---|---|
 | 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `cab80a0` |
 | 2 | Command/undo stack (M8) | ✅ | `59000e0` |
-| 3 | Analysis pipeline for real (M4) | ⬜ | |
+| 3 | Analysis pipeline: features, onsets, beat grid (M4) | ✅ | `TBD` |
 | 4 | Preview clock (M31) | ⬜ | |
 | 5 | React studio (ui-spec) | ⬜ | |
 
@@ -52,7 +52,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check` and `npm run golden`, then continue with §9 (P3 step 3). Keep STATUS.md updated
+run `npm run check` and `npm run golden`, then continue with §9 (P3 step 4). Keep STATUS.md updated
 and commit after each step."*
 
 ---
@@ -77,7 +77,7 @@ and commit after each step."*
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 313 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 344 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -127,9 +127,39 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
 | `modules/flash.ts` | `core.test.flash` — full-frame flash on a timeline schedule (`flashLit`) for sync measurement |
 | `engine.ts` | `createEngine(gl, {quality, output, packing})`, `renderFrame`, `readOutputSync`, `createSyncReadback`, `createReadback`; `ENGINE_VERSION = '0.1.0-p0'` |
 
-### 4.4 Analysis (`src/analysis/`)
-- FFT 2048 → 64 log bins + `bass` band at 240 Hz; `decodeMono48k` via vendored FFmpeg. `ANALYSIS_VERSION = 1`.
-- Not yet: onsets, beat grid, RMS/peak/centroid/flux, stems analysis, on-disk AnalysisCache, workers.
+### 4.4 Analysis (`src/analysis/`) — M4, P3 step 3
+| File | Contents |
+|---|---|
+| `decode.ts` | `decodeMono48k` via the vendored FFmpeg, by absolute path |
+| `fft.ts`, `spectrum.ts` | FFT 2048 → 64 log bins, named bands, **and the scalar features, all in one STFT pass** |
+| `features.ts` | `levelToUnit`, `spectralCentroid`, `spectralFlux`, windowed RMS/peak, `stereoWidth`, `detectOnsets`, `detectTempo`, `beatPulse` |
+| `analyze.ts` | `analyzeMix` — the single entry point, so the CLI, the app and the spikes produce identical numbers |
+| `container.ts` | the binary cache format (data-formats §4.2): float32 LE, JSON header, versions checked on read |
+
+- Features: `rms`, `peak`, `onset`, `beat`, `centroid`, `flux`, and `stereoWidth` when a stereo
+  decode is available. **All on one 0..1 scale** (sine-equivalent dBFS against the floor), so a
+  modulation amount means roughly the same thing wherever it is pointed.
+- Onsets are peak-picked against an **adaptive** threshold — a local mean plus a margin. A fixed
+  threshold either misses the quiet intro or fires continuously through the loud section, which
+  is why naive detectors feel broken on dynamic material. Each onset becomes a decaying impulse.
+- Tempo by autocorrelation of the onset envelope, then phase by trying every offset within one
+  beat. The grid is a **list of beat times**, not a BPM and an offset, so tempo drift is
+  representable (modulation-spec §6.1) when a drift-aware detector (S16) arrives. Confidence
+  measures how far the winning lag stands out; silence reports no grid rather than a confident
+  wrong tempo. `bpmOverride` lays the grid out without detecting.
+- Where the grid is detected is a stated choice: the drum stem when there is one, the mix
+  otherwise (PROJECT.md §8.1). Stems are not wired in yet, so today it is the mix.
+- `ANALYSIS_VERSION = 2`. The container refuses to decode a different version rather than
+  reinterpreting old numbers — that is how a stale cache survives a bug fix (data-formats §4.3).
+  No checksum: the whole cache is rebuildable (M33), so corruption costs time, never data.
+- **This unblocked the modulation sources built in P2 step 3.** `rms`, `peak`, `onset`, `beat`,
+  `centroid`, `flux` and `stereoWidth` now resolve through the same path as bands; the evaluator
+  needed no changes. Verified: golden frames byte-identical and `spike:determinism` still
+  `5f0ade89…`, so adding the features changed no existing render.
+- Not yet: **the on-disk cache directory** (`analysis/<audioHash>/<settingsHash>/`, data-formats
+  §4.1) — the container format exists but nothing writes a keyed cache tree yet; it belongs with
+  the app's cache root (M33). Also: stems analysis, sections, workers, quantisation and
+  beat-synced LFO rates (which now have a grid to use).
 
 ### 4.5 Export (`src/export/`)
 `ffmpeg-args.ts` (settings, D40 defaults, gpu-nv12/swscale, colour tags via `setparams`, bit-exact), `pump.ts`
@@ -475,9 +505,7 @@ Suggested order (each a commit, STATUS updated each time):
 
 1. ✅ **App shell** — see §4.14.
 2. ✅ **Command/undo stack** — see §4.15.
-3. **Analysis pipeline for real** (M4): onsets, beat grid, RMS/peak/centroid/flux, the on-disk
-   `AnalysisCache` (data-formats §4) and workers. This is what unblocks the modulation sources
-   already compiled and reported as unsupported (§4.10) — the evaluator needs no further work.
+3. ✅ **Analysis pipeline** — see §4.4. The on-disk cache tree is still outstanding.
 4. **Preview clock** (M31, §8.12): audio as master, drop frames but never drift.
 5. **React studio** (ui-spec): canvas, timeline, schema-generated inspector, aspect switcher.
 

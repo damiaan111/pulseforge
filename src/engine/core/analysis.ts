@@ -17,16 +17,48 @@ export interface AnalysisTrack {
   readonly data: Float32Array;
 }
 
+/**
+ * Scalar feature tracks, by name (PROJECT.md §7). A feature that was not computed — stereo
+ * width from a mono decode, say — is **absent** rather than a track of zeros, so a binding on
+ * it is reported as unavailable instead of looking like silence (data-formats §4.4).
+ */
+export const FEATURE_NAMES = ['rms', 'peak', 'onset', 'beat', 'centroid', 'flux', 'stereoWidth'] as const;
+export type FeatureName = (typeof FEATURE_NAMES)[number];
+
 export interface SourceAnalysis {
   /** Log-spaced magnitude bins, normalised to 0..1. */
   readonly spectrum: AnalysisTrack;
   /** Named band energies, normalised to 0..1. */
   readonly bands: ReadonlyMap<string, AnalysisTrack>;
+  /** Named scalar features, normalised to 0..1. */
+  readonly features: ReadonlyMap<string, AnalysisTrack>;
+}
+
+/**
+ * The beat grid (modulation-spec §6.1). A **list of beat times**, not a BPM and an offset, so
+ * tempo drift is representable: live playing slides, and a single BPM walks out of phase.
+ */
+export interface BeatGrid {
+  readonly bpm: number;
+  /** Seconds, ascending. */
+  readonly beats: readonly number[];
+  /** 0..1 — how strongly the material agreed with this tempo. */
+  readonly confidence: number;
 }
 
 export interface AnalysisSet {
   /** Per source. A missing stem is explicitly absent, never silently zero (data-formats §4.4). */
   readonly sources: ReadonlyMap<Stem, SourceAnalysis>;
+  /**
+   * One grid for the project, detected on the drum stem where there is one — dramatically more
+   * reliable than on a full mix (PROJECT.md §8.1). Absent when tempo was never detected.
+   */
+  readonly beatGrid?: BeatGrid;
+}
+
+/** Beats per second, for quantisation and synced LFO rates. Zero when there is no grid. */
+export function beatsPerSecond(grid: BeatGrid | undefined): number {
+  return grid === undefined || grid.bpm <= 0 ? 0 : grid.bpm / 60;
 }
 
 export function trackFrames(track: AnalysisTrack): number {

@@ -26,6 +26,7 @@ function analysisWith(bandValues: readonly number[], name = 'bass', stem: 'mix' 
     sources: new Map([[stem, {
       spectrum: track([]),
       bands: new Map([[name, track(bandValues)]]),
+      features: new Map(),
     }]]),
   };
 }
@@ -251,8 +252,16 @@ describe('what the compiler refuses to guess at', () => {
     expect(issues[0]?.detail).toContain('available: bass');
   });
 
-  it('reports sources that need analysis this build does not produce yet', () => {
-    for (const type of ['rms', 'onset', 'beat', 'centroid']) {
+  it('reports a feature that was not computed, naming what is available', () => {
+    // `analysisWith` produces bands but no features, which is exactly the "mono decode, so no
+    // stereoWidth" case: absent must be reported, never read as a track of zeros.
+    const issues = issuesFor(binding({ source: source({ type: 'stereoWidth' }) }));
+    expect(issues[0]?.problem).toBe('unsupported');
+    expect(issues[0]?.detail).toContain('was not computed');
+  });
+
+  it('reports sources that need work beyond analysis', () => {
+    for (const type of ['sectionIndex', 'lyricActive', 'parameter']) {
       expect(issuesFor(binding({ source: source({ type }) }))[0]?.problem).toBe('unsupported');
     }
   });
@@ -270,6 +279,37 @@ describe('what the compiler refuses to guess at', () => {
 
   it('reports a binding with no target', () => {
     expect(issuesFor(binding({ target: '' }))[0]?.problem).toBe('broken-target');
+  });
+});
+
+describe('feature sources (M4)', () => {
+  /** An analysis set with named feature tracks, as `analyzeMix` now produces. */
+  const withFeatures = (features: Record<string, readonly number[]>): AnalysisSet => ({
+    sources: new Map([['mix', {
+      spectrum: track([]),
+      bands: new Map(),
+      features: new Map(Object.entries(features).map(([name, values]) => [name, track(values)])),
+    }]]),
+  });
+
+  it('reads every feature the catalogue names through the same path as bands', () => {
+    for (const type of ['rms', 'peak', 'onset', 'beat', 'centroid', 'flux', 'stereoWidth']) {
+      const program = compile([binding({ source: source({ type }) })], withFeatures({ [type]: [0, 1] }));
+      expect(program.issues).toEqual([]);
+      expect(modulateValue(program, TARGET, 0, 1 / ANALYSIS_RATE)).toBeCloseTo(1, 5);
+    }
+  });
+
+  it('shapes a feature exactly as it shapes a band', () => {
+    const impulse = new Array(ANALYSIS_RATE * DURATION).fill(0);
+    impulse[ANALYSIS_RATE] = 1;
+    const program = compile(
+      [binding({ source: source({ type: 'onset' }), envelope: { attackMs: 0, releaseMs: 200, mode: 'peak' } })],
+      withFeatures({ onset: impulse }),
+    );
+    expect(modulateValue(program, TARGET, 0, 1)).toBeCloseTo(1, 3);
+    // The envelope holds it up afterwards rather than snapping back.
+    expect(modulateValue(program, TARGET, 0, 1.1)).toBeGreaterThan(0.4);
   });
 });
 

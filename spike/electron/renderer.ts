@@ -13,7 +13,7 @@ import { ipcRenderer } from 'electron';
 import { createEngine, type Engine } from '../../src/engine/engine.ts';
 import { hash32 } from '../../src/engine/core/prng.ts';
 import type { AnalysisSet } from '../../src/engine/core/analysis.ts';
-import { decodeAnalysis } from '../analysis-file.ts';
+import { decodeAnalysis } from '../../src/analysis/container.ts';
 import { spikeProject } from '../project.ts';
 import { runExport } from '../../src/export/job.ts';
 import type {

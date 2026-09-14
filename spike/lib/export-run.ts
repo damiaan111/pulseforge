@@ -4,8 +4,8 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { encodeAnalysis } from '../analysis-file.ts';
-import { computeSourceAnalysis, ANALYSIS_VERSION } from '../../src/analysis/spectrum.ts';
+import { encodeAnalysis } from '../../src/analysis/container.ts';
+import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import type { RenderReport } from '../../src/export/report.ts';
@@ -71,7 +71,8 @@ export class ExportRunError extends Error {
 export async function runExportSpike(options: ExportRunOptions): Promise<ExportRunSummary> {
   await mkdir(options.workDir, { recursive: true });
   const analysisFile = join(options.workDir, `${options.name}.analysis.bin`);
-  await writeFile(analysisFile, encodeAnalysis('mix', computeSourceAnalysis(options.analysisPcm), { analysisVersion: ANALYSIS_VERSION }));
+  const analysed = analyzeMix(options.analysisPcm);
+  await writeFile(analysisFile, encodeAnalysis(analysed.analysis.sources.get('mix')!, { source: 'mix', beatGrid: analysed.beatGrid }));
 
   const runs: ExportRun[] = [];
   for (let run = 1; run <= options.runs; run++) {

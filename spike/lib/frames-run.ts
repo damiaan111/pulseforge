@@ -8,10 +8,10 @@
 import { createHash } from 'node:crypto';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ANALYSIS_VERSION, DEFAULT_SPECTRUM_SETTINGS, computeSourceAnalysis } from '../../src/analysis/spectrum.ts';
+import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
-import { encodeAnalysis } from '../analysis-file.ts';
+import { encodeAnalysis } from '../../src/analysis/container.ts';
 import type { FramesConfig, SpikeFramesResult } from '../electron/protocol.ts';
 import { SPIKE_OUT, runElectron } from '../harness.ts';
 import { synthesizeTestTrack } from '../test-signal.ts';
@@ -67,9 +67,9 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
 
   const pcm = options.pcm ?? synthesizeTestTrack(2);
   const pcmSha256 = createHash('sha256').update(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)).digest('hex');
-  const analysis = computeSourceAnalysis(pcm, DEFAULT_SPECTRUM_SETTINGS);
+  const { analysis, beatGrid } = analyzeMix(pcm);
   const analysisFile = join(SPIKE_OUT, `analysis-${options.name}.bin`);
-  await writeFile(analysisFile, encodeAnalysis('mix', analysis, { pcmSha256, analysisVersion: ANALYSIS_VERSION }));
+  await writeFile(analysisFile, encodeAnalysis(analysis.sources.get('mix')!, { source: 'mix', beatGrid, meta: { pcmSha256 } }));
 
   const config: FramesConfig = {
     mode: 'frames',

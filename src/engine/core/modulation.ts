@@ -247,17 +247,44 @@ export interface ModulationProgram {
 /** Generators are already 0..1 by construction; auto-calibrating one would be meaningless. */
 const GENERATORS = new Set(['lfo', 'ramp', 'progress', 'noise']);
 
-function bandTrack(analysis: AnalysisSet, source: ModulationSource): AnalysisTrack | { error: ModulationProblem; detail: string } {
-  const stem = analysis.sources.get(source.stem as never);
-  if (stem === undefined) {
+type TrackLookup = AnalysisTrack | { error: ModulationProblem; detail: string };
+
+function sourceFor(analysis: AnalysisSet, stem: string): { spectrumOwner: NonNullable<ReturnType<AnalysisSet['sources']['get']>> } | { error: ModulationProblem; detail: string } {
+  const found = analysis.sources.get(stem as never);
+  if (found === undefined) {
     const available = [...analysis.sources.keys()].join(', ') || 'none';
-    return { error: 'missing-stem', detail: `stem "${source.stem}" has not been analysed (available: ${available}); the binding is inactive` };
+    return { error: 'missing-stem', detail: `stem "${stem}" has not been analysed (available: ${available}); the binding is inactive` };
   }
+  return { spectrumOwner: found };
+}
+
+function bandTrack(analysis: AnalysisSet, source: ModulationSource): TrackLookup {
+  const stem = sourceFor(analysis, source.stem);
+  if ('error' in stem) return stem;
   const name = source.band ?? '';
-  const track = stem.bands.get(name);
+  const track = stem.spectrumOwner.bands.get(name);
   if (track === undefined) {
-    const available = [...stem.bands.keys()].join(', ') || 'none';
+    const available = [...stem.spectrumOwner.bands.keys()].join(', ') || 'none';
     return { error: 'missing-band', detail: `band "${name}" is not in the analysis for "${source.stem}" (available: ${available}); the binding is inactive` };
+  }
+  return track;
+}
+
+/**
+ * A named scalar feature (`rms`, `onset`, `beat`, …). A feature that was not computed is
+ * **absent**, so a binding on it is reported rather than reading as a track of zeros — which
+ * would look exactly like silence and get debugged as one (data-formats §4.4).
+ */
+function featureTrack(analysis: AnalysisSet, source: ModulationSource, feature: string): TrackLookup {
+  const stem = sourceFor(analysis, source.stem);
+  if ('error' in stem) return stem;
+  const track = stem.spectrumOwner.features.get(feature);
+  if (track === undefined) {
+    const available = [...stem.spectrumOwner.features.keys()].join(', ') || 'none';
+    return {
+      error: 'unsupported',
+      detail: `"${feature}" was not computed for "${source.stem}" (available: ${available}); the binding is kept and inactive`,
+    };
   }
   return track;
 }
@@ -298,8 +325,11 @@ function rawSampler(
     case 'beat':
     case 'centroid':
     case 'flux':
-    case 'stereoWidth':
-      return { error: 'unsupported', detail: `source "${source.type}" needs analysis tracks the pipeline does not produce yet (only spectrum and bands exist); the binding is kept and inactive` };
+    case 'stereoWidth': {
+      const track = featureTrack(options.analysis, source, source.type);
+      if ('error' in track) return track;
+      return (t) => sampleTrack(track, t);
+    }
     case 'sectionIndex':
     case 'sectionProgress':
     case 'energyEnvelope':

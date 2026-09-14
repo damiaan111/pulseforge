@@ -5,10 +5,17 @@
 // floorDb..0 dB to 0..1, so a full-scale sine inside a band reads 1.0 and silence 0.
 
 import { ANALYSIS_RATE, type AnalysisTrack, type SourceAnalysis } from '../engine/core/analysis.ts';
+import {
+  detectOnsets, levelToUnit, spectralCentroid, spectralFlux, stereoWidth, windowedPeak, windowedRms,
+} from './features.ts';
 import { createFft, hannWindow } from './fft.ts';
 
-/** Part of the cache key (data-formats §4.3): bump whenever results change. */
-export const ANALYSIS_VERSION = 1;
+/**
+ * Part of the cache key (data-formats §4.3): bump whenever results change, or a stale cache
+ * survives a bug fix and produces "it's still doing the old thing" for an afternoon.
+ * v2 adds the scalar feature tracks (rms, peak, onset, centroid, flux, stereoWidth).
+ */
+export const ANALYSIS_VERSION = 2;
 export const ANALYSIS_SAMPLE_RATE = 48_000;
 
 export interface BandDefinition {
@@ -35,19 +42,32 @@ export const DEFAULT_SPECTRUM_SETTINGS: SpectrumSettings = {
   bands: [{ name: 'bass', minHz: 40, maxHz: 160 }],
 };
 
+export interface AnalysedSource extends SourceAnalysis {
+  /**
+   * Detected onset times in seconds. Not a track and not cached as one — it is the input to
+   * tempo detection, which runs once over the whole source.
+   */
+  readonly onsetTimes: readonly number[];
+}
+
+export interface SourceOptions {
+  /** The right channel, when a stereo decode is available. Enables the `stereoWidth` feature. */
+  readonly right?: Float32Array;
+  /** 0..1, from `analysisSettings.onsetSensitivity`. */
+  readonly onsetSensitivity?: number;
+}
+
 /** Frames at 240 Hz; frame k is centred on sample k · 200. */
 export function analysisFrameCount(sampleCount: number): number {
   const hop = ANALYSIS_SAMPLE_RATE / ANALYSIS_RATE;
   return sampleCount === 0 ? 0 : Math.floor((sampleCount - 1) / hop) + 1;
 }
 
-function toUnit(amplitude: number, floorDb: number): number {
-  if (!(amplitude > 0)) return 0;
-  const db = 20 * Math.log10(amplitude);
-  return Math.min(1, Math.max(0, (db - floorDb) / -floorDb));
-}
-
-export function computeSourceAnalysis(pcm: Float32Array, settings: SpectrumSettings = DEFAULT_SPECTRUM_SETTINGS): SourceAnalysis {
+export function computeSourceAnalysis(
+  pcm: Float32Array,
+  settings: SpectrumSettings = DEFAULT_SPECTRUM_SETTINGS,
+  options: SourceOptions = {},
+): AnalysedSource {
   const { fftSize, bins, minHz, maxHz, floorDb } = settings;
   const hop = ANALYSIS_SAMPLE_RATE / ANALYSIS_RATE;
   const frames = analysisFrameCount(pcm.length);
@@ -72,6 +92,15 @@ export function computeSourceAnalysis(pcm: Float32Array, settings: SpectrumSetti
 
   const spectrum = new Float32Array(frames * bins);
   const bandData = settings.bands.map(() => new Float32Array(frames));
+  // Scalar features share this one STFT pass: computing them separately would double the cost
+  // of the slowest part of analysis for no benefit.
+  const rms = new Float32Array(frames);
+  const peakTrack = new Float32Array(frames);
+  const centroid = new Float32Array(frames);
+  const flux = new Float32Array(frames);
+  const width = options.right === undefined ? undefined : new Float32Array(frames);
+  const magnitude = new Float64Array(fftSize / 2);
+  const previousMagnitude = new Float64Array(fftSize / 2);
   // A windowed sine of amplitude A peaks at |X| = A·N/4; its positive-half power sums to 3A²N²/32.
   const peakToAmplitude = 4 / fftSize;
   const powerToAmplitude = 32 / (3 * fftSize * fftSize);
@@ -89,6 +118,22 @@ export function computeSourceAnalysis(pcm: Float32Array, settings: SpectrumSetti
       const r = re[i] ?? 0;
       const m = im[i] ?? 0;
       power[i] = r * r + m * m;
+      magnitude[i] = Math.sqrt(power[i] as number);
+    }
+
+    // Levels: RMS over the analysis window (smooth), peak over one hop (fast enough to catch a
+    // transient the RMS window would average away).
+    rms[k] = levelToUnit(windowedRms(pcm, centre, fftSize), floorDb);
+    peakTrack[k] = levelToUnit(windowedPeak(pcm, centre, hop * 2), floorDb);
+    centroid[k] = spectralCentroid(power, binHz, minHz, maxHz);
+    // Flux is a sum of magnitude *rises* across bins; scaling it per bin and through the same
+    // dBFS mapping as the levels keeps every source on one comparable 0..1 scale.
+    flux[k] = k === 0
+      ? 0
+      : levelToUnit((spectralFlux(magnitude, previousMagnitude) * peakToAmplitude) / Math.sqrt(fftSize / 2), floorDb);
+    previousMagnitude.set(magnitude);
+    if (width !== undefined && options.right !== undefined) {
+      width[k] = stereoWidth(pcm, options.right, centre, fftSize);
     }
 
     for (let b = 0; b < bins; b++) {
@@ -106,14 +151,14 @@ export function computeSourceAnalysis(pcm: Float32Array, settings: SpectrumSetti
         const p1 = Math.sqrt(power[i1] ?? 0);
         peak = (p0 + (p1 - p0) * (x - i0)) ** 2;
       }
-      spectrum[k * bins + b] = toUnit(Math.sqrt(peak) * peakToAmplitude, floorDb);
+      spectrum[k * bins + b] = levelToUnit(Math.sqrt(peak) * peakToAmplitude, floorDb);
     }
 
     bandRanges.forEach((range, index) => {
       let sum = 0;
       for (let i = range.lo; i <= range.hi; i++) sum += power[i] ?? 0;
       const data = bandData[index];
-      if (data !== undefined) data[k] = toUnit(Math.sqrt(sum * powerToAmplitude), floorDb);
+      if (data !== undefined) data[k] = levelToUnit(Math.sqrt(sum * powerToAmplitude), floorDb);
     });
   }
 
@@ -122,5 +167,19 @@ export function computeSourceAnalysis(pcm: Float32Array, settings: SpectrumSetti
     const data = bandData[index];
     if (data !== undefined) bands.set(band.name, { rate: ANALYSIS_RATE, channels: 1, data });
   });
-  return { spectrum: { rate: ANALYSIS_RATE, channels: bins, data: spectrum }, bands };
+
+  const track = (data: Float32Array): AnalysisTrack => ({ rate: ANALYSIS_RATE, channels: 1, data });
+  const onsets = detectOnsets(flux, { rate: ANALYSIS_RATE, sensitivity: options.onsetSensitivity ?? 0.5 });
+  const features = new Map<string, AnalysisTrack>([
+    ['rms', track(rms)],
+    ['peak', track(peakTrack)],
+    ['centroid', track(centroid)],
+    ['flux', track(flux)],
+    ['onset', track(onsets.strength)],
+  ]);
+  // Absent, not zero: a binding on stereo width with a mono decode must be reported, not
+  // silently read as "perfectly mono".
+  if (width !== undefined) features.set('stereoWidth', track(width));
+
+  return { spectrum: { rate: ANALYSIS_RATE, channels: bins, data: spectrum }, bands, features, onsetTimes: onsets.times };
 }

@@ -6,10 +6,10 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ANALYSIS_VERSION, DEFAULT_SPECTRUM_SETTINGS, computeSourceAnalysis } from '../../src/analysis/spectrum.ts';
+import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import { FFMPEG_EXE } from '../../setup/lib/paths.ts';
-import { encodeAnalysis } from '../analysis-file.ts';
+import { encodeAnalysis } from '../../src/analysis/container.ts';
 import type { DeterminismConfig, PassResult, SpikeRenderResult } from '../electron/protocol.ts';
 import { SPIKE_OUT, median, runElectron } from '../harness.ts';
 
@@ -63,10 +63,10 @@ export async function runDeterminismSpike(options: DeterminismOptions): Promise<
 
   const pcmSha256 = createHash('sha256').update(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)).digest('hex');
   const analysisStart = performance.now();
-  const analysis = computeSourceAnalysis(pcm, DEFAULT_SPECTRUM_SETTINGS);
+  const { analysis, beatGrid } = analyzeMix(pcm);
   const analysisMs = performance.now() - analysisStart;
   const analysisFile = join(SPIKE_OUT, 'analysis.bin');
-  await writeFile(analysisFile, encodeAnalysis('mix', analysis, { pcmSha256, analysisVersion: ANALYSIS_VERSION }));
+  await writeFile(analysisFile, encodeAnalysis(analysis.sources.get('mix')!, { source: 'mix', beatGrid, meta: { pcmSha256 } }));
 
   const dumpFrames = options.writeStills ? [0, Math.floor(frameCount / 2), frameCount - 1].filter((f, i, all) => f >= 0 && all.indexOf(f) === i) : [];
   const runs: SpikeRenderResult[] = [];
