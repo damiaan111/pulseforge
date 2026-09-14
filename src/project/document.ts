@@ -248,6 +248,20 @@ export interface SourceSpec {
   readonly type: string;
   /** mix | drums | bass | vocals | other (+ guitar | piano on the 6-stem model). */
   readonly stem: string;
+  /** `band`: which analysed band. Null uses the module's or the binding's default. */
+  readonly band: string | null;
+  /** `lfo`: sine | triangle | saw | square | noise | sample-hold. */
+  readonly shape: string;
+  readonly rateHz: number;
+  readonly phase: number;
+  /** `lfo`: beats per cycle, locking the rate to the grid instead of to `rateHz`. */
+  readonly syncDivision: number | null;
+  /** `noise`: cycles per second of the underlying value noise, and how many octaves. */
+  readonly noiseScale: number;
+  readonly octaves: number;
+  /** `ramp`: the value at the start and at the end of the track. */
+  readonly from: number;
+  readonly to: number;
   readonly extra: Extra;
 }
 
@@ -290,7 +304,11 @@ export interface ModulationBinding {
   readonly curve: CurveSpec;
   readonly envelope: EnvelopeSpec;
   readonly quantise: QuantiseSpec | null;
-  /** Negative anticipates the event; the default compensates detection lag (D23). */
+  /**
+   * Sampling offset: positive looks ahead and compensates detection lag so hits land on the
+   * beat; negative delays the reaction. See the note on `ModulationBinding.lookAheadMs` in
+   * `src/engine/core/modulation.ts` about D23's opposite sign convention.
+   */
   readonly lookAheadMs: number;
   readonly amount: number;
   readonly offset: number;
@@ -309,8 +327,12 @@ export interface ModulationBinding {
 
 export const DEFAULT_ENVELOPE: EnvelopeSpec = { attackMs: 5, releaseMs: 120, mode: 'peak', extra: {} };
 export const DEFAULT_CURVE: CurveSpec = { type: 'linear', amount: 0, extra: {} };
-/** D23: −30 ms so hits land on the beat rather than behind it. */
-export const DEFAULT_LOOK_AHEAD_MS = -30;
+/**
+ * D23: 30 ms of lag compensation, so hits land on the beat rather than behind it. D23 writes
+ * this as "−30 ms"; with modulation-spec §4's `source(t + lookAhead)` the sign has to be
+ * positive to produce the behaviour D23 describes. See `ModulationBinding.lookAheadMs`.
+ */
+export const DEFAULT_LOOK_AHEAD_MS = 30;
 
 // ---------------------------------------------------------------------------
 // The document

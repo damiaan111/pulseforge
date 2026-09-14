@@ -148,3 +148,64 @@ describe.skipIf(!available)('layer transforms on the GPU', () => {
     expect(halfScale.sha256).not.toBe(identity.sha256);
   });
 });
+
+/**
+ * The property the whole modulation design exists to protect (modulation-spec §5): the value
+ * at a frame must not depend on how that frame was reached. Checked here through the real
+ * pipeline — compiled program cache, engine, compositor, readback — not just the evaluator.
+ */
+describe.skipIf(!available)('modulation is order-independent on the GPU', () => {
+  const FRAMES = [0, 17, 42, 80];
+
+  function modulated(): RenderProject {
+    return {
+      schemaVersion: 0,
+      seed: 1337,
+      durationTicks: 48_000 * 2,
+      canvas: { width: 320, height: 180, fps: rational(60), background: '#0b0614' },
+      audio: { leadInTicks: 0, clipInTicks: 0 },
+      layers: [{
+        id: 'bars',
+        module: 'core.visualizer.bars',
+        enabled: true,
+        opacity: 1,
+        blend: 'normal',
+        params: { source: 'mix', barCount: 32, maxHeight: 0.3 },
+        modulations: [{
+          id: 'M1',
+          enabled: true,
+          // A band binding with a real envelope: the stateful-filter bug would show up here.
+          source: { type: 'band', stem: 'mix', band: 'bass' },
+          target: 'layers.bars.params.maxHeight',
+          inputRange: 'auto',
+          curve: { type: 's-curve', amount: 0.6 },
+          envelope: { attackMs: 5, releaseMs: 250, mode: 'peak' },
+          quantise: null,
+          lookAheadMs: 30,
+          amount: 0.5,
+          offset: 0,
+          invert: false,
+          mode: 'add',
+          order: 0,
+          clampOutput: null,
+        }],
+      }],
+    };
+  }
+
+  it('gives the same frame whether reached in order or jumped to', async () => {
+    await bundleElectron();
+    const [forwards, shuffled] = await Promise.all([
+      renderFrames({ name: 'mod-forwards', project: modulated(), frames: FRAMES }),
+      renderFrames({ name: 'mod-shuffled', project: modulated(), frames: [...FRAMES].reverse() }),
+    ]);
+    expect(forwards.warnings).toEqual([]);
+
+    const byIndex = (run: { frames: readonly RenderedFrame[] }) =>
+      Object.fromEntries(run.frames.map((f) => [f.frameIndex, f.sha256]));
+    expect(byIndex(shuffled)).toEqual(byIndex(forwards));
+
+    // And the modulation is actually doing something — otherwise the check above is vacuous.
+    expect(new Set(forwards.frames.map((f) => f.sha256)).size).toBe(FRAMES.length);
+  }, 180_000);
+});

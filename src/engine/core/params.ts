@@ -1,8 +1,18 @@
-// Parameter schema and value resolution (module-spec §3, §5) — the P0 subset.
+// Parameter schema and value resolution (module-spec §3, §5).
 //
-// Resolution order is fixed: base → aspect override → automation → modulation → clamp →
-// type coercion. P0 implements base, clamp and coercion; the other stages slot in between
-// without changing this function's contract.
+// The order is fixed, and every subsystem must agree on it or the inspector, the preview and
+// the export disagree:
+//
+//   1. base            stored in the project
+//   2. aspect override applied upstream, in src/project/snapshot.ts (it is per-canvas)
+//   3. automation      keyframes REPLACE the result of 1–2  — reserved (S1), not implemented
+//   4. modulation      bindings applied in order            — `options.modulate`
+//   5. clamp           to [min, max], ONCE, at the end
+//   6. type coercion   int rounding, bool/enum thresholds
+//
+// Clamping at the end is the subtle one: intermediate values may legally exceed the range, so
+// a `multiply` after an `add` behaves the same wherever the base happened to sit relative to
+// the limit. Clamping early makes that silently depend on the base value.
 //
 // Nothing is silently dropped (CLAUDE.md constraint 4): unknown keys are preserved and
 // reported, and values of the wrong type are reported before falling back to the default.
@@ -82,7 +92,8 @@ export interface ResolvedParams {
   readonly issues: readonly ParamIssue[];
 }
 
-function resolveOne(spec: ParamSpec, stored: unknown, issues: ParamIssue[]): ParamValue {
+/** Step 1: the stored value, type-checked but deliberately not yet clamped. */
+function baseValue(spec: ParamSpec, stored: unknown, issues: ParamIssue[]): ParamValue {
   if (stored === undefined) return spec.default;
   const wrongType = (expected: string): ParamValue => {
     issues.push({ key: spec.key, problem: 'wrong-type', detail: `expected ${expected}, got ${JSON.stringify(stored)}; using default` });
@@ -90,14 +101,10 @@ function resolveOne(spec: ParamSpec, stored: unknown, issues: ParamIssue[]): Par
   };
 
   switch (spec.type) {
-    case 'float': {
-      if (typeof stored !== 'number' || !Number.isFinite(stored)) return wrongType('a finite number');
-      return Math.min(spec.max, Math.max(spec.min, stored));
-    }
+    case 'float':
     case 'int': {
       if (typeof stored !== 'number' || !Number.isFinite(stored)) return wrongType('a finite number');
-      // Clamp, then coerce (module-spec §5 steps 5–6).
-      return Math.round(Math.min(spec.max, Math.max(spec.min, stored)));
+      return stored;
     }
     case 'bool':
       return typeof stored === 'boolean' ? stored : wrongType('a boolean');
@@ -125,11 +132,79 @@ function resolveOne(spec: ParamSpec, stored: unknown, issues: ParamIssue[]): Par
   }
 }
 
-export function resolveParams(schema: readonly ParamSpec[], stored: Readonly<Record<string, unknown>>): ResolvedParams {
+/**
+ * Steps 5–6: clamp once, then coerce to the type. Separate from step 1 so modulation can ride
+ * on an unclamped base and only the final value is bounded.
+ */
+function clampAndCoerce(spec: ParamSpec, value: ParamValue): ParamValue {
+  switch (spec.type) {
+    case 'float':
+      return Math.min(spec.max, Math.max(spec.min, value as number));
+    case 'int':
+      return Math.round(Math.min(spec.max, Math.max(spec.min, value as number)));
+    default:
+      return value;
+  }
+}
+
+/**
+ * Modulating a discrete parameter (D25, "allowed, marked advanced"). The modulated value is a
+ * number, so each type needs a stated rule rather than an implicit cast:
+ *  - bool: false/true become 0/1, and anything at or above 0.5 comes back true.
+ *  - enum: the option *index* is modulated, then rounded and clamped to the option list.
+ * Colours and stem pickers have no meaningful numeric axis and are left alone, reported.
+ */
+function modulateDiscrete(spec: ParamSpec, value: ParamValue, modulate: (base: number) => number, issues: ParamIssue[]): ParamValue {
+  switch (spec.type) {
+    case 'float':
+    case 'int':
+      return modulate(value as number);
+    case 'bool':
+      return modulate(value === true ? 1 : 0) >= 0.5;
+    case 'enum': {
+      const index = spec.options.findIndex((o) => o.value === value);
+      const modulated = Math.round(modulate(index < 0 ? 0 : index));
+      const clamped = Math.min(spec.options.length - 1, Math.max(0, modulated));
+      return spec.options[clamped]?.value ?? spec.default;
+    }
+    default:
+      issues.push({
+        key: spec.key,
+        problem: 'invalid-value',
+        detail: `a ${spec.type} parameter has no numeric axis to modulate; the binding is kept and has no effect`,
+      });
+      return value;
+  }
+}
+
+export interface ResolveOptions {
+  /**
+   * Step 4. Given a parameter key and its base value, returns the modulated value —
+   * unclamped, because clamping happens once afterwards. Omit for an unmodulated resolve.
+   */
+  readonly modulate?: (key: string, base: number) => number;
+  /** Keys that actually carry a binding, so unmodulated parameters skip the call entirely. */
+  readonly modulated?: ReadonlySet<string>;
+}
+
+export function resolveParams(
+  schema: readonly ParamSpec[],
+  stored: Readonly<Record<string, unknown>>,
+  options: ResolveOptions = {},
+): ResolvedParams {
   const issues: ParamIssue[] = [];
   const values: Record<string, ParamValue> = {};
   for (const spec of schema) {
-    values[spec.key] = resolveOne(spec, stored[spec.key], issues);
+    let value = baseValue(spec, stored[spec.key], issues);
+    const { modulate, modulated } = options;
+    if (modulate !== undefined && (modulated === undefined || modulated.has(spec.key))) {
+      if (spec.modulatable === false) {
+        issues.push({ key: spec.key, problem: 'invalid-value', detail: 'this parameter is declared non-modulatable; the binding is kept and has no effect' });
+      } else {
+        value = modulateDiscrete(spec, value, (base) => modulate(spec.key, base), issues);
+      }
+    }
+    values[spec.key] = clampAndCoerce(spec, value);
   }
   const declared = new Set(schema.map((s) => s.key));
   const unknown: Record<string, unknown> = {};

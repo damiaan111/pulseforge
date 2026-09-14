@@ -86,7 +86,7 @@
           "curve": { "type": "s-curve", "amount": 0.5 },
           "envelope": { "attackMs": 2, "releaseMs": 250, "mode": "peak" },
           "quantise": null,
-          "lookAheadMs": -30,
+          "lookAheadMs": 30,
           "amount": 1.8,
           "offset": 0,
           "invert": false,

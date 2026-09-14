@@ -168,6 +168,7 @@ export interface CreateBindingOptions {
   readonly id?: string;
   readonly sourceType?: string;
   readonly stem?: string;
+  readonly band?: string;
   readonly amount?: number;
   readonly mode?: ModulationBinding['mode'];
   readonly order?: number;
@@ -178,7 +179,20 @@ export function createBinding(target: string, options: CreateBindingOptions = {}
     id: options.id ?? newId(),
     enabled: true,
     label: null,
-    source: { type: options.sourceType ?? 'band', stem: options.stem ?? 'mix', extra: {} },
+    source: {
+      type: options.sourceType ?? 'band',
+      stem: options.stem ?? 'mix',
+      band: options.band ?? null,
+      shape: 'sine',
+      rateHz: 1,
+      phase: 0,
+      syncDivision: null,
+      noiseScale: 1,
+      octaves: 1,
+      from: 0,
+      to: 1,
+      extra: {},
+    },
     target,
     // Auto-calibration is the default because a fixed 0..1 range barely moves on real,
     // compressed material (modulation-spec §7).

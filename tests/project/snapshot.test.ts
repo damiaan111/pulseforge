@@ -68,7 +68,20 @@ describe('toRenderProject', () => {
     const { notes } = toRenderProject(fixtureDocument());
     const text = notes.map((n) => n.detail).join('\n');
     expect(text).toContain('effect(s) are not yet applied');
-    expect(text).toContain('modulation binding(s) are not yet evaluated');
+  });
+
+  it('carries modulation bindings and the timeline duration into the snapshot', () => {
+    const { project } = toRenderProject(fixtureDocument());
+    const bindings = project.layers[0]?.modulations;
+    expect(bindings).toHaveLength(1);
+    expect(bindings?.[0]).toMatchObject({
+      id: '0000000000M000000000000001',
+      target: 'layers.0000000000K000000000000001.params.glow',
+      source: { type: 'onset', stem: 'drums' },
+      mode: 'add',
+    });
+    // The evaluator needs the duration for `progress`, `ramp` and auto-calibration.
+    expect(project.durationTicks).toBe(timelineDurationTicks(fixtureDocument()));
   });
 
   it('carries the layer transform through, with the aspect override applied', () => {

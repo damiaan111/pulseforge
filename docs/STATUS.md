@@ -2,7 +2,7 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–2 (project document, layout & aspect) done**.
+> Last updated: 2026-09-14 — P0 complete; **P2 steps 1–3 (document, layout, modulation) done**.
 
 ---
 
@@ -13,7 +13,7 @@
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
-| **P2 — Engine** | 🔶 **in progress** — steps 1–2 of 6 done (see §8) |
+| **P2 — Engine** | 🔶 **in progress** — steps 1–3 of 6 done (see §8) |
 | P3 … P8 | ⬜ not started |
 
 P2 steps:
@@ -21,8 +21,8 @@ P2 steps:
 | # | Step | State | Commit |
 |---|---|---|---|
 | 1 | Project document v1: schema, parse, migrate, serialise, `toRenderProject` | ✅ | `ce8b68f` |
-| 2 | Layout & aspect system | ✅ | `TBD` |
-| 3 | Param resolution + modulation evaluator | ⬜ | |
+| 2 | Layout & aspect system | ✅ | `830bea9` |
+| 3 | Param resolution + modulation evaluator | ✅ | `TBD` |
 | 4 | Effect chain contract + bloom/vignette | ⬜ | |
 | 5 | Golden frames | ⬜ | |
 | 6 | Headless render CLI | ⬜ | |
@@ -39,7 +39,7 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check`, then continue with §8 (P2 step 3). Keep STATUS.md updated and commit after each step."*
+run `npm run check`, then continue with §8 (P2 step 4). Keep STATUS.md updated and commit after each step."*
 
 ---
 
@@ -60,7 +60,7 @@ run `npm run check`, then continue with §8 (P2 step 3). Keep STATUS.md updated 
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 182 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 224 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
@@ -88,8 +88,10 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
 | `core/time.ts` | rational fps, 48 kHz ticks, `frameCount`, `frameTimeSeconds`, `frameStartTick`, `timelineToSourceSeconds` |
 | `core/prng.ts` | keyed `hash32`/`random01`/`createPrng` + `HASH_GLSL` (outputs pinned by snapshot) |
 | `core/color.ts` | transfer functions, hex, premultiply, D48 tone shoulder (`TONEMAP_KNEE = 0.9`) + `COLOR_GLSL` |
-| `core/params.ts` | param schema subset + `resolveParams` |
+| `core/params.ts` | param schema + `resolveParams` (full module-spec §5 order: base → modulation → clamp → coerce) |
 | `core/analysis.ts` | analysis tracks and sampling |
+| `core/layout.ts` | anchors, scale references, layer transform matrix (§4.8) |
+| `core/modulation.ts` | binding compilation, precomputed envelopes, signal chain, accumulation (§4.10) |
 | `core/module.ts`, `core/project.ts` | module contract; `RenderProject` P0 snapshot |
 | `render/gl.ts` | context requirements + `ContextInfo` (renderer, versions, limits, extensions), shader errors with source lines |
 | `render/targets.ts` | pooled `rgba16f` / `rgba8` / `rgb10a2` targets |
@@ -162,6 +164,42 @@ Verified on the GPU by `tests/golden/layout-gpu.test.ts` (Electron + the new `fr
 `spike/lib/frames-run.ts`): orientation, centre-anchored scale, top-left anchor, and no edge
 smearing, checked against the test pattern's known patch positions. Skipped where Electron is absent.
 
+### 4.10 Modulation & value resolution (P2 step 3)
+`src/engine/core/modulation.ts` — the full signal chain of modulation-spec §4, with the
+determinism trap designed out rather than managed:
+
+- **Envelopes are precomputed, never accumulated.** `compileModulation` walks the whole track at
+  240 Hz and builds each binding's smoothed signal as a derived track; render time is a
+  sample-and-interpolate. A per-frame one-pole filter would make a seek and a playthrough
+  disagree on some frames only — the most expensive bug this project could have.
+- Identical `(source, range, curve, envelope, look-ahead)` share one derived track (D22).
+- Compilation is cached in the engine on `(project, analysis)` **object identity** — sound
+  because a `RenderProject` is an immutable snapshot — so the track walk never runs per frame.
+- Sources implemented: `band`, `progress`, `ramp`, `lfo` (sine/triangle/saw/square/noise/
+  sample-hold), `noise`. Everything else (`rms`, `onset`, `beat`, `centroid`, `flux`, structural,
+  lyric, `parameter` chaining, beat-synced LFO, quantisation) is **reported as unsupported and the
+  binding kept inactive** — they need analysis tracks or a beat grid that `src/analysis/` does not
+  produce yet (§4.4), not modulation work.
+- Curves: linear, exp/pow, log, s-curve, threshold, stepped. The `amount` mapping per curve is
+  part of every project's appearance and is pinned by tests.
+- Auto-calibration (§7): p10 → 0, p90 → 1 across the track. Generators skip it — they are already
+  0..1, and calibrating an LFO is meaningless.
+- Accumulation (§9): explicit `order`, id as tie-break so the document's array order never
+  matters; `multiply` is `acc *= (1 + out)` (D21); `replace` ends the chain.
+- Randomness is `hash(seed, bindingId, eventIndex)` keyed on the cycle number, never a counter.
+
+`src/engine/core/params.ts` now implements the whole of module-spec §5: base → (aspect override,
+applied in `snapshot.ts`) → automation (reserved, S1) → modulation → **clamp once at the end** →
+coerce. Clamping moved to the end deliberately: an intermediate may legally exceed the range, so
+`multiply` after `add` no longer behaves differently depending on where the base sat. Discrete
+targets follow D25 — bool thresholds at 0.5, enums modulate by option index; colour and stem
+params report that they have no numeric axis rather than guessing.
+
+GPU-verified in `tests/golden/layout-gpu.test.ts`: a band-driven, enveloped binding renders
+byte-identical frames whether the frames are reached in order or jumped to, and the frames do
+differ from each other (so the check is not vacuous). `npm run spike:determinism` still produces
+hash `5f0ade89…` — the unmodulated path is byte-for-byte unchanged from P0.
+
 ### 4.9 Spike and validation harness (`spike/`)
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
@@ -190,6 +228,16 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - **D40** CQ values unchanged pending real-footage quality checks; HEVC is faster than H.264 at 4K.
 - uv has no download command → pip fills the wheelhouse. torch on `cu130` (driver R580+).
 - FFmpeg 8 needs `setparams` to keep colour tags on filtered frames.
+- **D23's look-ahead sign is inconsistent with modulation-spec §4 — flagged for the owner.**
+  §4 step 1 samples `source(t + lookAhead)`, so a *positive* offset is what lets a binding see an
+  event early and cancel detection lag. D23 states the default as "−30 ms lag compensation";
+  applied literally to §4's formula that samples *earlier* audio and makes the lag worse. The
+  behaviour D23 asks for is what is implemented (hits land on the beat), so the stored default is
+  **+30 ms** and positive means "looks ahead". If the field should instead be named and stored as
+  a lag (negative = compensation), that is a one-line change plus a migration — say so and it
+  will be changed. Nothing else in the system depends on the sign.
+- Envelope `mode: linear` is specified only as "symmetric smoothing"; implemented as a single
+  time constant of `(attack + release) / 2`, so switching modes does not jump.
 
 ---
 
@@ -225,9 +273,7 @@ Suggested order (each a commit, STATUS updated each time):
 
 1. ✅ **Project document v1** (`src/project/`) — see §4.7. 47 tests in `tests/project/`.
 2. ✅ **Layout & aspect system** — see §4.8. GPU-verified in `tests/golden/layout-gpu.test.ts`.
-3. **Param resolution pipeline complete** (module-spec §5): base → aspect override → (automation slot) →
-   modulation → clamp → coerce, with the modulation evaluator (modulation-spec §4–§9: precomputed envelopes,
-   curves, look-ahead, accumulation) in `src/engine/core/modulation.ts`, CPU-tested.
+3. ✅ **Param resolution + modulation evaluator** — see §4.10.
 4. **Effect chain contract + first effects** (module-spec §8, compositor-spec §4): scratch targets, padding,
    bloom and vignette as the first two.
 5. **Golden frames** (export-spec §16): `tests/golden/` references generated on this machine from JSON projects at

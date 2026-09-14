@@ -11,8 +11,12 @@
 // that surfaces them tells the user exactly what is missing and why.
 
 import { isIdentityTransform, type LayerTransform } from '../engine/core/layout.ts';
+import type { ModulationBinding } from '../engine/core/modulation.ts';
 import type { BlendMode, LayerSpec, RenderProject } from '../engine/core/project.ts';
-import { aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer, type ProjectDocument } from './document.ts';
+import {
+  aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer,
+  type ModulationBinding as DocumentBinding, type ProjectDocument,
+} from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
 export interface SnapshotNote {
@@ -29,6 +33,46 @@ export interface SnapshotResult {
 
 /** Blend modes the compositor implements today; the rest fall back to `normal` with a note. */
 const ENGINE_BLEND_MODES: readonly BlendMode[] = ['normal', 'add', 'screen'];
+
+/**
+ * Document binding → engine binding. The two are deliberately separate types: the engine may
+ * not import `src/project/`, and the document's `extra` bags have no meaning past this point.
+ * A source the engine does not recognise still arrives intact and is reported by the compiler.
+ */
+function toEngineBinding(binding: DocumentBinding): ModulationBinding {
+  const { source } = binding;
+  return {
+    id: binding.id,
+    enabled: binding.enabled,
+    source: {
+      type: source.type,
+      stem: source.stem,
+      band: source.band,
+      shape: source.shape,
+      rateHz: source.rateHz,
+      phase: source.phase,
+      syncDivision: source.syncDivision,
+      noiseScale: source.noiseScale,
+      octaves: source.octaves,
+      from: source.from,
+      to: source.to,
+    },
+    target: binding.target,
+    inputRange: binding.inputRange,
+    curve: { type: binding.curve.type, amount: binding.curve.amount },
+    envelope: { attackMs: binding.envelope.attackMs, releaseMs: binding.envelope.releaseMs, mode: binding.envelope.mode },
+    quantise: binding.quantise === null
+      ? null
+      : { division: binding.quantise.division, mode: binding.quantise.mode, swing: binding.quantise.swing, humanise: binding.quantise.humanise },
+    lookAheadMs: binding.lookAheadMs,
+    amount: binding.amount,
+    offset: binding.offset,
+    invert: binding.invert,
+    mode: binding.mode,
+    order: binding.order,
+    clampOutput: binding.clampOutput,
+  };
+}
 
 /**
  * Base → aspect override, step 2 of the value resolution pipeline (module-spec §5). The
@@ -83,9 +127,6 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     if (layer.effects.length > 0) {
       notes.push({ path, detail: `${layer.effects.length} effect(s) are not yet applied (P2 step 4)` });
     }
-    if (layer.modulations.length > 0) {
-      notes.push({ path, detail: `${layer.modulations.length} modulation binding(s) are not yet evaluated (P2 step 3)` });
-    }
     if (layer.maskLayerId !== null) {
       notes.push({ path, detail: 'masking (S7) is not implemented; the layer renders unmasked' });
     }
@@ -105,14 +146,12 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       params: resolveParams(layer, override),
       timeRange: { inTicks: layer.timeRange.inTicks, outTicks: layer.timeRange.outTicks },
       transform: resolveTransform(layer, override),
+      modulations: layer.modulations.map(toEngineBinding),
     });
   }
 
   if (document.globalEffects.length > 0) {
     notes.push({ path: 'globalEffects', detail: `${document.globalEffects.length} global effect(s) are not yet applied (P2 step 4)` });
-  }
-  if (document.globalModulations.length > 0) {
-    notes.push({ path: 'globalModulations', detail: `${document.globalModulations.length} global modulation binding(s) are not yet evaluated (P2 step 3)` });
   }
 
   const project: RenderProject = {
@@ -129,6 +168,8 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       clipInTicks: document.audio.clipInTicks,
     },
     layers,
+    durationTicks: timelineDurationTicks(document),
+    globalModulations: document.globalModulations.map(toEngineBinding),
   };
 
   return { project, notes, aspect };

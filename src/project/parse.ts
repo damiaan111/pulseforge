@@ -377,6 +377,15 @@ function parseSource(node: Node): SourceSpec {
     // round-trip here rather than being reset to `band` (modulation-spec §2).
     type: s.str('type', 'band'),
     stem: s.str('stem', 'mix'),
+    band: s.nullableStr('band'),
+    shape: s.str('shape', 'sine'),
+    rateHz: s.num('rateHz', 1, { min: 0 }),
+    phase: s.num('phase', 0),
+    syncDivision: s.nullableNum('syncDivision', { min: 0 }),
+    noiseScale: s.num('noiseScale', 1, { min: 0 }),
+    octaves: s.num('octaves', 1, { integer: true, min: 1, max: 8 }),
+    from: s.num('from', 0),
+    to: s.num('to', 1),
     extra: s.rest(),
   };
 }

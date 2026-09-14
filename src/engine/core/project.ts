@@ -3,6 +3,7 @@
 // ever sees an immutable snapshot like this one.
 
 import type { LayerTransform } from './layout.ts';
+import type { ModulationBinding } from './modulation.ts';
 import type { Rational } from './time.ts';
 
 export type BlendMode = 'normal' | 'add' | 'screen';
@@ -30,6 +31,8 @@ export interface LayerSpec {
    * identity transform, which composites 1:1 — the path P0 projects take.
    */
   readonly transform?: LayerTransform;
+  /** Bindings targeting this layer's parameters (modulation-spec §1). */
+  readonly modulations?: readonly ModulationBinding[];
 }
 
 /** Frame-start-tick membership; the one place the range rule is spelled out. */
@@ -57,4 +60,12 @@ export interface RenderProject {
   };
   /** Bottom → top. */
   readonly layers: readonly LayerSpec[];
+  /**
+   * Timeline length. Modulation needs it: `progress` and `ramp` are fractions of it, and
+   * auto-calibration and precomputed envelopes are computed across it (modulation-spec §5, §7).
+   * Absent means "unknown", which leaves those sources at their start value.
+   */
+  readonly durationTicks?: number;
+  /** Bindings targeting the global effect chain. */
+  readonly globalModulations?: readonly ModulationBinding[];
 }

@@ -9,10 +9,13 @@ import type { ModuleDefinition, ModuleInstance, RenderContext } from './core/mod
 import {
   IDENTITY_LAYER_TRANSFORM, isIdentityTransform, layerMatrix, referenceLength, type Mat3,
 } from './core/layout.ts';
+import {
+  compileModulation, modulateValue, type ModulationIssue, type ModulationProgram,
+} from './core/modulation.ts';
 import { resolveParams, type ParamIssue } from './core/params.ts';
 import { createPrng, hash32 } from './core/prng.ts';
 import { layerIsLive, type RenderProject } from './core/project.ts';
-import { frameStartTick, frameTimeSeconds, timelineToSourceSeconds } from './core/time.ts';
+import { frameStartTick, frameTimeSeconds, ticksToSeconds, timelineToSourceSeconds } from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
 import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
 import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
@@ -43,6 +46,12 @@ export interface FrameReport {
   readonly t: number;
   readonly warnings: readonly string[];
   readonly paramIssues: readonly { readonly layerId: string; readonly issues: readonly ParamIssue[] }[];
+  /**
+   * Problems found when the project's bindings were compiled — a source this build cannot
+   * evaluate, a stem that was never analysed. Per project, not per frame, but repeated on
+   * every frame report so a caller that only looks at one frame still sees them.
+   */
+  readonly modulationIssues: readonly ModulationIssue[];
 }
 
 /** Non-blocking readback of rendered frames, oldest first (export-spec §4.2). */
@@ -107,6 +116,30 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
   let output: RenderTarget | undefined;
 
+  /**
+   * Compiling walks the whole track to precompute envelopes and percentile ranges, so it must
+   * not happen per frame. A RenderProject is an immutable snapshot, so identity is a sound
+   * cache key: a changed project is a different object.
+   */
+  let compiled: { project: RenderProject; analysis: AnalysisSet; program: ModulationProgram } | undefined;
+  function programFor(project: RenderProject, analysis: AnalysisSet): ModulationProgram {
+    if (compiled !== undefined && compiled.project === project && compiled.analysis === analysis) {
+      return compiled.program;
+    }
+    const bindings = [
+      ...project.layers.flatMap((layer) => layer.modulations ?? []),
+      ...(project.globalModulations ?? []),
+    ];
+    const program = compileModulation({
+      bindings,
+      analysis,
+      durationSeconds: ticksToSeconds(project.durationTicks ?? 0),
+      seed: project.seed,
+    });
+    compiled = { project, analysis, program };
+    return program;
+  }
+
   function instanceFor(layerId: string, definition: ModuleDefinition): ModuleInstance {
     const existing = instances.get(layerId);
     if (existing !== undefined && existing.moduleId === definition.manifest.id) return existing.instance;
@@ -165,6 +198,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         warn: (message: string) => warnings.push(message),
       };
 
+      const program = programFor(project, analysis);
       const tick = frameStartTick(frameIndex, fps);
       const layers: CompositeLayer[] = [];
       for (const layer of project.layers) {
@@ -176,7 +210,16 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
           continue;
         }
-        const resolved = resolveParams(definition.manifest.params, layer.params);
+        // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
+        // evaluator; everything else resolves exactly as it did before modulation existed.
+        const prefix = `layers.${layer.id}.params.`;
+        const modulatedKeys = new Set<string>();
+        for (const target of program.targets.keys()) {
+          if (target.startsWith(prefix)) modulatedKeys.add(target.slice(prefix.length));
+        }
+        const resolved = resolveParams(definition.manifest.params, layer.params, modulatedKeys.size === 0
+          ? {}
+          : { modulated: modulatedKeys, modulate: (key, base) => modulateValue(program, prefix + key, base, t) });
         if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
         const instance = instanceFor(layer.id, definition);
 
@@ -223,7 +266,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       });
       nv12?.convert(output);
 
-      return { frameIndex, t, warnings, paramIssues };
+      return { frameIndex, t, warnings, paramIssues, modulationIssues: program.issues };
     },
 
     readOutputSync(into) {
