@@ -27,7 +27,7 @@ P2 steps:
 | 3 | Param resolution + modulation evaluator | ✅ | `91c18db` |
 | 4 | Effect chain contract + bloom/vignette | ✅ | `117cb4e` |
 | 5 | Golden frames | ✅ | `d1bfe6e` |
-| 6 | Headless render CLI | ✅ | `TBD` |
+| 6 | Headless render CLI | ✅ | `f1c95fc` |
 
 P0 steps:
 
