@@ -1,0 +1,10 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`prng > is pinned: these exact values are part of every project's appearance 1`] = `
+[
+  629035849,
+  1715578170,
+  1423672540,
+  3807770279,
+]
+`;

@@ -12,11 +12,14 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "spike:determinism": "node --disable-warning=ExperimentalWarning spike/determinism.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
+    "electron": "44.3.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.10.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.0",

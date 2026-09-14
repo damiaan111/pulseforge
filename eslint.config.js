@@ -97,7 +97,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['src/**/*.ts', 'setup/**/*.{ts,mjs}', 'tests/**/*.ts'],
+    files: ['src/**/*.ts', 'setup/**/*.{ts,mjs}', 'spike/**/*.ts', 'tests/**/*.ts'],
     rules: {
       'no-restricted-syntax': ['error', ...NO_DEFAULT_EXPORTS],
       '@typescript-eslint/consistent-type-imports': 'error',

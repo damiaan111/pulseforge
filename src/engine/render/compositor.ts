@@ -1,0 +1,211 @@
+// The compositor (compositor-spec §1–3), P0 subset: a stack of layers without effects,
+// masks or groups.
+//
+//   per layer: acquire RGBA16F target → module draws (linear, premultiplied) →
+//              opacity + blend into the composite target → release
+//   → output pass: tone map → OETF → dither → quantise to RGBA8, flipped top-down
+//
+// The two decisions that change every project's appearance are fixed here: linear-light
+// compositing and premultiplied alpha throughout.
+
+import { COLOR_GLSL, type RGBA } from '../core/color.ts';
+import type { BlendMode } from '../core/project.ts';
+import { HASH_GLSL } from '../core/prng.ts';
+import { FULLSCREEN_VERT, createProgram, drawFullscreenTriangle, uniformLocation } from './gl.ts';
+import type { RenderTarget, TargetPool } from './targets.ts';
+
+export type OutputTransfer = 'srgb' | 'bt709';
+
+export interface OutputOptions {
+  /** sRGB for preview, BT.709 for export (compositor-spec §2). */
+  readonly transfer: OutputTransfer;
+  readonly dither: boolean;
+  /** Write rows top-down, as video expects (export-spec §4.3). */
+  readonly flipY: boolean;
+}
+
+export interface CompositeLayer {
+  readonly opacity: number;
+  readonly blend: BlendMode;
+  /** Draws into the bound, cleared, transparent RGBA16F target. */
+  readonly draw: () => void;
+}
+
+const LAYER_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D u_layer;
+uniform float u_opacity;
+out vec4 outColor;
+void main() {
+  // Premultiplied: opacity scales colour and alpha together.
+  outColor = texelFetch(u_layer, ivec2(gl_FragCoord.xy), 0) * u_opacity;
+}
+`;
+
+const OUTPUT_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D u_composite;
+uniform int u_transfer;
+uniform bool u_dither;
+uniform bool u_flipY;
+uniform uint u_noiseSeed;
+uniform uint u_frame;
+out vec4 outColor;
+${HASH_GLSL}
+${COLOR_GLSL}
+void main() {
+  ivec2 size = textureSize(u_composite, 0);
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  ivec2 src = ivec2(px.x, u_flipY ? size.y - 1 - px.y : px.y);
+  // The composite sits over an opaque background, so its colour is already final.
+  vec3 rgb = pf_tonemap(texelFetch(u_composite, src, 0).rgb);
+  rgb = u_transfer == 1 ? pf_linear_to_bt709(rgb) : pf_linear_to_srgb(rgb);
+  if (u_dither) {
+    // Triangular-PDF dither keyed on (seed, frame, pixel): deterministic, and it
+    // decorrelates between frames so it reads as grain rather than a fixed pattern.
+    uint h = pf_combine32(pf_combine32(pf_combine32(u_noiseSeed, u_frame), uint(src.x)), uint(src.y));
+    float n1 = float(h >> 8u) / 16777216.0;
+    float n2 = float(pf_mix32(h ^ 0x68e31da4u) >> 8u) / 16777216.0;
+    rgb += (n1 + n2 - 1.0) / 255.0;
+  }
+  outColor = vec4(clamp(rgb, 0.0, 1.0), 1.0);
+}
+`;
+
+export class Compositor {
+  private readonly gl: WebGL2RenderingContext;
+  private readonly pool: TargetPool;
+  private readonly vao: WebGLVertexArrayObject;
+  private readonly layerProgram: WebGLProgram;
+  private readonly layerUniforms: { layer: WebGLUniformLocation; opacity: WebGLUniformLocation };
+  private readonly outputProgram: WebGLProgram;
+  private readonly outputUniforms: {
+    composite: WebGLUniformLocation;
+    transfer: WebGLUniformLocation;
+    dither: WebGLUniformLocation;
+    flipY: WebGLUniformLocation;
+    noiseSeed: WebGLUniformLocation;
+    frame: WebGLUniformLocation;
+  };
+
+  constructor(gl: WebGL2RenderingContext, pool: TargetPool) {
+    this.gl = gl;
+    this.pool = pool;
+    this.vao = gl.createVertexArray();
+    this.layerProgram = createProgram(gl, 'compositor.layer', FULLSCREEN_VERT, LAYER_FRAG);
+    this.layerUniforms = {
+      layer: uniformLocation(gl, this.layerProgram, 'u_layer'),
+      opacity: uniformLocation(gl, this.layerProgram, 'u_opacity'),
+    };
+    this.outputProgram = createProgram(gl, 'compositor.output', FULLSCREEN_VERT, OUTPUT_FRAG);
+    this.outputUniforms = {
+      composite: uniformLocation(gl, this.outputProgram, 'u_composite'),
+      transfer: uniformLocation(gl, this.outputProgram, 'u_transfer'),
+      dither: uniformLocation(gl, this.outputProgram, 'u_dither'),
+      flipY: uniformLocation(gl, this.outputProgram, 'u_flipY'),
+      noiseSeed: uniformLocation(gl, this.outputProgram, 'u_noiseSeed'),
+      frame: uniformLocation(gl, this.outputProgram, 'u_frame'),
+    };
+  }
+
+  /**
+   * Builds one frame into `output` (RGBA8, canvas-sized).
+   * `background` is linear premultiplied and opaque.
+   */
+  composite(
+    output: RenderTarget,
+    background: RGBA,
+    layers: readonly CompositeLayer[],
+    options: OutputOptions,
+    frame: { readonly frameIndex: number; readonly noiseSeed: number },
+  ): void {
+    const gl = this.gl;
+    const { width, height } = output;
+    resetState(gl, width, height);
+
+    const composite = this.pool.acquire(width, height, 'rgba16f');
+    gl.bindFramebuffer(gl.FRAMEBUFFER, composite.framebuffer);
+    gl.clearColor(background.r, background.g, background.b, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    for (const layer of layers) {
+      if (!(layer.opacity > 0)) continue;
+      const target = this.pool.acquire(width, height, 'rgba16f');
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      resetState(gl, width, height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      // Modules draw premultiplied "over" by default; they may change blend state themselves.
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      layer.draw();
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, composite.framebuffer);
+      resetState(gl, width, height);
+      gl.enable(gl.BLEND);
+      setBlend(gl, layer.blend);
+      gl.useProgram(this.layerProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      gl.uniform1i(this.layerUniforms.layer, 0);
+      gl.uniform1f(this.layerUniforms.opacity, Math.min(1, layer.opacity));
+      drawFullscreenTriangle(gl, this.vao);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      this.pool.release(target);
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
+    resetState(gl, width, height);
+    gl.useProgram(this.outputProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, composite.texture);
+    gl.uniform1i(this.outputUniforms.composite, 0);
+    gl.uniform1i(this.outputUniforms.transfer, options.transfer === 'bt709' ? 1 : 0);
+    gl.uniform1i(this.outputUniforms.dither, options.dither ? 1 : 0);
+    gl.uniform1i(this.outputUniforms.flipY, options.flipY ? 1 : 0);
+    gl.uniform1ui(this.outputUniforms.noiseSeed, frame.noiseSeed >>> 0);
+    gl.uniform1ui(this.outputUniforms.frame, frame.frameIndex >>> 0);
+    drawFullscreenTriangle(gl, this.vao);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.useProgram(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.pool.release(composite);
+  }
+
+  dispose(): void {
+    this.gl.deleteProgram(this.layerProgram);
+    this.gl.deleteProgram(this.outputProgram);
+    this.gl.deleteVertexArray(this.vao);
+  }
+}
+
+/** Known GL state before every pass, so no module or earlier layer leaks state into the next. */
+function resetState(gl: WebGL2RenderingContext, width: number, height: number): void {
+  gl.viewport(0, 0, width, height);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  gl.disable(gl.STENCIL_TEST);
+  gl.disable(gl.SCISSOR_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
+  gl.colorMask(true, true, true, true);
+  gl.depthMask(true);
+  gl.bindVertexArray(null);
+}
+
+/** Blend modes in premultiplied form (compositor-spec §3). P0 has the separable workhorses. */
+function setBlend(gl: WebGL2RenderingContext, mode: BlendMode): void {
+  gl.blendEquation(gl.FUNC_ADD);
+  switch (mode) {
+    case 'normal':
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      break;
+    case 'add':
+      gl.blendFunc(gl.ONE, gl.ONE);
+      break;
+    case 'screen':
+      gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_COLOR, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      break;
+  }
+}
