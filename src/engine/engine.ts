@@ -28,6 +28,11 @@ import { curveModule } from './modules/spectrum-curve.ts';
 import { orbModule } from './modules/orb.ts';
 import { radialModule } from './modules/radial.ts';
 import { spectrogramModule } from './modules/spectrogram.ts';
+import { gridModule } from './modules/grid.ts';
+import { wavesModule } from './modules/waves.ts';
+import { tunnelModule } from './modules/tunnel.ts';
+import { blobsModule } from './modules/blobs.ts';
+import { particlesModule } from './modules/particles.ts';
 import { bloomModule } from './modules/bloom.ts';
 import { vignetteModule } from './modules/vignette.ts';
 import { flashModule } from './modules/flash.ts';
@@ -36,6 +41,7 @@ import { testPatternModule } from './modules/test-pattern.ts';
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Visualizers (M11), then effects (M12), then the test modules the validator uses.
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
+  gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
   bloomModule, vignetteModule,
   testPatternModule, flashModule,
 ];

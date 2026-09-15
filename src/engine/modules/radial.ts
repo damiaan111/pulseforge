@@ -5,7 +5,6 @@
 // clean at any resolution, and bar count becomes a uniform instead of a buffer upload.
 
 import { AnalysisTexture, SPECTRUM_GLSL, fillColour } from './analysis-texture.ts';
-import { referenceLength } from '../core/layout.ts';
 import type { ModuleDefinition, ModuleInstance, ModuleManifest } from '../core/module.ts';
 import { num, str, type Stem } from '../core/params.ts';
 import { FULLSCREEN_VERT, createProgram, drawFullscreenTriangle, uniformLocation } from '../render/gl.ts';
@@ -62,12 +61,11 @@ void main() {
 
   float angle = atan(px.y, px.x) + u_rotation;
   float turn = fract(angle / TAU + 1.0);            // 0..1 around the circle
-  // Mirrored: the first half of the spectrum sweeps out and back, so the two sides match.
-  float position = u_mirror ? abs(turn * 2.0 - 1.0) : turn;
 
   float slot = 1.0 / float(u_barCount);
   float index = floor(turn / slot);
   float centreTurn = (index + 0.5) * slot;
+  // Mirrored: the first half of the spectrum sweeps out and back, so the two sides match.
   float barPosition = u_mirror ? abs(centreTurn * 2.0 - 1.0) : centreTurn;
   float amplitude = pf_spectrum(barPosition);
 
@@ -88,9 +86,6 @@ void main() {
     colour += u_fill * (glow * glow * u_innerGlow * 0.6);
   }
   outColor = colour;
-  // The unused interpolation helper must still be referenced or some drivers optimise the
-  // uniform away and uniformLocation throws at startup.
-  if (position < -1.0) outColor += vec4(0.0);
 }
 `;
 
@@ -148,6 +143,3 @@ function createRadial(gl: WebGL2RenderingContext): ModuleInstance {
 }
 
 export const radialModule: ModuleDefinition = { manifest: radialManifest, create: createRadial };
-
-/** Re-exported so modules built on the same helper share one import site. */
-export { referenceLength };

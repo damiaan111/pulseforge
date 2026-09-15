@@ -1091,3 +1091,54 @@ Verified: `npm run check` **538 tests pass**; `npm run golden` **15/15 byte-iden
 inspected before committing — each one draws what its name says.
 
 Still short of M11's ten: six more visualizers, and M12's effect list is at two of ten.
+
+---
+
+### 4.29 The visualizer library, second batch (P4 step 2) — M11 complete
+
+Five more, which takes the catalogue to **ten visualizers** and closes M11. The test in
+`tests/golden/modules-gpu.test.ts` now asserts ten, so removing one is a failure rather than a
+quiet regression.
+
+| Module | Idea | Why it earns a slot |
+|---|---|---|
+| `core.visualizer.grid` | a matrix of cells lit by the spectrum | chunky and flat — the one module that survives heavy compression and thumbnail size |
+| `core.visualizer.waves` | stacked travelling lines, one band each | the calm one; nothing in it flickers on a single frame, so it works as a background |
+| `core.visualizer.tunnel` | rings receding, perspective as `1/radius` | the only module that reads as **depth**; a video of flat layers gets monotonous |
+| `core.visualizer.blobs` | metaballs that merge as they meet | the only module made of **mass** rather than edges |
+| `core.visualizer.particles` | a drifting point field that flares on transients | motion without structure; also the first module that is not a fullscreen triangle |
+
+Three things worth recording, because they are the kind of thing that is invisible until someone
+looks at the output:
+
+- **Particles draw as `POINTS`, and their randomness is an integer hash of the vertex index.**
+  A particle field evaluated in a fragment shader costs `count` iterations *per pixel* — minutes,
+  not milliseconds, at 4K. `Math.random` is banned in the engine and a CPU-side PRNG would mean
+  a buffer upload every frame, so each particle derives its constants from a hash of its own
+  index plus the layer's `seed`: no state, no upload, same field on every machine. Wang's 32-bit
+  integer hash is exactly specified in GLSL ES 3.00 — `fract(sin(…))` noise is not, and would
+  break "same pixels everywhere". Position is a closed form in `t`, so scrubbing backwards costs
+  nothing.
+- **Three defects the contact sheet caught and the tests did not**, all of which passed
+  "compiles, draws, deterministic":
+  1. *Particles had a brightness gradient across the frame.* Size and horizontal placement were
+     read from the **same hash stream**, so every particle on the right was bigger than every
+     particle on the left. Size now has its own stream.
+  2. *The tunnel's centre was moiré.* Rings crowd past one-per-two-pixels near the vanishing
+     point, and widening the antialiasing only turns aliasing into interference. Rings beyond
+     what the frame can carry are now faded out entirely — which is also what a receding tunnel
+     actually looks like.
+  3. *Every blob merged into one disc at rest.* A blob's surface sits at `d = radius/√threshold`;
+     the default radius and orbit put the surfaces inside each other before the music did
+     anything. Defaults retuned so they are separate at rest and merge as they swell.
+- **Particles set additive blending and put it back.** Overlapping particles should build light
+  rather than occlude, but the compositor's premultiplied "over" is the state the next module in
+  the chain is entitled to.
+
+Also cleaned up in passing: `radial.ts` had a dead local and a re-export of `referenceLength`
+that nothing imported.
+
+Verified: `npm run check` **548 tests pass**; `npm run golden` **15/15 byte-identical**; the
+21 GPU module tests pass; a ten-module contact sheet was rendered and inspected.
+
+**M11 is done. M12 (ten effects) is at two:** bloom and vignette.

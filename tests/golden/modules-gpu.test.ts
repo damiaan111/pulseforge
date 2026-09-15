@@ -47,7 +47,8 @@ describe.skipIf(!available)('every visualizer renders on the GPU', () => {
   }, 180_000);
 
   it('has the modules the catalogue claims', () => {
-    expect(VISUALIZERS.length).toBeGreaterThanOrEqual(5);
+    // M11 asks for ten. Asserted here so removing one is a test failure, not a quiet regression.
+    expect(VISUALIZERS.length).toBeGreaterThanOrEqual(10);
   });
 
   it.each(VISUALIZERS)('%s compiles and draws', async (moduleId) => {
