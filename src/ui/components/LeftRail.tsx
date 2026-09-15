@@ -76,7 +76,7 @@ export function LeftRail(): React.JSX.Element {
       <h2>Add layer</h2>
       <div className="module-buttons">
         {VISUALIZERS.map((m) => (
-          <button key={m.manifest.id} type="button" onClick={() => addVisualizer(m.manifest.id)}>
+          <button key={m.manifest.id} type="button" data-action="add-layer" onClick={() => addVisualizer(m.manifest.id)}>
             {m.manifest.name}
           </button>
         ))}

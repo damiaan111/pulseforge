@@ -13,10 +13,12 @@
 import { BUILTIN_MODULES } from '../../engine/engine.ts';
 import type { ParamSpec } from '../../engine/core/params.ts';
 import {
-  clearParamOverride, findLayer, renameLayer, setLayerBlend, setLayerOpacity, setLayerParam,
-  setLayerTransform,
+  addEffect, clearParamOverride, findLayer, moveEffect, removeEffect, renameLayer, setEffectEnabled,
+  setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTransform,
 } from '../../project/commands.ts';
-import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket } from '../../project/document.ts';
+import { createEffect } from '../../project/create.ts';
+import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec } from '../../project/document.ts';
+import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { useState } from 'react';
 
@@ -181,7 +183,91 @@ export function Inspector(): React.JSX.Element {
           </div>
         ))
       )}
+
+      <EffectChain layerId={layer.id} effects={layer.effects} />
     </aside>
+  );
+}
+
+const EFFECTS = BUILTIN_MODULES.filter((m) => m.manifest.kind === 'effect');
+
+/**
+ * The effect chain for the selected layer (module-spec §8, ui-spec §4).
+ *
+ * **Order is meaningful and therefore visible.** Bloom then vignette darkens the glow at the
+ * edges; vignette then bloom makes the darkened edges glow. There is no "correct" order to
+ * infer, so the chain is a list the user reorders, not a set of checkboxes.
+ *
+ * Bypass is separate from remove for the same reason it is in every other tool: comparing with
+ * and without is how an effect gets dialled in, and deleting loses the settings.
+ */
+function EffectChain(props: { layerId: string; effects: readonly EffectSpec[] }): React.JSX.Element {
+  const { layerId, effects } = props;
+  const run = useStudio((s) => s.run);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [picking, setPicking] = useState('');
+
+  function add(moduleId: string): void {
+    if (moduleId === '') return;
+    const effect = createEffect(moduleId, { id: newId() });
+    run(addEffect(layerId, effect));
+    setOpenId(effect.id);
+    setPicking('');
+  }
+
+  return (
+    <>
+      <h2>Effects</h2>
+      {effects.length === 0 ? <p className="empty">No effects on this layer.</p> : null}
+      {effects.map((effect, index) => {
+        const manifest = MANIFESTS.get(effect.module);
+        const open = openId === effect.id;
+        return (
+          <div key={effect.id} className={effect.enabled ? 'effect' : 'effect bypassed'}>
+            <div className="effect-head">
+              <button type="button" className="effect-name" onClick={() => setOpenId(open ? null : effect.id)}>
+                {open ? '▾' : '▸'} {manifest?.name ?? effect.module}
+              </button>
+              <button
+                type="button"
+                title={effect.enabled ? 'Bypass' : 'Enable'}
+                data-action="toggle-effect"
+                onClick={() => run(setEffectEnabled(layerId, effect.id, !effect.enabled))}
+              >
+                {effect.enabled ? '◉' : '○'}
+              </button>
+              <button type="button" title="Move earlier" disabled={index === 0} onClick={() => run(moveEffect(layerId, effect.id, index - 1))}>↑</button>
+              <button type="button" title="Move later" disabled={index === effects.length - 1} onClick={() => run(moveEffect(layerId, effect.id, index + 1))}>↓</button>
+              <button type="button" title="Remove" data-action="remove-effect" onClick={() => run(removeEffect(layerId, effect.id))}>✕</button>
+            </div>
+            {manifest === undefined ? (
+              <p className="bad">Module “{effect.module}” is not installed. Its settings are preserved.</p>
+            ) : open ? (
+              manifest.params
+                .filter((spec) => isVisible(spec, effect.params))
+                // No "show advanced" here: the chain is already a disclosure, and nesting a
+                // second one inside each entry hides things two clicks deep.
+                .map((spec) => (
+                  <ParamControl
+                    key={spec.key}
+                    spec={spec}
+                    stored={effect.params[spec.key]}
+                    overrideValue={undefined}
+                    onChange={(value, seal) => run(setEffectParam(layerId, effect.id, spec.key, value), { seal })}
+                  />
+                ))
+            ) : null}
+          </div>
+        );
+      })}
+      <label className="field">
+        <span>Add</span>
+        <select value={picking} onChange={(e) => add(e.target.value)} data-action="add-effect">
+          <option value="">Add an effect…</option>
+          {EFFECTS.map((m) => <option key={m.manifest.id} value={m.manifest.id}>{m.manifest.name}</option>)}
+        </select>
+      </label>
+    </>
   );
 }
 

@@ -328,8 +328,16 @@ app.whenReady().then(async () => {
       // Can it reach the network? It must not, by CSP and by the session-level block.
       let offline = false;
       try { await fetch('https://example.com/'); } catch { offline = true; }
-      // Drive one real edit through the command stack, so the smoke check covers
+      // Drive real edits through the command stack, so the smoke check covers
       // command → history → re-render and not just "the page painted".
+      //
+      // **It starts by adding a layer, and that is not incidental.** A new project has none,
+      // so every check below it — the undo stack, the inspector, the effect chain — used to
+      // pass by having nothing to test. A vacuous pass is worse than a failure: it reports
+      // green for a feature that was never reached.
+      document.querySelector('#app .module-buttons button[data-action="add-layer"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
       const before = document.querySelectorAll('#app .layer-row').length;
       // The eye toggles visibility, which is a command; clicking the row only selects.
       document.querySelector('#app .layer-row .eye')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -345,13 +353,36 @@ app.whenReady().then(async () => {
       if (undoEnabled) undoButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
 
+      // The effect chain, end to end: select a layer, add an effect through the generated
+      // picker, see it appear, take it away again. The inspector builds itself from schema,
+      // so this also proves a module's parameters can be reached at all — which is the part
+      // that was true of the engine long before it was true of the UI.
+      document.querySelector('#app .layer-row .layer-name')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
+      const picker = document.querySelector('#app .inspector select[data-action="add-effect"]');
+      const option = picker?.querySelector('option[value]:not([value=""])');
+      let effectChain = false;
+      if (picker !== null && option !== null && option !== undefined) {
+        picker.value = option.value;
+        picker.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+        const added = document.querySelectorAll('#app .inspector .effect').length;
+        document.querySelector('#app .inspector [data-action="remove-effect"]')
+          ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+        const removed = document.querySelectorAll('#app .inspector .effect').length;
+        effectChain = added === 1 && removed === 0;
+      }
+
       return {
         rendered: document.querySelector('#app header') !== null,
         bridge: typeof window.pulseforge?.openProject === 'function',
         noNode,
         offline,
-        // Only meaningful when a project was opened; with none there is nothing to click.
-        undoable: before === 0 || undoEnabled,
+        // The layer this check added itself, so there is always something to act on.
+        layerAdded: before === 1,
+        undoable: undoEnabled,
+        effectChain,
       };
     })()`) as Record<string, boolean>;
 

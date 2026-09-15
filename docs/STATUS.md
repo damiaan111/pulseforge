@@ -1191,3 +1191,37 @@ byte-identical**; a ten-effect contact sheet was rendered over a bars layer and 
 **Known gap, and the obvious next step:** `addEffect` / `removeEffect` / `setEffectParam` have
 existed in `src/project/commands.ts` since P3 step 2, but **the studio has no UI for them**. Ten
 effects that can only be reached by editing a `.pvproj` by hand is a hollow milestone.
+
+---
+
+### 4.31 The effect chain in the studio (P4 step 4) — M12's other half
+
+`addEffect` / `removeEffect` / `moveEffect` / `setEffectEnabled` / `setEffectParam` had existed
+since P3 step 2 with nothing calling them. The inspector now has an Effects section: add from a
+picker of every effect in the catalogue, expand one to edit its parameters (generated from its
+schema, like everything else), bypass, reorder, remove.
+
+**Order is shown as a list the user reorders, not a set of checkboxes**, because it is
+meaningful: bloom then vignette darkens the glow at the edges; vignette then bloom makes the
+darkened edges glow. There is nothing sensible to infer. Bypass is separate from remove for the
+same reason every other tool separates them — comparing with and without is how an effect gets
+dialled in, and deleting loses the settings.
+
+#### The smoke check was passing vacuously again
+
+Extending `--smoke` to cover the new UI exposed that **`undoable` had been green on nothing**. A
+new project opens with no layers, so `before === 0`, and the check's own guard — "only meaningful
+when a project was opened" — made it pass without touching anything. The screenshot showed
+"No layers yet" while the log said `ok undoable`.
+
+This is the fourth time a smoke check has passed against a state it never reached, and every
+time the *screenshot* caught it rather than the assertions. The fix is structural rather than
+another guard: the check now **adds a layer itself** as its first act, so everything below it —
+the undo stack, the inspector, the effect chain — has something real to act on, and
+`layerAdded: before === 1` fails loudly if that ever stops working. `effectChain` asserts the
+effect both appears and goes away again (`added === 1 && removed === 0`), so a remove button
+that silently did nothing would not read as success.
+
+Verified: `npm run check` **570 tests pass**; `npm run golden` **15/15 byte-identical**; `--smoke`
+reports seven checks green, and the screenshot shows a bars layer, a populated inspector, an
+Effects section and "Remove effect" sitting on the undo stack.
