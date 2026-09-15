@@ -663,7 +663,7 @@ assumed). The change is still worth re-running `npm run golden` against on the R
 ---
 
 ### 4.21 Section detection — PROJECT.md §8.1, auto-director-spec §2
-`src/analysis/sections.ts`, 12 tests in `tests/analysis/sections.test.ts`. Written now because
+`src/analysis/sections.ts` (`c3b53ed`), 12 tests in `tests/analysis/sections.test.ts`. Written now because
 the arranger leans on it (auto-director-spec §6) and because it is pure DSP — no GPU needed.
 
 - **Foote's method**: a self-similarity matrix over timbre, a checkerboard kernel slid down its
