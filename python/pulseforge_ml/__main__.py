@@ -178,11 +178,26 @@ def _served_separate(params, context):
     return _separate(args, context)
 
 
+def _warm_native_extensions():
+    """Import the native extensions on the main thread, before the reader thread exists.
+
+    torch pulls in numpy's `_multiarray`; demucs pulls in torch. Importing any of them while
+    a thread is blocked reading stdin deadlocks on Windows (see serve.py's `warmup` note), so
+    a served `separate` would hang on its first call. Paying it here also means `ready` is
+    honest and no request carries the ~2 s import cost.
+    """
+    import torch  # noqa: F401
+    from demucs.pretrained import get_model  # noqa: F401
+
+
 def cmd_serve(_args):
     """Long-lived mode: one process, many requests, model stays loaded (M27)."""
     from .serve import serve
 
-    return serve({"health": _served_health, "separate": _served_separate})
+    return serve(
+        {"health": _served_health, "separate": _served_separate},
+        warmup=_warm_native_extensions,
+    )
 
 
 def main(argv=None):

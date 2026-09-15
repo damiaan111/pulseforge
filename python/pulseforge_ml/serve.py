@@ -99,11 +99,19 @@ def _read_stdin(queue, session, stop_event):
     queue.append(None)
 
 
-def serve(handlers):
+def serve(handlers, warmup=None):
     """Run the request loop until shutdown or stdin closes.
 
     `handlers` maps a command name to `fn(params, context) -> dict`. The context exposes
     `progress(fraction=None, stage=None)` and `check()`, which raises `Cancelled`.
+
+    `warmup` is called **before the reader thread starts**, and that ordering is load-bearing
+    rather than tidy-minded. On Windows, importing a native extension (numpy's `_multiarray`,
+    and so torch and demucs) deadlocks against a thread already blocked in a stdin read: the
+    import never completes and the request never answers. Measured: numpy imports in 0.12 s
+    with no reader running and hangs indefinitely with one. Doing the heavy imports here, on
+    the main thread, before anything can block, avoids it — and is what a resident server
+    should do anyway, so `ready` means ready and the first request is not the slow one.
     """
     session = Session()
     queue = []
@@ -112,6 +120,10 @@ def serve(handlers):
 
     def pump():
         _read_stdin(_NotifyingList(queue, ready), session, stop_event)
+
+    # Before any thread blocks on stdin — see the note on `warmup` above.
+    if warmup is not None:
+        warmup()
 
     thread = threading.Thread(target=pump, daemon=True, name="pulseforge-stdin")
     thread.start()

@@ -2,17 +2,17 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-15 — **P0 and P2 complete**, **P3 steps 1–4 of 5 done**. The engine
-> renders multi-layer projects headlessly at 16:9 / 9:16 / 1:1, golden frames are green, and
-> `npm run render` produces an MP4 from a project file.
+> Last updated: 2026-09-15 — **P0 and P2 complete**, **P3 steps 1–4 of 5 done**, and the laptop
+> sessions' work is now **verified on the RTX machine** (§9), which found and fixed a serve-mode
+> deadlock (§4.24). The engine renders multi-layer projects headlessly at 16:9 / 9:16 / 1:1,
+> golden frames are green, and `npm run render` produces an MP4 from a project file.
 >
 > Also built, ahead of the milestone that needs them, because they are pure logic and a
 > non-NVIDIA machine can do them (§4.16–§4.26): the preview clock, the on-disk analysis cache,
 > waveform peaks, section detection, presets and their store, the render queue, the supervised
 > ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
 >
-> **Next: P3 step 5, the React studio (§9)** — and the verification list at the top of §9, which
-> has never run on a GPU machine.
+> **Next: P3 step 5, the React studio (§9).** The verification list at the top of §9 is now done.
 
 ---
 
@@ -831,16 +831,37 @@ process pays it once — a test pins that the pid does not change across request
 the same protocol, so restart, cancellation, crash handling, ordering and idle shutdown are all
 exercised without Python, torch or a GPU.
 
-**Unverified on this machine:** `serve.py` and the `_separate` refactor. Only syntax-checked
-(`py_compile`). On the RTX machine:
+**Verified on the RTX machine, 2026-09-15 — and it was broken.** Serve mode deadlocked on its
+first real request and never replied. Found by driving it by hand, as step 3 of §9's list asked:
 
-1. `npm run check` — the one-shot path must still pass its existing tests.
-2. Confirm one-shot still works end to end: `npm run validate -- --only 7` (the stems check).
-3. Drive serve mode by hand — spawn `vendor/python/python.exe -m pulseforge_ml serve`, send a
-   `{"type":"request","id":"a","command":"health","params":{}}` line, and confirm a `ready` line
-   arrives first and a `result` line follows.
-4. Confirm a `cancel` during a real separation returns `cancelled` within a segment or two and
-   that a following request still succeeds on the same process.
+- **The bug:** on Windows, importing a native extension deadlocks against a thread already
+  blocked in `sys.stdin.readline()`. `_served_health` does `import torch`, which pulls numpy's
+  `_multiarray`; the reader thread was already blocked; the import never returned and the request
+  never answered. Reproduced in twelve lines: **numpy imports in 0.12 s with no reader running
+  and hangs indefinitely with one.** A `faulthandler` stack dump put the main thread inside
+  `numpy/_core/multiarray.py` and the reader in `_read_stdin`.
+- **Why the Node-stub tests could not catch it.** The stub speaks the protocol from Node, so it
+  never imports a Python native extension — the tests exercise the protocol, and the bug is in
+  the runtime underneath it. This is exactly the class of thing §9's list existed to catch.
+- **The fix:** `serve(handlers, warmup=…)` calls `warmup` **before starting the reader thread**;
+  `_warm_native_extensions` imports torch and demucs there. The ordering is load-bearing, not
+  tidy-minded, and both places say so. It is also the right shape regardless: a resident server
+  should pay its imports once at boot, so `ready` means ready and no request carries the cost.
+- **A wrong turn worth recording:** the first hypothesis was that `for line in sys.stdin` blocked
+  on read-ahead buffering, because closing stdin made the request succeed. It did not — closing
+  stdin *ends the reader thread*, which is why it appeared to help. Tested directly: the iterator
+  form delivers a line instantly. That change was reverted; the diff is only the warm-up.
+
+**Now measured here:** `ready` at 2.0 s (the warm-up, honestly reported), health result 0.1 s
+later. A `cancel` during a real 120 s separation returned `cancelled` **0.2 s** after it was sent,
+two progress events in, and a follow-up `health` on the same process succeeded immediately —
+so cooperative cancellation works and does not poison the process. All four steps below pass.
+
+
+1. ✅ `npm run check` — the one-shot path still passes (527 tests).
+2. ✅ One-shot end to end: `npm run validate -- --only 7` passes.
+3. ✅ Serve mode driven by hand: `ready` arrives first, then `result`.
+4. ✅ `cancel` during a real separation returns `cancelled` in 0.2 s; the next request succeeds.
 
 The refactor to watch is `cmd_separate` → `_separate(args, context)`: one-shot passes `context =
 None` and emits exactly as before, served mode passes a context that reports progress and raises
@@ -912,15 +933,15 @@ the spec says the director and the modulation UI must share that code.
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
 
-> **Waiting on the RTX machine, from the laptop sessions.** Run these before building on top:
-> 1. `npm run check` — 519 tests should pass.
-> 2. `npm run golden` — the analysis path changed shape three times (cache, sections, and the
->    audit's beat-time fix, which shifts beat positions by ~1e-16 s). No pixel should move.
-> 3. `npm run render -- <project.pvproj> -o out/test.mp4`, twice on the same audio: the second
->    run must say `Analysis: cache hit`.
-> 4. `npm run validate -- --only 7` — the stems check, which exercises the `cmd_separate` →
->    `_separate(args, context)` refactor (§4.24).
-> 5. The four serve-mode steps in §4.24, which have never run against real Python.
+> **Verified on the RTX machine, 2026-09-15.** All five items below have now run here.
+> 1. ✅ `npm run check` — 527 tests pass (the laptop's note said 519; the count had drifted).
+> 2. ✅ `npm run golden` — **15/15 byte-identical**. The cache, sections and beat-time changes
+>    moved no pixel, as predicted.
+> 3. ✅ `npm run render` twice on the same audio — second run reports `Analysis: cache hit`, and
+>    the two MP4s are **byte-identical**, so the cache round-trip does not perturb the analysis.
+> 4. ✅ `npm run validate -- --only 7` — stems pass: htdemucs 8.6 s, 27.9× realtime, 0.54 GB peak,
+>    22 progress events. The `cmd_separate` → `_separate(args, context)` refactor is sound.
+> 5. ✅ Serve mode, after fixing a **deadlock that made it unusable** — see §4.24.
 
 Goal: *"Load audio, trim/fade, add/edit layers, live preview on the audio master clock, timeline,
 undo/redo, aspect switcher, save/load."* The Shimga-style UI (ui-spec.md).
