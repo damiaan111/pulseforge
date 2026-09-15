@@ -2,10 +2,17 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-15 — **P0 and P2 complete**, P3 steps 1–4 of 5 done: the engine renders
-> multi-layer projects headlessly at 16:9 / 9:16 / 1:1, golden frames are green, `npm run render`
-> produces an MP4 from a project file, the preview clock is in place, and analysis is cached on
-> disk. Next: P3 step 5, the React studio (§9).
+> Last updated: 2026-09-15 — **P0 and P2 complete**, **P3 steps 1–4 of 5 done**. The engine
+> renders multi-layer projects headlessly at 16:9 / 9:16 / 1:1, golden frames are green, and
+> `npm run render` produces an MP4 from a project file.
+>
+> Also built, ahead of the milestone that needs them, because they are pure logic and a
+> non-NVIDIA machine can do them (§4.16–§4.26): the preview clock, the on-disk analysis cache,
+> waveform peaks, section detection, presets and their store, the render queue, the supervised
+> ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
+>
+> **Next: P3 step 5, the React studio (§9)** — and the verification list at the top of §9, which
+> has never run on a GPU machine.
 
 ---
 
@@ -78,7 +85,7 @@ and commit after each step."*
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 344 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~10 s |
+| `npm run check` | typecheck + lint + 519 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~15 s |
 | `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -575,9 +582,10 @@ first thing to try if a render looks like it is reacting to the wrong numbers.
 nothing and are byte-for-byte unaffected.
 
 **Unverified on this machine:** the CLI wiring was written on the non-NVIDIA laptop, so
-`npm run render` itself has not been executed since. Typecheck, lint and 375 tests pass. On the
-RTX machine, run it twice on the same audio and confirm the second says `cache hit` — and that
-`npm run golden` is still green, since the analysis path feeding the engine changed shape.
+`npm run render` itself has not been executed since; typecheck, lint and the full suite passed
+at that commit. On the RTX machine, run it twice on the same audio and confirm the second says
+`cache hit` — and that `npm run golden` is still green, since the analysis path feeding the
+engine changed shape.
 
 Not yet: stem sources in the tree (nothing produces them yet), `derived/`, and
 the app's own cache root — the CLI uses `<repo>/cache/`, the app will want its user-data
