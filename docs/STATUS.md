@@ -27,7 +27,7 @@ P3 steps:
 | 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `cab80a0` |
 | 2 | Command/undo stack (M8) | ✅ | `59000e0` |
 | 3 | Analysis pipeline: features, onsets, beat grid (M4) | ✅ | `05471d4` |
-| 4 | Preview clock (M31) | ✅ | `PENDING` |
+| 4 | Preview clock (M31) | ✅ | `f3153e8` |
 | 5 | React studio (ui-spec) | ⬜ | |
 
 P2 steps:
