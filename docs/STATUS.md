@@ -400,7 +400,7 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   composited children). Blend modes beyond normal/add/screen fall back with a note. What a group
   says about *visibility* — enabled, soloed, time range — does now reach its children (§4.20).
 - Two effects exist (bloom, vignette) against M12's target of ten.
-- Presets landed (§4.19); a preset *browser* and thumbnails (S8) have not.
+- Presets and their on-disk store landed (§4.19, §4.25); the *browser* UI and thumbnails (S8) have not.
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
   single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
   §7 sketches the shape, it does not pin field names.
@@ -837,6 +837,34 @@ exercised without Python, torch or a GPU.
 The refactor to watch is `cmd_separate` → `_separate(args, context)`: one-shot passes `context =
 None` and emits exactly as before, served mode passes a context that reports progress and raises
 `Cancelled` at the checkpoint.
+
+---
+
+### 4.25 Preset store on disk (M25, S8's data layer)
+`src/project/preset-store.ts`, 20 tests in `tests/project/preset-store.test.ts`.
+
+A folder of small JSON files rather than a database, because presets are meant to be copied
+between machines, dropped into a folder, kept in git and hand-edited when one value is off — and
+a binary store makes all four awkward for no gain at a few hundred kilobytes.
+
+- **Two sources, merged on read**: `builtin/` ships with the app and is read-only, so an update
+  can improve it (D16); `user/` is writable and **shadows a built-in with the same slug**, so
+  improving a shipped preset never fights an edit the user made to their copy.
+- **Saving the same name twice keeps both** (`neon-pulse`, `neon-pulse-2`). Silently replacing
+  the first would destroy a look that took real effort to dial in; `overwrite` is the explicit
+  path.
+- **One bad file does not hide the library.** A preset that will not parse — corrupt, or from a
+  newer format — becomes a *problem* the browser can show, not an exception that blanks the list.
+- `slugify` turns a human name into a filename (`"Neon Pulse ⚡ (v2)"` → `neon-pulse-v2`) without
+  losing anything: the name lives inside the file, the slug only has to survive a filesystem.
+- Deleting distinguishes "that is a built-in and not yours to delete" from "there is no such
+  preset" — two quite different situations that one message would blur.
+- `searchPresets` and `tagCounts` are pure, so the browser's filtering is testable without a
+  filesystem. Tags narrow: every requested tag must be present.
+- A stray file where a folder should be reads as an empty library, not an `ENOTDIR` — the same
+  lesson as §4.22.
+
+Not yet: the browser UI itself, animated thumbnails, and nothing ships a `builtin/` folder yet.
 
 ---
 
