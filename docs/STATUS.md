@@ -406,7 +406,7 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   §7 sketches the shape, it does not pin field names.
 - One visual module plus two test modules. No effects, masks, groups, text, palette roles, aspect overrides, modulation.
 - `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
-- Export: no queue, pause/resume, disk-space precheck, thumbnails, motion blur, SSAA, audio stream-copy.
+- Export: the queue landed (§4.23); still no disk-space precheck, thumbnails, motion blur, SSAA or audio stream-copy.
 - Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
 - The sidecar is spawned per command; M27 needs a supervised long-lived process with cancellation.
 
@@ -747,6 +747,48 @@ verification; and every `.sort()` call (all on strings, where lexicographic is c
 **Noted, not fixed** — performance, not correctness: `resolveParams` allocates a `Set` and two
 objects per layer per frame, and `PreviewClock.stats` filters two arrays per read. Both are
 cheap enough at current scale and are the kind of thing to fix against a profile, not a hunch.
+
+---
+
+### 4.23 Render queue and progress (M24, export-spec §12–13)
+`src/export/queue.ts` + `src/export/progress.ts`, 21 tests in `tests/export/queue.test.ts`.
+GPU-free by construction: the queue owns *what* runs and in what order and is handed a
+`JobRunner` that owns *how*, so all of it is testable without a renderer — and the same queue
+drives the CLI and the app.
+
+- **Snapshot on enqueue.** The document is serialised into `<root>/snapshots/<id>.pvproj` the
+  moment a job is created, and the job renders *that*. Editing or closing the project afterwards
+  cannot change the output, which is the whole reason a queue is worth having: "queue three
+  variants and keep working" has to be safe. The snapshot's SHA-256 goes in the job.
+- **Sequential, and provably so.** Jobs contend for one GPU (M28). `drain()` called twice returns
+  the run already in progress rather than starting a second — a test asserts no overlap, because
+  two callers pressing Render is the obvious way to get two renders fighting for the card.
+- **A failing job does not stop the batch.** An overnight run must survive one bad project rather
+  than stopping at it and wasting the night.
+- **Persisted on every change**, atomically. A job recorded as `running` when the process died
+  becomes **`interrupted`, not restarted**: relaunching the app should not silently kick off a
+  forty-minute 4K render nobody asked for. `retry` puts it back in line against the same snapshot.
+  A corrupt queue file loses the queue, never the projects it pointed at.
+- **Cancel is polled, not a kill.** A queued job stops immediately; a running one is flagged and
+  the runner sees it on its next `isCancelled()` check, so the encoder can close cleanly
+  (export-spec §13). `pause()` finishes the running job and stops; `stop()` cancels it too.
+- `move`, `retry`, `remove` (which deletes the snapshot) and `clearFinished`.
+
+**`ProgressTracker`** implements export-spec §13's two rules and the reasons for them: count the
+**encoder's** frames rather than the pump's (the pump runs ahead, so its position makes a render
+look finished and then hang), and take the rate from a **moving window** rather than the average
+since the start (an early heavy section otherwise poisons the estimate for the rest of the run).
+A backwards frame count — FFmpeg's progress stream can repeat a line — is ignored rather than
+trusted into a negative rate.
+
+**A bug the tests caught in my own window trimming:** the guard kept "one sample older than the
+window", but with a `<` comparison a sample landing exactly on the cutoff survived forever and
+the window silently became the whole render — reporting 50 fps where the true recent rate was
+100, and doubling the ETA. `<=` fixes it; the test pins the difference.
+
+Not yet wired: nothing constructs a `RenderQueue` yet — the CLI still renders one job inline.
+Connecting it needs the job runner to call `runExport`, which is GPU work and belongs with the
+export UI (ui-spec §7).
 
 ---
 
