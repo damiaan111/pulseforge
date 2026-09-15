@@ -398,7 +398,7 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   **group compositing** (M38 — a group's own transform, opacity, blend and effects applied to its
   composited children). Blend modes beyond normal/add/screen fall back with a note.
 - Two effects exist (bloom, vignette) against M12's target of ten.
-- No presets yet (M25). (Undo/commands landed in P3 step 2, §4.15.)
+- Presets landed (§4.19); a preset *browser* and thumbnails (S8) have not.
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
   single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
   §7 sketches the shape, it does not pin field names.
@@ -608,6 +608,41 @@ Not yet: per-stem peaks (the timeline's expandable stem rows, ui-spec §3), and 
 
 ---
 
+### 4.19 Presets (M25, module-spec §10, data-formats §3)
+`src/project/presets.ts`, 20 tests in `tests/project/presets.test.ts`. Pure: the module defaults
+it needs are injected as a `ManifestLookup`, so this file never imports the engine and the tests
+need no GL.
+
+- **Only non-defaults are stored.** A preset recording every parameter freezes that day's
+  defaults forever, so improving a module default later could never reach presets already saved.
+  Objects are compared by value, not reference, or every colour would look "changed".
+- **Modulation targets are relative.** Bindings address `layers.<id>…`, and those ids belong to
+  the document they came from. A preset stores `self.params.x` and rebinds on apply — so applying
+  one twice gives two independent layers instead of two bindings fighting over the original.
+  There is a test for exactly that.
+- **Effect references are positional** (`self.effects.0.params.intensity`). Effect ids are
+  regenerated on apply, so a stored id would dangle; "the first effect in the chain" survives.
+- Binding ids are dropped on save and regenerated on apply. `bypass`/`solo` never travel — the
+  document model already excludes them (modulation-spec §9.5).
+- **Two apply semantics, deliberately separate.** By default applying a preset *replaces* the
+  module — that is what "apply this preset" means. `keepModule: true` is module-spec §10's
+  "replace module" case: keep the target's module and carry across only the keys it shares,
+  **reporting every key left behind**. The first draft blurred these two into one confused
+  branch; splitting them is what made the behaviour describable.
+- `styleOnly` applies the look and leaves the target's own modulations alone; `keepName` keeps
+  the layer's name.
+- Nothing is silently dropped (CLAUDE.md constraint 4): an uninstalled module, a params schema
+  version mismatch, a binding pointing outside the preset — each returns a note the UI can show.
+- Groups cannot be saved as a preset: a group's meaning is its children's ids and their relative
+  geometry, which does not survive being lifted out of its document. `createProjectPreset` skips
+  them rather than failing.
+- Assets are **referenced, not embedded** (D6). Nothing references assets yet, but the shape is set.
+
+Not yet: wiring into the UI (a Save Preset button, the browser and thumbnails — S8), a preset
+folder on disk, and applying a *project* preset back onto a document.
+
+---
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
@@ -633,5 +668,6 @@ Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` an
 offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
 
 **Work that does not need a GPU**, for a session on a machine without one: more effect modules
-toward M12's ten (two exist), masks and group compositing in `toRenderProject` (§7), presets
-(M25), and `sections.json` for the auto-director.
+toward M12's ten (two exist — the shaders can be written but only verified on the RTX machine),
+masks and group compositing in `toRenderProject` (§7), `sections.json` for the auto-director,
+per-stem peaks, and applying project presets back onto a document (§4.19).
