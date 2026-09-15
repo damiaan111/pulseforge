@@ -13,6 +13,7 @@ import {
 } from '../../src/analysis/cache.ts';
 import { DEFAULT_SPECTRUM_SETTINGS } from '../../src/analysis/spectrum.ts';
 import { analyzeCached } from '../../src/analysis/cached.ts';
+import { buildPeakPyramid } from '../../src/analysis/peaks.ts';
 
 let root: string;
 let clockStep = 0;
@@ -298,5 +299,35 @@ describe('analyzeCached', () => {
     const result = await analyzeCached(pcm(), broken);
     expect(result.fromCache).toBe(false);
     expect(result.analysis.sources.get('mix')).toBeDefined();
+  });
+});
+
+describe('peaks in the cache', () => {
+  it('round-trips the pyramid through the tree', async () => {
+    const cache = makeCache();
+    const audio = Float32Array.from({ length: 48_000 }, (_, i) => Math.sin(i / 50));
+    const pyramid = buildPeakPyramid(audio, 48_000);
+    await cache.writePeaks('audio1', 'set1', pyramid);
+
+    const read = await cache.readPeaks('audio1', 'set1');
+    expect(read!.sampleCount).toBe(pyramid.sampleCount);
+    expect(read!.levels[0]!.data).toEqual(pyramid.levels[0]!.data);
+  });
+
+  it('missing peaks are a null, not a throw', async () => {
+    expect(await makeCache().readPeaks('nope', 'nope')).toBeNull();
+  });
+
+  it('a cache hit still returns peaks, rebuilding them if the file is gone', async () => {
+    const cache = makeCache();
+    const audio = Float32Array.from({ length: 48_000 }, (_, i) => Math.sin(i / 50) * 0.8);
+    const first = await analyzeCached(audio, cache);
+    expect(first.peaks.levels.length).toBeGreaterThan(1);
+
+    // Delete only the peaks: the entry is still a hit, and peaks cost one pass to rebuild.
+    await rm(join(cache.entryPath(first.audioHash, first.settingsHash), 'peaks'), { recursive: true, force: true });
+    const second = await analyzeCached(audio, cache);
+    expect(second.fromCache).toBe(true);
+    expect(second.peaks.levels[0]!.data).toEqual(first.peaks.levels[0]!.data);
   });
 });

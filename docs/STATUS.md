@@ -138,6 +138,7 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
 | `container.ts` | the binary cache format (data-formats §4.2): float32 LE, JSON header, versions checked on read |
 | `cache.ts` | the on-disk cache tree (§4.17) — keys, readiness, listing, pruning |
 | `cached.ts` | `analyzeCached` — the cache in front of `analyzeMix` |
+| `peaks.ts` | the waveform peak pyramid the timeline draws from (§4.18) |
 
 - Features: `rms`, `peak`, `onset`, `beat`, `centroid`, `flux`, and `stereoWidth` when a stereo
   decode is available. **All on one 0..1 scale** (sine-equivalent dBFS against the floor), so a
@@ -576,9 +577,34 @@ nothing and are byte-for-byte unaffected.
 RTX machine, run it twice on the same audio and confirm the second says `cache hit` — and that
 `npm run golden` is still green, since the analysis path feeding the engine changed shape.
 
-Not yet: stem sources in the tree (nothing produces them yet), `peaks/`, `derived/`,
-`sections.json`, and the app's own cache root — the CLI uses `<repo>/cache/`, the app will want
-its user-data directory (M33).
+Not yet: stem sources in the tree (nothing produces them yet), `derived/`, `sections.json`, and
+the app's own cache root — the CLI uses `<repo>/cache/`, the app will want its user-data
+directory (M33).
+
+---
+
+### 4.18 Waveform peaks — ui-spec §3, data-formats §4.1 `peaks/`
+`src/analysis/peaks.ts`, 15 tests in `tests/analysis/peaks.test.ts`, plus 3 through the cache.
+Built for P3 step 5's timeline, which cannot scan 14 M samples on every repaint.
+
+- A **pyramid**: level 0 is 256 samples per bucket (~5.3 ms at 48 kHz), each level above halves
+  the resolution. One pass over the audio plus a geometric tail; queries never touch the PCM.
+- Each bucket stores **min and max**, not an average or an absolute peak. Averages flatten the
+  envelope as you zoom out and absolute peaks lose asymmetry; min/max keeps the waveform looking
+  like the same sound at every zoom, which is what makes it usable for lining lyrics up against
+  (lyrics-spec §5). There is a test per failure mode.
+- `peaksForRange(pyramid, start, end, columns)` picks the coarsest level with at least one bucket
+  per column, so a whole-track view reads a few hundred buckets and a 20 ms view keeps full
+  detail — same call either way. Columns past the end of the audio are zero, so the timeline
+  draws a flat line rather than running off the array.
+- `encodePeaks` / `decodePeaks` use the same shape as the analysis container (JSON header, then
+  float32 LE) and refuse another format version rather than misreading it. Under 2% of the size
+  of the PCM they describe.
+- Stored at `peaks/mix.peaks` in the cache entry and returned by `analyzeCached`. **A missing
+  peaks file is not a cache miss** — they cost one pass to rebuild from PCM already in hand, so
+  the entry still counts as a hit.
+
+Not yet: per-stem peaks (the timeline's expandable stem rows, ui-spec §3), and drawing them.
 
 ---
 
@@ -607,6 +633,5 @@ Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` an
 offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
 
 **Work that does not need a GPU**, for a session on a machine without one: more effect modules
-toward M12's ten (two exist), the waveform peak pyramid the timeline needs (ui-spec §3), masks
-and group compositing in `toRenderProject` (§7), presets (M25), and `sections.json` for the
-auto-director.
+toward M12's ten (two exist), masks and group compositing in `toRenderProject` (§7), presets
+(M25), and `sections.json` for the auto-director.

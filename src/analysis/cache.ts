@@ -4,7 +4,8 @@
 //     meta.json       versions, key inputs, per-source readiness, sizes
 //     mix.bin         the container from container.ts — one file per source
 //     drums.bin  bass.bin  vocals.bin  other.bin
-//     beatgrid.json   beat times, bpm, confidence
+//     beatgrid.json   beat times, bpm, confidence, onset times
+//     peaks/mix.peaks the waveform pyramid the timeline draws from
 //
 // Two properties do the real work here.
 //
@@ -29,6 +30,7 @@ import { join } from 'node:path';
 import type { AnalysisSet, BeatGrid, SourceAnalysis } from '../engine/core/analysis.ts';
 import type { Stem } from '../engine/core/params.ts';
 import { decodeAnalysis, encodeAnalysis, CONTAINER_VERSION } from './container.ts';
+import { decodePeaks, encodePeaks, type PeakPyramid } from './peaks.ts';
 import { ANALYSIS_VERSION, DEFAULT_SPECTRUM_SETTINGS, type SpectrumSettings } from './spectrum.ts';
 
 export const CACHE_LAYOUT_VERSION = 1;
@@ -256,6 +258,27 @@ export class AnalysisCache {
         onsetTimes: options.onsetTimes ?? [],
       };
       await writeAtomic(join(dir, 'beatgrid.json'), Buffer.from(`${JSON.stringify(payload, null, 2)}\n`, 'utf8'));
+    }
+  }
+
+  /**
+   * Waveform peaks for the timeline (ui-spec §3). Stored beside the analysis because they are
+   * derived from the same audio and invalidated by the same thing — the audio changing.
+   */
+  async writePeaks(audioHash: string, settingsHash: string, pyramid: PeakPyramid): Promise<void> {
+    const dir = this.entryPath(audioHash, settingsHash);
+    await mkdir(join(dir, 'peaks'), { recursive: true });
+    await writeAtomic(join(dir, 'peaks', 'mix.peaks'), encodePeaks(pyramid));
+  }
+
+  /** Null on a miss or on a file from another format version — rebuild rather than misread. */
+  async readPeaks(audioHash: string, settingsHash: string): Promise<PeakPyramid | null> {
+    const bytes = await readBytesIfPresent(join(this.entryPath(audioHash, settingsHash), 'peaks', 'mix.peaks'));
+    if (bytes === null) return null;
+    try {
+      return decodePeaks(bytes);
+    } catch {
+      return null;
     }
   }
 

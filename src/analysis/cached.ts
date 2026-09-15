@@ -14,6 +14,7 @@ import type { AnalysisSet } from '../engine/core/analysis.ts';
 import { analyzeMix, type AnalyzeOptions, type AnalyzeResult } from './analyze.ts';
 import { hashAnalysisSettings, hashPcm, type AnalysisCache, type AnalysisKeyInputs } from './cache.ts';
 import type { BeatGrid } from './features.ts';
+import { buildPeakPyramid, type PeakPyramid } from './peaks.ts';
 
 export interface CachedAnalyzeOptions extends AnalyzeOptions {
   /** Skip the read and recompute — the "re-analyse" action, and what a bug report should try. */
@@ -28,6 +29,8 @@ export interface CachedAnalyzeResult {
   readonly analysis: AnalysisSet;
   readonly beatGrid: BeatGrid | undefined;
   readonly onsetTimes: readonly number[];
+  /** Waveform pyramid for the timeline — built on a miss, read back on a hit. */
+  readonly peaks: PeakPyramid;
   readonly audioHash: string;
   readonly settingsHash: string;
   readonly fromCache: boolean;
@@ -57,10 +60,14 @@ export async function analyzeCached(
   if (options.force !== true) {
     const hit = await cache.readSet(audioHash, settingsHash);
     if (hit !== null) {
+      // Peaks are cheap to rebuild, so a missing peaks file is not a reason to miss the whole
+      // entry — it just costs one pass over the PCM we already have in hand.
+      const peaks = (await cache.readPeaks(audioHash, settingsHash)) ?? buildPeakPyramid(pcm, 48_000);
       return {
         analysis: hit,
         beatGrid: hit.beatGrid,
         onsetTimes: await cache.readOnsetTimes(audioHash, settingsHash),
+        peaks,
         audioHash,
         settingsHash,
         fromCache: true,
@@ -69,6 +76,7 @@ export async function analyzeCached(
   }
 
   const computed: AnalyzeResult = analyzeMix(pcm, options);
+  const peaks = buildPeakPyramid(pcm, 48_000);
   const mix = computed.analysis.sources.get('mix');
   if (mix !== undefined) {
     try {
@@ -78,6 +86,7 @@ export async function analyzeCached(
         ...(computed.analysis.beatGrid === undefined ? {} : { beatGrid: computed.analysis.beatGrid }),
         onsetTimes: computed.onsetTimes,
       });
+      await cache.writePeaks(audioHash, settingsHash, peaks);
     } catch {
       // Best-effort: a cache that cannot be written still must not break analysis.
     }
@@ -87,6 +96,7 @@ export async function analyzeCached(
     analysis: computed.analysis,
     beatGrid: computed.analysis.beatGrid,
     onsetTimes: computed.onsetTimes,
+    peaks,
     audioHash,
     settingsHash,
     fromCache: false,
