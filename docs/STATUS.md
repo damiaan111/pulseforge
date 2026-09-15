@@ -139,6 +139,7 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
 | `cache.ts` | the on-disk cache tree (§4.17) — keys, readiness, listing, pruning |
 | `cached.ts` | `analyzeCached` — the cache in front of `analyzeMix` |
 | `peaks.ts` | the waveform peak pyramid the timeline draws from (§4.18) |
+| `sections.ts` | structural section detection for the arranger (§4.21) |
 
 - Features: `rms`, `peak`, `onset`, `beat`, `centroid`, `flux`, and `stereoWidth` when a stereo
   decode is available. **All on one 0..1 scale** (sine-equivalent dBFS against the floor), so a
@@ -161,8 +162,8 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
   needed no changes. Verified: golden frames byte-identical and `spike:determinism` still
   `5f0ade89…`, so adding the features changed no existing render.
 - The on-disk cache tree landed separately — see §4.17.
-- Not yet: stems analysis, sections, workers, quantisation and beat-synced LFO rates (which now
-  have a grid to use).
+- Not yet: stems analysis, workers, quantisation and beat-synced LFO rates (which now have a
+  grid to use). Sections landed — §4.21.
 
 ### 4.5 Export (`src/export/`)
 `ffmpeg-args.ts` (settings, D40 defaults, gpu-nv12/swscale, colour tags via `setparams`, bit-exact), `pump.ts`
@@ -578,7 +579,7 @@ nothing and are byte-for-byte unaffected.
 RTX machine, run it twice on the same audio and confirm the second says `cache hit` — and that
 `npm run golden` is still green, since the analysis path feeding the engine changed shape.
 
-Not yet: stem sources in the tree (nothing produces them yet), `derived/`, `sections.json`, and
+Not yet: stem sources in the tree (nothing produces them yet), `derived/`, and
 the app's own cache root — the CLI uses `<repo>/cache/`, the app will want its user-data
 directory (M33).
 
@@ -661,6 +662,38 @@ assumed). The change is still worth re-running `npm run golden` against on the R
 
 ---
 
+### 4.21 Section detection — PROJECT.md §8.1, auto-director-spec §2
+`src/analysis/sections.ts`, 12 tests in `tests/analysis/sections.test.ts`. Written now because
+the arranger leans on it (auto-director-spec §6) and because it is pure DSP — no GPU needed.
+
+- **Foote's method**: a self-similarity matrix over timbre, a checkerboard kernel slid down its
+  diagonal, peak-pick the resulting novelty curve. A boundary is where the music before sounds
+  unlike the music after, which is what a section change *is*.
+- **Timbre, not level.** Spectrum frames are normalised per frame before comparison and compared
+  by cosine similarity, so a quiet chorus and a loud verse are distinguishable and a plain
+  crescendo is not a boundary. There is a test asserting a level change alone produces one
+  section.
+- The matrix is never materialised — only the window around each diagonal position is needed, so
+  it is O(n·k²) work and no large allocation.
+- **Two robustness rules the tests forced out**, both worth knowing:
+  - An **absolute novelty floor** (1e-4), not just a relative threshold. On material with no
+    structural change the curve is float noise around zero, and a purely relative threshold
+    happily finds a "peak" in it — the same trap the tempo detector avoids by reporting no grid
+    for silence rather than a confident wrong answer.
+  - Minimum spacing is enforced **against the track ends too**, not only between boundaries. A
+    boundary 6 s in makes a 6 s section that spacing-between-boundaries alone never catches.
+- Boundaries are picked strongest-first, so when two are too close together the clearer musical
+  change wins rather than whichever came first.
+- Labels (`intro | build | main | breakdown | outro`) are a coarse energy-and-position heuristic
+  and are documented as hints for the director, not ground truth.
+- Written to `sections.json` in the cache entry and returned by `analyzeCached`. The novelty
+  curve is kept in memory so a boundary can be explained, but not written — it is reconstructible.
+
+Known weakness, as specified (D28): good on electronic and beat-driven material, weaker on
+dynamic acoustic playing. `librosa`/`madmom` refinement is S16 if that becomes a problem.
+
+---
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
@@ -687,5 +720,5 @@ offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
 
 **Work that does not need a GPU**, for a session on a machine without one: more effect modules
 toward M12's ten (two exist — the shaders can be written but only verified on the RTX machine),
-masks and group compositing in `toRenderProject` (§7), `sections.json` for the auto-director,
-per-stem peaks, and applying project presets back onto a document (§4.19).
+masks and group compositing in `toRenderProject` (§7), per-stem peaks, applying project presets
+back onto a document (§4.19), and the modulation `derived/` envelope cache (modulation-spec §5).

@@ -6,6 +6,7 @@
 //     drums.bin  bass.bin  vocals.bin  other.bin
 //     beatgrid.json   beat times, bpm, confidence, onset times
 //     peaks/mix.peaks the waveform pyramid the timeline draws from
+//     sections.json   structural boundaries for the auto-director's arranger
 //
 // Two properties do the real work here.
 //
@@ -31,6 +32,7 @@ import type { AnalysisSet, BeatGrid, SourceAnalysis } from '../engine/core/analy
 import type { Stem } from '../engine/core/params.ts';
 import { decodeAnalysis, encodeAnalysis, CONTAINER_VERSION } from './container.ts';
 import { decodePeaks, encodePeaks, type PeakPyramid } from './peaks.ts';
+import { sectionsToJson, SECTIONS_FORMAT_VERSION, type Section, type SectionAnalysis } from './sections.ts';
 import { ANALYSIS_VERSION, DEFAULT_SPECTRUM_SETTINGS, type SpectrumSettings } from './spectrum.ts';
 
 export const CACHE_LAYOUT_VERSION = 1;
@@ -277,6 +279,26 @@ export class AnalysisCache {
     if (bytes === null) return null;
     try {
       return decodePeaks(bytes);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Sections for the arranger (auto-director-spec §6). Written beside the analysis it came from. */
+  async writeSections(audioHash: string, settingsHash: string, sections: SectionAnalysis): Promise<void> {
+    const dir = this.entryPath(audioHash, settingsHash);
+    await mkdir(dir, { recursive: true });
+    await writeAtomic(join(dir, 'sections.json'), Buffer.from(sectionsToJson(sections), 'utf8'));
+  }
+
+  /** Null on a miss or a format this build does not read — sections are cheap to recompute. */
+  async readSections(audioHash: string, settingsHash: string): Promise<readonly Section[] | null> {
+    const text = await readIfPresent(join(this.entryPath(audioHash, settingsHash), 'sections.json'));
+    if (text === null) return null;
+    try {
+      const parsed = JSON.parse(text) as { formatVersion?: number; sections?: readonly Section[] };
+      if (parsed.formatVersion !== SECTIONS_FORMAT_VERSION) return null;
+      return parsed.sections ?? null;
     } catch {
       return null;
     }

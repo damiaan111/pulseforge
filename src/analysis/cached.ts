@@ -15,6 +15,7 @@ import { analyzeMix, type AnalyzeOptions, type AnalyzeResult } from './analyze.t
 import { hashAnalysisSettings, hashPcm, type AnalysisCache, type AnalysisKeyInputs } from './cache.ts';
 import type { BeatGrid } from './features.ts';
 import { buildPeakPyramid, type PeakPyramid } from './peaks.ts';
+import { detectSections, type Section } from './sections.ts';
 
 export interface CachedAnalyzeOptions extends AnalyzeOptions {
   /** Skip the read and recompute — the "re-analyse" action, and what a bug report should try. */
@@ -31,6 +32,8 @@ export interface CachedAnalyzeResult {
   readonly onsetTimes: readonly number[];
   /** Waveform pyramid for the timeline — built on a miss, read back on a hit. */
   readonly peaks: PeakPyramid;
+  /** Structural sections for the arranger; empty when the audio is too short to have any. */
+  readonly sections: readonly Section[];
   readonly audioHash: string;
   readonly settingsHash: string;
   readonly fromCache: boolean;
@@ -63,11 +66,15 @@ export async function analyzeCached(
       // Peaks are cheap to rebuild, so a missing peaks file is not a reason to miss the whole
       // entry — it just costs one pass over the PCM we already have in hand.
       const peaks = (await cache.readPeaks(audioHash, settingsHash)) ?? buildPeakPyramid(pcm, 48_000);
+      const mixHit = hit.sources.get('mix');
+      const sections = (await cache.readSections(audioHash, settingsHash))
+        ?? (mixHit === undefined ? [] : detectSections(mixHit, pcm.length / 48_000).sections);
       return {
         analysis: hit,
         beatGrid: hit.beatGrid,
         onsetTimes: await cache.readOnsetTimes(audioHash, settingsHash),
         peaks,
+        sections,
         audioHash,
         settingsHash,
         fromCache: true,
@@ -78,6 +85,7 @@ export async function analyzeCached(
   const computed: AnalyzeResult = analyzeMix(pcm, options);
   const peaks = buildPeakPyramid(pcm, 48_000);
   const mix = computed.analysis.sources.get('mix');
+  const sectionAnalysis = mix === undefined ? undefined : detectSections(mix, pcm.length / 48_000);
   if (mix !== undefined) {
     try {
       await cache.writeSource(audioHash, settingsHash, 'mix', mix, {
@@ -87,6 +95,7 @@ export async function analyzeCached(
         onsetTimes: computed.onsetTimes,
       });
       await cache.writePeaks(audioHash, settingsHash, peaks);
+      if (sectionAnalysis !== undefined) await cache.writeSections(audioHash, settingsHash, sectionAnalysis);
     } catch {
       // Best-effort: a cache that cannot be written still must not break analysis.
     }
@@ -97,6 +106,7 @@ export async function analyzeCached(
     beatGrid: computed.analysis.beatGrid,
     onsetTimes: computed.onsetTimes,
     peaks,
+    sections: sectionAnalysis?.sections ?? [],
     audioHash,
     settingsHash,
     fromCache: false,
