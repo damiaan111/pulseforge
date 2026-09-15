@@ -869,7 +869,7 @@ Not yet: the browser UI itself, animated thumbnails, and nothing ships a `builti
 ---
 
 ### 4.26 Auto-director classification (M21, auto-director-spec §2–3)
-`src/director/digest.ts`, 17 tests in `tests/director/digest.test.ts`. The director's first two
+`src/director/digest.ts`, 17 tests in `tests/director/digest.test.ts` (`fb08f45`). The director's first two
 steps — summarise what the analysis measured (`TrackDigest`), then classify what kind of track it
 is (`StyleVector`). Pure, so all of it is testable here; the rest of P7 builds on these.
 
