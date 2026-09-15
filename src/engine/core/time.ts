@@ -64,3 +64,12 @@ export interface AudioPlacement {
 export function timelineToSourceSeconds(timelineSeconds: number, placement: AudioPlacement): number {
   return timelineSeconds - ticksToSeconds(placement.leadInTicks) + ticksToSeconds(placement.clipInTicks);
 }
+
+/**
+ * Source-audio time → timeline time: the exact inverse, kept here so both directions of the
+ * mapping live in one file and cannot drift apart. The preview clock needs this one, because an
+ * audio element reports where *it* is and the playhead has to be expressed on the timeline.
+ */
+export function sourceToTimelineSeconds(sourceSeconds: number, placement: AudioPlacement): number {
+  return sourceSeconds + ticksToSeconds(placement.leadInTicks) - ticksToSeconds(placement.clipInTicks);
+}

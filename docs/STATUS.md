@@ -2,9 +2,10 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-14 — **P0 and P2 complete**, P3 started: the engine renders multi-layer projects
-> headlessly at 16:9 / 9:16 / 1:1, golden frames are green, and `npm run render` produces an MP4
-> from a project file. Next: P3 (§9).
+> Last updated: 2026-09-15 — **P0 and P2 complete**, P3 steps 1–4 of 5 done: the engine renders
+> multi-layer projects headlessly at 16:9 / 9:16 / 1:1, golden frames are green, `npm run render`
+> produces an MP4 from a project file, and the preview clock is in place. Next: P3 step 5, the
+> React studio (§9).
 
 ---
 
@@ -16,7 +17,7 @@
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
-| **P3 — Studio** | 🔶 **in progress** — steps 1–3 of 5 done (see §9) |
+| **P3 — Studio** | 🔶 **in progress** — steps 1–4 of 5 done (see §9) |
 | P4 … P8 | ⬜ not started |
 
 P3 steps:
@@ -26,7 +27,7 @@ P3 steps:
 | 1 | App shell: safe process layout, typed IPC, project I/O | ✅ | `cab80a0` |
 | 2 | Command/undo stack (M8) | ✅ | `59000e0` |
 | 3 | Analysis pipeline: features, onsets, beat grid (M4) | ✅ | `05471d4` |
-| 4 | Preview clock (M31) | ⬜ | |
+| 4 | Preview clock (M31) | ✅ | `PENDING` |
 | 5 | React studio (ui-spec) | ⬜ | |
 
 P2 steps:
@@ -395,7 +396,7 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   **group compositing** (M38 — a group's own transform, opacity, blend and effects applied to its
   composited children). Blend modes beyond normal/add/screen fall back with a note.
 - Two effects exist (bloom, vignette) against M12's target of ten.
-- No undo/command stack or presets yet (M8, M25).
+- No presets yet (M25). (Undo/commands landed in P3 step 2, §4.15.)
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
   single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
   §7 sketches the shape, it does not pin field names.
@@ -490,6 +491,44 @@ empty project. Anything driving the window from outside must wait on that flag.
 
 Not yet: autosave, crash recovery, multi-select editing, keyframes.
 
+### 4.16 Preview clock (P3 step 4) — M31, PROJECT.md §8.12, export-spec §3
+`src/ui/clock.ts`, 17 tests in `tests/ui/clock.test.ts`. A pure state machine: no DOM, no audio
+element, no render loop — the caller reads the audio element and applies what the clock returns.
+
+- **The audio is the master.** Each `tick(reading)` asks where the audio has reached and returns
+  the frame *there*. The clock never advances time itself, so a slow frame skips frames and
+  cannot drift. `dropped` reports how many were stepped over; they are never rendered.
+- **Silent stretches.** During lead-in and lead-out there is no audio to follow, so the playhead
+  rides a wall-clock anchor — which is re-synced from the audio on every audible tick, making the
+  handover in both directions continuous rather than a jump. `frame.source` says which clock a
+  frame came from, which is the first thing to look at if sync ever seems wrong.
+- **Frames snap to the project grid** by default, so a preview frame is a time an export would
+  also render. `snapToFrameGrid: false` exists for a continuous readout.
+- Returns instructions rather than performing them: `seekAudioTo` (source position, already mapped
+  through lead-in and trim) and `pauseAudio`. Loop regions wrap by asking for a seek.
+- `seek()` renders exactly one frame even when paused or stopped — scrubbing is a rapid sequence
+  of seeks. A seek to the frame already on screen still redraws; a *tick* onto the same frame
+  does not.
+- Stats over a rolling window: `renderedFps`, `droppedRecent`, `droppedTotal` — what ui-spec §2's
+  dropped-frame indicator shows.
+
+**Gotcha found here, worth knowing before writing anything similar:** `Math.floor(t * fps)` is
+float-fragile exactly at frame boundaries — at t = 3 + 1/60, `t * 60` is `180.99999999999997`, so
+the index lands one low and the tick renders nothing. Eight of thirty ticks collapsed that way in
+the first test run. `frameIndexFor` now rounds to integer ticks first (1/48000 s, ~800× finer than
+a 60 fps frame) and divides in integers. Anything else turning a continuous time into a frame
+index should do the same.
+
+Also added: `sourceToTimelineSeconds` in `src/engine/core/time.ts`, the exact inverse of
+`timelineToSourceSeconds`, so both directions of the audio↔timeline mapping live in one file.
+An `<audio>` element reports **source** time; the timeline differs by lead-in *and* trim. Passing
+one where the other belongs is the risk PROJECT.md §10 flags, and it is exactly what the first
+draft of these tests got wrong.
+
+Not yet: the render loop itself, audio element wiring, and the on-screen indicator — all P3 step 5.
+
+---
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
@@ -506,8 +545,10 @@ Suggested order (each a commit, STATUS updated each time):
 1. ✅ **App shell** — see §4.14.
 2. ✅ **Command/undo stack** — see §4.15.
 3. ✅ **Analysis pipeline** — see §4.4. The on-disk cache tree is still outstanding.
-4. **Preview clock** (M31, §8.12): audio as master, drop frames but never drift.
+4. ✅ **Preview clock** — see §4.16.
 5. **React studio** (ui-spec): canvas, timeline, schema-generated inspector, aspect switcher.
+   The clock is ready for it: drive `tick()` from the render loop, hand `frame.timelineSeconds`
+   to `renderFrame`, and apply `seekAudioTo` / `pauseAudio` to the audio element.
 
 Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
 offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
