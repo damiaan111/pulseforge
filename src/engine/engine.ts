@@ -35,6 +35,14 @@ import { blobsModule } from './modules/blobs.ts';
 import { particlesModule } from './modules/particles.ts';
 import { bloomModule } from './modules/bloom.ts';
 import { vignetteModule } from './modules/vignette.ts';
+import { blurModule } from './modules/blur.ts';
+import { gradeModule } from './modules/grade.ts';
+import { chromaticModule } from './modules/chromatic.ts';
+import { grainModule } from './modules/grain.ts';
+import { pixelateModule } from './modules/pixelate.ts';
+import { scanlinesModule } from './modules/scanlines.ts';
+import { kaleidoscopeModule } from './modules/kaleidoscope.ts';
+import { glitchModule } from './modules/glitch.ts';
 import { flashModule } from './modules/flash.ts';
 import { testPatternModule } from './modules/test-pattern.ts';
 
@@ -42,7 +50,8 @@ export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Visualizers (M11), then effects (M12), then the test modules the validator uses.
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
-  bloomModule, vignetteModule,
+  bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
+  grainModule, pixelateModule, scanlinesModule, kaleidoscopeModule, glitchModule,
   testPatternModule, flashModule,
 ];
 

@@ -1142,3 +1142,52 @@ Verified: `npm run check` **548 tests pass**; `npm run golden` **15/15 byte-iden
 21 GPU module tests pass; a ten-module contact sheet was rendered and inspected.
 
 **M11 is done. M12 (ten effects) is at two:** bloom and vignette.
+
+---
+
+### 4.30 The effect library (P4 step 3) — M12 complete
+
+Eight more effects, taking the catalogue to **ten** and closing M12.
+
+`src/engine/modules/effect-base.ts` is the counterpart to `analysis-texture.ts`:
+`singlePassEffect(manifest, frag, options)` handles the four things every effect does — refuse
+politely when there is no input, bind it to unit 0, set uniforms, draw one triangle — so an
+effect is a fragment shader plus a schema. `EFFECT_GLSL` ships `pf_unpremultiply` /
+`pf_premultiply` / `pf_luma` and a deterministic integer-hash noise.
+
+**Un-premultiplying is not optional and is easy to skip.** The compositor works in premultiplied
+linear light; any operation that is not a plain multiply — contrast, saturation, a curve — must
+divide the alpha out first or every soft edge in the frame darkens as the control goes up, which
+reads as a halo with no obvious cause. Providing the two helpers rather than the rule alone is
+the point.
+
+| Effect | Note |
+|---|---|
+| `core.effect.blur` | separable Gaussian, two passes; N² taps become 2N. Radius follows `referenceScale` |
+| `core.effect.grade` | exposure, contrast about a pivot, saturation, temperature/tint — all in linear light, because a contrast curve on sRGB crushes shadows and a saturation on sRGB shifts hue |
+| `core.effect.chromatic` | channel separation growing towards the edges, as a lens does. Alpha comes from the **unshifted** tap, or the layer's edge creeps outwards each time |
+| `core.effect.grain` | per-frame noise that is a hash of pixel and **frame index**, so frame 300 has the grain frame 300 always had. Weighted to the midtones, as film is |
+| `core.effect.pixelate` | blocks or a dot-matrix panel; block size is canvas-relative, not a pixel count |
+| `core.effect.scanlines` | CRT lines plus a phosphor mask. Line count is fixed in *frame* terms — a tube did not gain lines because you exported at 4K — while the mask stays a fixed number of output pixels, because it is a feature of the glass |
+| `core.effect.kaleidoscope` | folds a wedge around the centre, in screen-circular polar space so wedges stay equal in 9:16 |
+| `core.effect.glitch` | torn bands, channel shift and dropouts, hashed from band and frame index, in scheduled bursts |
+
+`tests/golden/effects-catalogue-gpu.test.ts` is new and deliberately separate from
+`effects-gpu.test.ts`, which measures the *chain*. The catalogue test walks every effect and
+asserts it **changes the frame** — because an effect fails invisibly. A visualizer with a broken
+shader draws nothing and any smoke test catches it; a broken effect looks exactly like an effect
+at default settings. Each one is given settings strong enough to be unmistakable, and a second
+test asserts the settings table covers every effect so the two cannot drift apart.
+
+**That test immediately earned itself.** The kaleidoscope compiled, was deterministic, and
+rendered a completely black frame. Rotation was applied *before* the fold, which pins the
+sampled wedge to the same slice of the source for ever: point it at a bars layer, whose content
+is all along the bottom, and there is nothing in the wedge. Rotation now applies after the fold
+and actually aims the wedge. Also caught: `active` is a reserved word in GLSL ES.
+
+Verified: `npm run check` **570 tests pass across 36 files**; `npm run golden` **15/15
+byte-identical**; a ten-effect contact sheet was rendered over a bars layer and inspected.
+
+**Known gap, and the obvious next step:** `addEffect` / `removeEffect` / `setEffectParam` have
+existed in `src/project/commands.ts` since P3 step 2, but **the studio has no UI for them**. Ten
+effects that can only be reached by editing a `.pvproj` by hand is a hollow milestone.
