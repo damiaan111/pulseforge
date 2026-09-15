@@ -1345,6 +1345,13 @@ suggested order:
   **Renders (n)** toggles the queue drawer (status, progress, fps, ETA, cancel/retry/show file/remove,
   clear finished).
 
+**Chrome colour, after owner feedback ("it's very… pink"):** the accent had been the neon content
+pink and was on every slider, primary button, selection and timeline block — against ui-spec §12,
+which keeps the chrome near-neutral so the canvas is the only saturated thing. Now: neutral
+`--control` for sliders/progress, light neutral primary buttons, a muted blue-grey `--accent` for
+selection and the playhead only, and `--warn` (amber) for the D44 aspect-override border, banner
+and badges so that state stays unmissable. Timeline waveform neutral; selected layer block outlined.
+
 Verified here: 588 tests; a Node-side run cancelled a 4K job mid-render (cancelled, no file) and
 completed a square job (done, report) with no leftover processes; `--smoke` passes nine checks
 including `exportDialog` and a real `queuedRender` from inside the app.

@@ -48,7 +48,9 @@ export function Timeline(): React.JSX.Element {
     const colour = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
     const line = colour('--line', '#2a2a33');
     const dim = colour('--text-dim', '#9a9aa6');
-    const accent = colour('--accent', '#ff2d95');
+    const accent = colour('--accent', '#8ea4d2');
+    const control = colour('--control', '#8b8b98');
+    const raised = colour('--panel-raised', '#1e1e25');
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
@@ -85,7 +87,8 @@ export function Timeline(): React.JSX.Element {
       const audioSeconds = peaks.sampleCount / peaks.sampleRate;
       const window = peaksForRange(peaks, 0, audioSeconds, columns);
       const mid = WAVE_HEIGHT / 2;
-      ctx.fillStyle = accent;
+      // Neutral: the waveform is information, and a coloured one competes with the canvas (ui-spec §12).
+      ctx.fillStyle = control;
       ctx.globalAlpha = 0.75;
       for (let i = 0; i < window.min.length; i += 1) {
         const px = PADDING + (i / window.min.length) * (rect.width - PADDING * 2) + x(leadIn) - PADDING;
@@ -112,11 +115,17 @@ export function Timeline(): React.JSX.Element {
       const to = layer.timeRange.outTicks === null ? duration : ticksToSeconds(layer.timeRange.outTicks);
       const left = x(from);
       const right = x(Math.min(duration, to));
-      ctx.fillStyle = layer.id === selectedLayerId ? accent : line;
+      const selected = layer.id === selectedLayerId;
+      ctx.fillStyle = selected ? raised : line;
       ctx.globalAlpha = layer.enabled ? 1 : 0.35;
       ctx.fillRect(left, top, Math.max(2, right - left), ROW_HEIGHT - 4);
+      if (selected) {
+        // Selection is an outline in the accent, not a filled bar of it.
+        ctx.strokeStyle = accent;
+        ctx.strokeRect(left + 0.5, top + 0.5, Math.max(2, right - left) - 1, ROW_HEIGHT - 5);
+      }
       ctx.globalAlpha = 1;
-      ctx.fillStyle = layer.id === selectedLayerId ? '#180010' : dim;
+      ctx.fillStyle = selected ? colour('--text', '#e6e6ea') : dim;
       ctx.font = '11px "Segoe UI", system-ui, sans-serif';
       const label = layer.name !== '' ? layer.name : layer.kind === 'group' ? 'group' : layer.module;
       ctx.fillText(label, left + 6, top + ROW_HEIGHT - 9, Math.max(10, right - left - 12));
