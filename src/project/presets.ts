@@ -368,3 +368,93 @@ export function parsePreset(raw: unknown): Preset {
   }
   return preset as Preset;
 }
+
+export interface ApplyProjectOptions extends Omit<ApplyOptions, 'keepModule' | 'keepName'> {
+  /** Add the preset's layers above what is already there instead of replacing them. */
+  readonly merge?: boolean;
+  /** Keep the document's palette; by default the preset's palette is adopted. */
+  readonly keepPalette?: boolean;
+}
+
+export interface ApplyProjectResult {
+  readonly document: ProjectDocument;
+  readonly notes: readonly string[];
+}
+
+/**
+ * Apply a project preset to a document.
+ *
+ * The audio, canvas, seed and timing are **never touched**: a project preset is a look, and the
+ * song it is applied to is not part of it. That is what makes "try this look on this track" a
+ * single action — and applying a preset that silently retimed or re-canvassed the project would
+ * be the kind of surprise no undo step fully repairs.
+ */
+export function applyProjectPreset(
+  preset: ProjectPreset,
+  document: ProjectDocument,
+  options: ApplyProjectOptions,
+): ApplyProjectResult {
+  if (preset.formatVersion !== PRESET_FORMAT_VERSION) {
+    throw new PresetError(
+      `This preset was written in format ${preset.formatVersion}; this build reads ${PRESET_FORMAT_VERSION}.`,
+      ['Re-save it from a build that can read it'],
+    );
+  }
+
+  const notes: string[] = [];
+  const layers: Layer[] = [];
+  for (const layerPreset of preset.layers) {
+    // Each layer preset needs a target to apply onto; a fresh layer of its own module is the
+    // natural one, and `applyLayerPreset` then does the id generation and rebinding.
+    const blank = blankLayerFor(layerPreset, options.newId());
+    const applied = applyLayerPreset(layerPreset, blank, {
+      newId: options.newId,
+      manifests: options.manifests,
+      ...(options.styleOnly === undefined ? {} : { styleOnly: options.styleOnly }),
+    });
+    layers.push(applied.layer);
+    notes.push(...applied.notes);
+  }
+
+  const globalEffects = preset.globalEffects.map((effect) => ({
+    id: options.newId(),
+    module: effect.module,
+    name: effect.name,
+    enabled: effect.enabled,
+    params: { ...effect.values },
+    paramsSchemaVersion: effect.paramsSchemaVersion,
+    extra: {},
+  }));
+
+  const document2: ProjectDocument = {
+    ...document,
+    palette: options.keepPalette === true ? document.palette : preset.palette,
+    layers: options.merge === true ? [...document.layers, ...layers] : layers,
+    globalEffects: options.merge === true ? [...document.globalEffects, ...globalEffects] : globalEffects,
+  };
+  return { document: document2, notes };
+}
+
+/** A minimal layer of the preset's module, used only as the target `applyLayerPreset` fills in. */
+function blankLayerFor(preset: LayerPreset, id: string): ModuleLayer {
+  return {
+    kind: 'module',
+    id,
+    name: preset.name,
+    module: preset.module.id,
+    params: {},
+    paramsSchemaVersion: preset.module.paramsSchemaVersion,
+    enabled: true,
+    locked: false,
+    soloed: false,
+    timeRange: { inTicks: 0, outTicks: null, extra: {} },
+    transform: preset.transform,
+    blend: preset.blend,
+    opacity: preset.opacity,
+    maskLayerId: null,
+    effects: [],
+    modulations: [],
+    aspectOverrides: {},
+    extra: {},
+  };
+}

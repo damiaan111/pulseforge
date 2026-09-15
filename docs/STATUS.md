@@ -640,8 +640,14 @@ need no GL.
   them rather than failing.
 - Assets are **referenced, not embedded** (D6). Nothing references assets yet, but the shape is set.
 
-Not yet: wiring into the UI (a Save Preset button, the browser and thumbnails — S8), a preset
-folder on disk, and applying a *project* preset back onto a document.
+`applyProjectPreset` completes the loop: it replaces (or, with `merge`, adds above) the layers
+and global chain, and adopts the palette unless `keepPalette` is set. It **never touches the
+audio, canvas, seed or timing** — a project preset is a look, and the song it lands on is not
+part of it, which is what makes "try this look on this track" one action. Asserted by a test,
+because a preset that silently retimed a project is the kind of surprise no undo fully repairs.
+
+Not yet: wiring into the UI (a Save Preset button, the browser and thumbnails — S8) and a preset
+folder on disk.
 
 ---
 
@@ -720,5 +726,11 @@ offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
 
 **Work that does not need a GPU**, for a session on a machine without one: more effect modules
 toward M12's ten (two exist — the shaders can be written but only verified on the RTX machine),
-masks and group compositing in `toRenderProject` (§7), per-stem peaks, applying project presets
-back onto a document (§4.19), and the modulation `derived/` envelope cache (modulation-spec §5).
+masks and group compositing in `toRenderProject` (§7), per-stem peaks, a preset folder on disk,
+and the auto-director's TrackDigest/StyleVector classification (auto-director-spec §2–3), which
+is pure logic over the analysis and sections that now exist.
+
+Checked and *not* needed: the modulation `derived/` envelope cache. `compileModulation` already
+precomputes envelopes across the whole track and caches them in memory (§4.10), so the
+determinism requirement in modulation-spec §5 is met; an on-disk copy would only save startup
+time.

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createBinding, createDocument, createEffect, createGroupLayer, createModuleLayer } from '../../src/project/create.ts';
 import {
   applyLayerPreset,
+  applyProjectPreset,
   createLayerPreset,
   createProjectPreset,
   nonDefaultValues,
@@ -221,5 +222,70 @@ describe('preset files', () => {
     expect(() => parsePreset({})).toThrow(/no format version/);
     expect(() => parsePreset({ formatVersion: 99 })).toThrow(/format 99/);
     expect(() => parsePreset({ formatVersion: PRESET_FORMAT_VERSION, scope: 'nonsense' })).toThrow(/scope/);
+  });
+});
+
+describe('applyProjectPreset', () => {
+  const sourceDocument = () => ({
+    ...createDocument({ name: 'Source' }),
+    layers: [barsLayer()],
+    palette: { colors: ['#ff00ff', '#00ffff'], roles: { primary: 0, glow: 1 }, extra: {} },
+  });
+
+  it('never touches the audio, canvas, seed or timing', () => {
+    // A project preset is a look; the song it lands on is not part of it.
+    const preset = createProjectPreset(sourceDocument(), manifests);
+    const target = {
+      ...createDocument({ name: 'My song' }),
+      audio: { ...createDocument().audio, path: 'song.wav', durationTicks: 999 },
+      seed: 4242,
+    };
+    const { document } = applyProjectPreset(preset, target, { newId, manifests });
+
+    expect(document.audio).toEqual(target.audio);
+    expect(document.canvas).toEqual(target.canvas);
+    expect(document.seed).toBe(4242);
+    expect(document.name).toBe('My song');
+  });
+
+  it('replaces the layers and adopts the palette by default', () => {
+    const preset = createProjectPreset(sourceDocument(), manifests);
+    const target = { ...createDocument(), layers: [createModuleLayer('core.visualizer.rings', { id: 'old' })] };
+    const { document } = applyProjectPreset(preset, target, { newId, manifests });
+
+    expect(document.layers).toHaveLength(1);
+    expect(document.layers[0]!.id).not.toBe('old');
+    expect(document.layers[0]).toMatchObject({ module: 'core.visualizer.bars' });
+    expect(document.palette.colors).toEqual(['#ff00ff', '#00ffff']);
+  });
+
+  it('merge adds the preset above what is already there', () => {
+    const preset = createProjectPreset(sourceDocument(), manifests);
+    const target = { ...createDocument(), layers: [createModuleLayer('core.visualizer.rings', { id: 'old' })] };
+    const { document } = applyProjectPreset(preset, target, { newId, manifests, merge: true });
+
+    expect(document.layers).toHaveLength(2);
+    expect(document.layers[0]!.id).toBe('old'); // kept, and still underneath
+  });
+
+  it('keepPalette leaves the document’s own colours alone', () => {
+    const preset = createProjectPreset(sourceDocument(), manifests);
+    const target = createDocument();
+    const { document } = applyProjectPreset(preset, target, { newId, manifests, keepPalette: true });
+    expect(document.palette).toEqual(target.palette);
+  });
+
+  it('rebinds every layer at its own new id', () => {
+    const preset = createProjectPreset(sourceDocument(), manifests);
+    const { document } = applyProjectPreset(preset, createDocument(), { newId, manifests });
+    const layer = document.layers[0]!;
+    expect(layer.modulations[0]!.target).toBe(`layers.${layer.id}.params.barCount`);
+  });
+
+  it('refuses a preset from another format version', () => {
+    const preset = createProjectPreset(sourceDocument(), manifests);
+    expect(() => applyProjectPreset({ ...preset, formatVersion: 99 }, createDocument(), { newId, manifests })).toThrow(
+      /format 99/,
+    );
   });
 });
