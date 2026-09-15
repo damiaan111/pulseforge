@@ -39,6 +39,15 @@ export function App(): React.JSX.Element {
   // immediately. Typing in a field must not trigger them.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Esc closes the topmost overlay, as every dialog elsewhere does — before the typing check,
+      // so it works with focus in the dialog's own controls.
+      if (event.key === 'Escape') {
+        const state = useStudio.getState();
+        if (state.exportOpen) state.setExportOpen(false);
+        else if (state.queueOpen) state.setQueueOpen(false);
+        else if (state.toast !== null) state.notify(null);
+        return;
+      }
       const target = event.target as HTMLElement | null;
       const typing = target !== null
         && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);

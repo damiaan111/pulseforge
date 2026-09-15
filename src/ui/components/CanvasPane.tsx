@@ -53,6 +53,7 @@ export function CanvasPane(): React.JSX.Element {
   const notify = useStudio((s) => s.notify);
 
   const [error, setError] = useState<string | null>(null);
+  // The preview's error overlay; the host clears it with null when a later document renders.
   const [notes, setNotes] = useState<readonly string[]>([]);
 
   useEffect(() => {

@@ -15,7 +15,7 @@ import { analysisFrameCount } from '../../analysis/spectrum.ts';
 import type { AnalysisSet } from '../../engine/core/analysis.ts';
 import type { DecodedImage } from '../../engine/core/image.ts';
 import type { RenderProject } from '../../engine/core/project.ts';
-import { frameTimeSeconds, secondsToTicks, ticksToSeconds } from '../../engine/core/time.ts';
+import { frameCount, frameTimeSeconds, secondsToTicks, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
 import { RenderSetupError, ShaderCompileError } from '../../engine/render/gl.ts';
 import { toRenderProject, timelineDurationTicks } from '../../project/snapshot.ts';
@@ -28,8 +28,8 @@ const EMPTY_ANALYSIS: AnalysisSet = { sources: new Map() };
 export interface PreviewCallbacks {
   /** Throttled to ~10 Hz: this drives the transport readout, not the render. */
   readonly onStatus: (transport: Transport, timelineSeconds: number, stats: PreviewStats) => void;
-  /** A render failure the user must see — a shader that will not compile, a lost context. */
-  readonly onError: (message: string) => void;
+  /** A render failure the user must see — a shader that will not compile, a lost context. Null clears it. */
+  readonly onError: (message: string | null) => void;
   /** Warnings and notes from the frame report, deduplicated. */
   readonly onNotes: (notes: readonly string[]) => void;
 }
@@ -118,6 +118,13 @@ export class PreviewHost {
     this.document = document;
     this.project = toRenderProject(document).project;
     this.needsRedraw = true;
+    // A frame that failed stopped the loop for good, so undoing the edit that broke it left the
+    // preview dead until a restart. A changed document gets another try (a context that could
+    // not be created at all is a different failure and stays failed — there is no engine).
+    if (this.failed && this.engine !== null) {
+      this.failed = false;
+      this.callbacks.onError(null);
+    }
     if (durationChanged || this.clock === null || analysisChanged) this.rebuildClock(document);
   }
 
@@ -158,9 +165,16 @@ export class PreviewHost {
   }
 
   play(): void {
-    const tick = this.clock?.play();
+    const clock = this.clock;
+    const tick = clock?.play();
     this.applyAudio(tick);
-    if (this.audio.src !== '') void this.audio.play().catch(() => { /* no audio loaded yet */ });
+    // Only when the playhead is inside the clip. In the lead-in the clock starts the element
+    // itself when the clip begins (`playAudio`); starting it here skipped the silence.
+    if (clock !== null && clock.audioAudibleAt(clock.timelineSeconds)) this.startAudio();
+  }
+
+  private startAudio(): void {
+    if (this.audio.getAttribute('src') !== null) void this.audio.play().catch(() => { /* no audio loaded yet */ });
   }
 
   pause(): void {
@@ -181,20 +195,28 @@ export class PreviewHost {
   private rebuildClock(document: ProjectDocument): void {
     const durationTicks = timelineDurationTicks(document);
     const clipEnd = document.audio.clipOutTicks ?? document.audio.durationTicks;
+    const previous = this.clock;
     this.clock = new PreviewClock({
       fps: document.canvas.fps,
       durationTicks: Math.max(1, durationTicks),
       placement: { leadInTicks: document.audio.leadInTicks, clipInTicks: document.audio.clipInTicks },
       audioDurationTicks: Math.max(0, clipEnd - document.audio.clipInTicks),
     });
+    if (previous !== null) {
+      // A new clock starts stopped at 0. Keep the playhead where it was; a clock that was playing
+      // is paused, with the element, rather than left "stopped" while the audio plays on.
+      if (previous.transport === 'playing') this.audio.pause();
+      this.applyAudio(this.clock.seek(previous.timelineSeconds));
+    }
   }
 
-  private applyAudio(tick: { seekAudioTo?: number; pauseAudio?: boolean } | undefined): void {
+  private applyAudio(tick: { seekAudioTo?: number; pauseAudio?: boolean; playAudio?: boolean } | undefined): void {
     if (tick === undefined) return;
     if (tick.seekAudioTo !== undefined && Number.isFinite(tick.seekAudioTo)) {
       this.audio.currentTime = Math.max(0, tick.seekAudioTo);
     }
     if (tick.pauseAudio === true) this.audio.pause();
+    if (tick.playAudio === true) this.startAudio();
   }
 
   private loop = (): void => {
@@ -210,10 +232,14 @@ export class PreviewHost {
 
     // The clock's frame when time moved; otherwise the frame the playhead is already parked on,
     // but only when something asked for a redraw. Idle with nothing changed costs nothing.
+    // The parked frame uses the clock's own rule (floor on the tick grid, clamped to the last
+    // frame). Rounding showed the *next* frame from the second half of a frame on, and at the
+    // very end asked for a frame one past the timeline.
     const { fps } = project.canvas;
+    const lastFrame = Math.max(0, frameCount(project.durationTicks ?? 0, fps) - 1);
     const frameIndex = tick.frame !== null
       ? tick.frame.frameIndex
-      : Math.max(0, Math.round((clock.timelineSeconds * fps.num) / fps.den));
+      : Math.min(lastFrame, Math.max(0, Math.floor((secondsToTicks(clock.timelineSeconds) * fps.num) / (TICKS_PER_SECOND * fps.den))));
 
     if (tick.frame !== null || this.needsRedraw) {
       this.needsRedraw = false;

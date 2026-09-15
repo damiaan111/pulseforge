@@ -135,6 +135,30 @@ function fromHistory() {
   };
 }
 
+/** Increments per `loadAudio` call; a response for an older call is dropped. */
+let audioRequest = 0;
+
+/**
+ * A stored path against the project file's folder. Paths are written relative when they can be
+ * (data-formats §1.2) and the CLI resolves them that way; the studio passed them to the main
+ * process as they were, so a project with a relative audio path opened with no audio at all.
+ * String-only on purpose — the renderer has no `node:path`.
+ */
+export function resolveAgainstProject(stored: string, projectPath: string | null): string {
+  if (stored === '' || projectPath === null) return stored;
+  if (/^([a-zA-Z]:[\\/]|[\\/])/.test(stored)) return stored;
+  const cut = Math.max(projectPath.lastIndexOf('/'), projectPath.lastIndexOf('\\'));
+  return cut < 0 ? stored : `${projectPath.slice(0, cut + 1)}${stored}`;
+}
+
+/**
+ * Asks before throwing away unsaved work. `window.confirm` is a real modal in Electron, and a
+ * dialog of our own would be the same question with more code.
+ */
+function discardOk(action: string): boolean {
+  return !history.dirty || window.confirm(`The project has unsaved changes. ${action} anyway and lose them?`);
+}
+
 /** Never a raw stack trace (ui-spec §11). */
 function describeError(error: unknown, whileDoing: string): string {
   if (error instanceof ProjectVersionError) return error.message;
@@ -172,6 +196,8 @@ export const useStudio = create<StudioState>((set, get) => ({
     const document = history.current;
     const projectPath = get().path;
     for (const asset of document.assets) {
+      // Another project was opened meanwhile: stop, rather than attach this one's problems to it.
+      if (history.current.id !== document.id) return;
       if (asset.kind !== 'image' || get().images.has(asset.hash)) continue;
       try {
         const image = await window.pulseforge.loadImage(asset.path, projectPath);
@@ -262,7 +288,11 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 
   newProject() {
+    if (!discardOk('Start a new project')) return;
     history.reset(createDocument({ name: 'Untitled' }), 'New project');
+    audioRequest += 1;
+    const previous = get().audio;
+    if (previous !== null) URL.revokeObjectURL(previous.url);
     set((state) => ({
       ...fromHistory(),
       version: state.version + 1,
@@ -273,6 +303,13 @@ export const useStudio = create<StudioState>((set, get) => ({
       toast: null,
       images: new Map(),
       imageProblems: {},
+      // A new project has no audio; keeping the old track made "New" still react to the last song.
+      audio: null,
+      analysis: null,
+      peaks: null,
+      sections: [],
+      analysisState: 'idle' as const,
+      analysisMessage: null,
     }));
   },
 
@@ -291,13 +328,22 @@ export const useStudio = create<StudioState>((set, get) => ({
         ? { text: `Opened ${file.path}`, kind: 'ok' as const }
         : { text: `Migrated from schema v${loaded.migratedFrom}. The original is backed up on the first save.`, kind: 'warn' as const },
     }));
-    const audioPath = loaded.document.audio.path;
-    if (audioPath !== '') void get().loadAudio(audioPath);
+    const audioPath = resolveAgainstProject(loaded.document.audio.path, file.path);
+    if (audioPath !== '') {
+      void get().loadAudio(audioPath);
+    } else {
+      // The previous project's track must not stay loaded under a project that has none.
+      audioRequest += 1;
+      const previous = get().audio;
+      if (previous !== null) URL.revokeObjectURL(previous.url);
+      set({ audio: null, analysis: null, peaks: null, sections: [], analysisState: 'idle', analysisMessage: null });
+    }
     set({ images: new Map(), imageProblems: {} });
     void get().loadImages();
   },
 
   async openProject() {
+    if (!discardOk('Open another project')) return;
     try {
       const file = await window.pulseforge.openProject();
       if (file !== null) get().adopt(file);
@@ -357,18 +403,29 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 
   async loadAudio(path) {
-    const previous = get().audio;
+    // Only the latest request may land. Opening project B while A's track is still analysing
+    // otherwise shows B with A's audio and analysis once A finishes.
+    const request = ++audioRequest;
     set({ analysisState: 'working', analysisMessage: 'Reading audio...' });
+    let url: string | undefined;
     try {
       const file = await window.pulseforge.readAudio(path);
+      if (request !== audioRequest) return;
       // A Blob URL, not file://: the page's CSP allows blob: media, and the sandboxed renderer
       // has no filesystem of its own to point an element at.
-      const url = URL.createObjectURL(new Blob([file.bytes as unknown as BlobPart]));
-      if (previous !== null) URL.revokeObjectURL(previous.url);
+      url = URL.createObjectURL(new Blob([file.bytes as unknown as BlobPart]));
 
       set({ analysisMessage: 'Analysing...' });
       const payload = await window.pulseforge.analyzeAudio(path);
+      if (request !== audioRequest) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       const { analysis } = decodeAnalysis(payload.container);
+      // Revoked only once the replacement is ready: revoking up front left a failed load with
+      // the old track's element pointing at a dead URL.
+      const previous = get().audio;
+      if (previous !== null) URL.revokeObjectURL(previous.url);
       set({
         audio: { path, url, durationSeconds: payload.durationSeconds },
         analysis,
@@ -378,6 +435,8 @@ export const useStudio = create<StudioState>((set, get) => ({
         analysisMessage: payload.fromCache ? 'Analysis: cache hit' : 'Analysed and cached',
       });
     } catch (error) {
+      if (url !== undefined) URL.revokeObjectURL(url);
+      if (request !== audioRequest) return;
       const text = describeError(error, 'Loading the audio');
       set({ analysisState: 'error', analysisMessage: text, toast: { text, kind: 'bad' } });
     }

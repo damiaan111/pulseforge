@@ -9,7 +9,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './components/App.tsx';
-import { useStudio } from './store.ts';
+import { history, useStudio } from './store.ts';
 
 const container = document.getElementById('app');
 if (container === null) throw new Error('The renderer page has no #app element');
@@ -38,3 +38,9 @@ async function start(): Promise<void> {
 }
 
 void start();
+
+// Closing the window with unsaved work asks first. The renderer only says "there is something to
+// lose"; the main process shows the question (`will-prevent-unload`), since a page cannot.
+window.addEventListener('beforeunload', (event) => {
+  if (history.dirty) event.preventDefault();
+});

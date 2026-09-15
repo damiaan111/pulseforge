@@ -113,7 +113,7 @@ STATUS.md updated and commit after each step."*
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
-| `npm run dev -- --smoke` | launch, self-check the security posture, screenshot to `out/smoke.png`, exit | ~5 s |
+| `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
 | `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
 | `npm run golden` | re-render the golden set and compare with the committed references; `--update`, `--only <name>` | ~40 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
@@ -494,6 +494,15 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - Export: the queue landed (§4.23); still no disk-space precheck, thumbnails, motion blur, SSAA or audio stream-copy.
 - Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
 - The supervised sidecar landed (§4.24); nothing calls it yet, and its Python half is unverified on a GPU machine.
+- **Flaky under load:** once, a full `npm run check` straight after a smoke run took 190 s and one GPU
+  test failed with "Electron exited without writing a result" (`effects-gpu`, bloom). Two reruns of
+  the suite and three of that file passed. Suspect too many concurrent Electron GPU children; if it
+  recurs, cap vitest workers for `tests/golden/`.
+- **IPC reads any path the renderer names** (`readAudio`, `loadImage`, `readProject`). The renderer is
+  sandboxed and loads only our bundle, so this is not reachable today — but once `modules/` drop-ins
+  run in the renderer (M35) these should accept only paths the user picked or the project references.
+- A quit while a render is running cancels the render first, *then* the window asks about unsaved
+  changes; answering Cancel keeps the app open with the render already cancelled.
 
 ---
 
@@ -1421,3 +1430,52 @@ gradient, stretch orientation, contain bars, missing checkerboard, drift determi
 (relative path) + additive bars wrote a verified 1080p60 MP4 at 131 fps with no leftover `.rgba`;
 `--smoke` **10/10** including new `imageControl` (picker appears in image mode; the image bridge
 answers) and `queuedRender`.
+
+---
+
+### 4.36 Code and UI audit (2026-09-15, owner request)
+
+Method: read the studio store, preview host/clock, timeline, dialogs, History, render queue and the
+atomic writers; for the UI, a new `PULSEFORGE_UI_TOUR=1` smoke option screenshots every overlay at
+1600×900 and 1100×680, which were reviewed by eye before and after the fixes.
+
+**Bugs found and fixed (with regression tests where the code is testable without a window)**
+
+| # | Where | Bug | Fix |
+|---|---|---|---|
+| 1 | `export/queue.ts`, `analysis/cache.ts`, `project/preset-store.ts` | Concurrent atomic writes of one file shared `path.<pid>.tmp`; the second rename failed. Real for the queue (loop + IPC persist) and the cache (preview + queued render analysing the same track). **Test reproduced it** (12 concurrent enqueues). | `tempPathFor()` unique temp names; queue writes serialised so an older state cannot land last |
+| 2 | `project/history.ts` | Saving, undoing past the save and editing made the new branch read as **saved** at the old index | Save point invalidated when its branch is discarded (tested) |
+| 3 | `project/history.ts` | An edit merging into the entry just saved left the project **not dirty** | `markSaved()` seals (tested) |
+| 4 | `project/history.ts` | A command that changed nothing (re-importing a known image) made an undo step and a dirty flag | No-op commands are ignored (tested) |
+| 5 | `ui/store.ts` | **New / Open discarded unsaved work** without asking; closing the window likewise | `confirm` on New/Open; `beforeunload` + main-process `will-prevent-unload` dialog |
+| 6 | `ui/store.ts` | Opening project B while A's audio analysed let A's result land on B | Request counter; stale results dropped, their blob URLs revoked |
+| 7 | `ui/store.ts` | A relative audio path (how the CLI and data-formats store them) was passed unresolved: the project opened with no audio | `resolveAgainstProject` (tested) |
+| 8 | `ui/store.ts` | "New" kept the previous song loaded and reacting | New/Open-without-audio clear audio, analysis, peaks, sections |
+| 9 | `ui/components/LeftRail.tsx` | A failed audio import still wrote the new path with the **previous track's duration** | Only recorded when that file actually loaded |
+| 10 | `ui/clock.ts`, `ui/preview/host.ts` | Play in the lead-in started the track immediately (skipping the silence); nothing started it when the clip began; a trimmed clip played past its out-point | Clock emits `playAudio` entering the clip and `pauseAudio` leaving it; host only starts audio when audible (tested) |
+| 11 | `ui/preview/host.ts` | Rebuilding the clock (audio imported, duration changed) reset the playhead to 0 and left audio playing under a "stopped" transport | Playhead kept; playing → paused together with the element |
+| 12 | `ui/preview/host.ts` | Parked frame used `round` (showed the next frame from mid-frame) and could index one past the last frame | Floor on the tick grid, clamped — same rule as the clock |
+| 13 | `ui/preview/host.ts` | One failed frame killed the preview until restart, even after undoing the edit | A new document retries and clears the error overlay |
+| 14 | `ui/components/TransportBar.tsx` | 59.996 s printed as `00:60.00` | Round to hundredths before splitting (tested) |
+| 15 | `ui/components/TransportBar.tsx` | Space on a focused button pressed it too (Space after "Bars" added another layer); Space in a select was stolen | Blur the button; SELECT counts as typing |
+| 16 | `ui/components/Inspector.tsx` | `visibleWhen` used another module's defaults (§4.35) | Per-manifest, chained |
+
+**UI problems found in the screenshots and fixed**
+
+- **Preview canvas overflowed its stage** on large windows, over the transport bar and hiding the
+  engine-notes bar: the canvas's measured size fed back into its grid cell. Now absolutely positioned.
+- **Light native scrollbars** on every dark panel (Windows ignores `color-scheme` for them): styled.
+- Override banner wrapped to two lines on a small window: one line, ellipsis.
+- **Timeline rows were in the opposite order to the layer list** (bottom layer first); labels touched the
+  top of their blocks; layers beyond four rows silently vanished. Now top-first, centred, the timeline
+  grows to 240 px with the layer count, and a "+N more layers" row says when some do not fit.
+- Toast sat bottom-centre over the notes bar and transport: now top-right, scrollable if long.
+- No Esc: Esc now closes the export dialog, then the queue drawer, then a toast.
+- Group headings with no visible controls (e.g. "Image" in gradient mode) are hidden.
+
+**Looked at and left as they are:** export dialog layout at both sizes (fine); queue drawer (fine,
+covers the timeline by design); "no analysis for stem mix" notes with no audio (honest); render queue
+labels have no timestamps (cosmetic); IPC path trust and quit ordering (§7).
+
+Verified here: `npm run check` **619 tests** (twice); `npm run golden` 15/15 identical; `--smoke` with
+the UI tour 9/9 and screenshots re-reviewed after the fixes.

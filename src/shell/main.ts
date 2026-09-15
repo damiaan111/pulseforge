@@ -388,6 +388,20 @@ async function createWindow(): Promise<BrowserWindow> {
   });
 
   window.once('ready-to-show', () => window.show());
+  // The page vetoed its unload because the project has unsaved changes (ui/main.tsx). Without a
+  // handler Electron silently keeps the window open, which reads as "the close button is broken".
+  window.webContents.on('will-prevent-unload', (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      type: 'warning',
+      buttons: ['Close without saving', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Unsaved changes',
+      message: 'The project has unsaved changes.',
+      detail: 'Close Pulseforge and lose them?',
+    });
+    if (choice === 0) event.preventDefault(); // preventDefault here means "ignore the veto"
+  });
   await window.loadFile(RENDERER_HTML);
   return window;
 }
@@ -594,6 +608,11 @@ app.whenReady().then(async () => {
       console.error(`[smoke] could not capture the window: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // `PULSEFORGE_UI_TOUR=1`: screenshots of the states a single capture never shows — dialogs,
+    // the queue drawer, an expanded effect, a toast, and a small window — to out/ui-tour/. For
+    // looking at, not asserting: layout problems are found by eye, and this makes them cheap to see.
+    if (process.env['PULSEFORGE_UI_TOUR'] === '1') await uiTour(window, join(dirname(shot), 'ui-tour'));
+
     if (failed.length > 0) console.error(`[smoke] FAILED: ${failed.join(', ')}`);
     // Also to a file: Electron's stdout does not always reach a parent that captures it (a GUI
     // subsystem binary under a piped shell), and a smoke check whose verdict can vanish is no check.
@@ -609,6 +628,42 @@ app.whenReady().then(async () => {
   dialog.showErrorBox('Pulseforge could not start', error instanceof Error ? error.message : String(error));
   app.quit();
 });
+
+async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  const js = (code: string) => window.webContents.executeJavaScript(`(async () => { ${code}; await new Promise((d) => setTimeout(d, 150)); })()`);
+  const click = (selector: string) => `document.querySelector(${JSON.stringify(selector)})?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`;
+  const snap = async (name: string) => {
+    await new Promise((done) => setTimeout(done, 250));
+    await writeFile(join(dir, `${name}.png`), (await window.webContents.capturePage()).toPNG());
+  };
+  const sizes: Array<[string, number, number]> = [['large', 1600, 900], ['small', 1100, 680]];
+  for (const [label, width, height] of sizes) {
+    window.setContentSize(width, height);
+    // A richer project than the smoke's: bars on a background, bars selected, an effect open.
+    await js(`${click('#app .module-buttons button:nth-child(2)')}`);
+    await js(`
+      const picker = document.querySelector('#app .inspector select[data-action="add-effect"]');
+      const option = picker?.querySelector('option[value]:not([value=""])');
+      if (picker && option) { picker.value = option.value; picker.dispatchEvent(new Event('change', { bubbles: true })); }
+    `);
+    await snap(`${label}-1-layer-and-effect`);
+    await js(click('#app .inspector'));
+    await js(`document.querySelector('#app .inspector').scrollTop = 99999`);
+    await snap(`${label}-2-inspector-scrolled`);
+    await js(click('#app .canvas-bar .aspects button:nth-child(2)'));
+    await snap(`${label}-3-vertical-override`);
+    await js(click('#app header button[data-action="export"]'));
+    await snap(`${label}-4-export-dialog`);
+    await js(click('#app .modal-backdrop'));
+    await js(click('#app header button[data-action="render-queue"]'));
+    await snap(`${label}-5-render-queue`);
+    await js(click('#app header button[data-action="render-queue"]'));
+    await js(`${click('#app .canvas-notes')}`);
+    await snap(`${label}-6-notes-toast`);
+  }
+  console.log(`[smoke] ui tour written to ${dir}`);
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

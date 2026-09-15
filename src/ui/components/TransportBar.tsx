@@ -19,10 +19,13 @@ export function TransportBar(): React.JSX.Element {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target !== null
-        && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (typing || event.ctrlKey || event.metaKey) return;
+        && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === ' ' || event.key.toLowerCase() === 'k') {
         event.preventDefault();
+        // Space on a focused button would also *press* it on key-up — after clicking "Bars",
+        // Space played the preview and added another bars layer. Dropping focus prevents that.
+        if (target?.tagName === 'BUTTON') target.blur();
         if (previewControls.transport() === 'playing') previewControls.pause();
         else previewControls.play();
       } else if (event.key === 'Home') {
@@ -62,7 +65,9 @@ export function TransportBar(): React.JSX.Element {
 
 export function formatTime(seconds: number): string {
   const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-  const minutes = Math.floor(safe / 60);
-  const rest = safe - minutes * 60;
+  // Integer hundredths first. Splitting minutes before rounding printed 59.996 s as "00:60.00".
+  const hundredths = Math.round(safe * 100);
+  const minutes = Math.floor(hundredths / 6000);
+  const rest = (hundredths - minutes * 6000) / 100;
   return `${String(minutes).padStart(2, '0')}:${rest.toFixed(2).padStart(5, '0')}`;
 }

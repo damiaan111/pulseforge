@@ -196,3 +196,35 @@ describe('bounds', () => {
     expect(h.dirty).toBe(false);
   });
 });
+
+describe('History — dirty tracking edge cases (audit 2026-09-15)', () => {
+  it('a new branch after undoing past the save point is dirty, not "saved"', () => {
+    const h = history();
+    h.run(rename('One'));
+    h.run(rename('Two'));
+    h.markSaved(); // saved at "Two", index 2
+    h.undo();
+    h.undo(); // back to the opened state, index 0
+    h.run(rename('Other'));
+    h.run(rename('Another')); // index 2 again, different content
+    expect(h.current.name).toBe('Another');
+    expect(h.dirty).toBe(true);
+  });
+
+  it('an edit merging into the entry just saved still marks the project dirty', () => {
+    const h = history();
+    h.run(setSeed(1));
+    h.markSaved();
+    h.run(setSeed(2)); // same merge key, but after a save
+    expect(h.current.seed).toBe(2);
+    expect(h.dirty).toBe(true);
+  });
+
+  it('a command that changes nothing is not an undo step', () => {
+    const h = history();
+    const noop: Command = { label: 'Nothing', apply: (document) => document };
+    h.run(noop);
+    expect(h.canUndo).toBe(false);
+    expect(h.dirty).toBe(false);
+  });
+});

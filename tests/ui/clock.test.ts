@@ -209,6 +209,36 @@ describe('PreviewClock', () => {
   });
 });
 
+describe('starting and stopping the audio at the clip edges (audit 2026-09-15)', () => {
+  it('play inside the lead-in keeps the audio silent until the clip starts, then starts it in place', () => {
+    const { clock, advance } = makeClock();
+    const start = clock.play();
+    expect(start.playAudio).toBeUndefined();
+    advance(1000);
+    expect(clock.tick(silent).playAudio).toBeUndefined(); // 1 s: still lead-in
+    advance(1050);
+    const entering = clock.tick(silent); // 2.05 s: inside the clip
+    expect(entering.playAudio).toBe(true);
+    expect(entering.seekAudioTo).toBeCloseTo(5.05, 2); // clip starts 5 s into the source
+  });
+
+  it('a playing element is paused when the playhead passes the clip out-point', () => {
+    const { clock } = makeClock();
+    clock.play();
+    clock.tick(sounding(10)); // timeline 7: audible
+    const past = clock.tick(sounding(11.2)); // timeline 8.2: past the 6 s clip
+    expect(past.pauseAudio).toBe(true);
+  });
+
+  it('does not restart an element that has just finished at the very end of the clip', () => {
+    const { clock, advance } = makeClock();
+    clock.play();
+    clock.tick(sounding(10.9)); // timeline 7.9
+    advance(20);
+    expect(clock.tick(silent).playAudio).toBeUndefined();
+  });
+});
+
 describe('loop wrap (audit regression)', () => {
   it('redraws even when the wrap lands on the frame already shown', () => {
     const { clock, advance } = makeClock();

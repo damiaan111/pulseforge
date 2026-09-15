@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { peaksForRange } from '../../analysis/peaks.ts';
 import { ticksToSeconds } from '../../engine/core/time.ts';
-import { walkLayers } from '../../project/document.ts';
+import { walkLayers, type Layer, type ProjectDocument } from '../../project/document.ts';
 import { timelineDurationTicks } from '../../project/snapshot.ts';
 import { useStudio } from '../store.ts';
 import { previewControls } from './CanvasPane.tsx';
@@ -16,6 +16,9 @@ import { previewControls } from './CanvasPane.tsx';
 const ROW_HEIGHT = 18;
 const WAVE_HEIGHT = 56;
 const PADDING = 8;
+/** The timeline grows with the layer count up to a cap, so the canvas keeps most of the window. */
+const MIN_HEIGHT = 132;
+const MAX_HEIGHT = 240;
 
 export function Timeline(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,11 +109,19 @@ export function Timeline(): React.JSX.Element {
     }
 
     // Layer blocks, one row each, showing the time range the engine actually honours.
-    let row = 0;
-    for (const { layer } of walkLayers(document.layers)) {
+    const rows = layerRows(document);
+    const fits = Math.max(0, Math.floor((rect.height - WAVE_HEIGHT - 4) / ROW_HEIGHT));
+    for (const [row, layer] of rows.entries()) {
       const top = WAVE_HEIGHT + 4 + row * ROW_HEIGHT;
-      row += 1;
-      if (top + ROW_HEIGHT > rect.height) break;
+      if (row >= fits) break;
+      if (row === fits - 1 && rows.length > fits) {
+        // Say that rows are missing, rather than silently drawing fewer layers than exist.
+        ctx.fillStyle = dim;
+        ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`+${rows.length - fits + 1} more layers — select them in the layer list`, PADDING + 6, top + (ROW_HEIGHT - 4) / 2);
+        break;
+      }
       const from = ticksToSeconds(layer.timeRange.inTicks);
       const to = layer.timeRange.outTicks === null ? duration : ticksToSeconds(layer.timeRange.outTicks);
       const left = x(from);
@@ -127,9 +138,13 @@ export function Timeline(): React.JSX.Element {
       ctx.globalAlpha = 1;
       ctx.fillStyle = selected ? colour('--text', '#e6e6ea') : dim;
       ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+      // Centred in the block. The old baseline sat 9 px down a 14 px block, so the capitals
+      // touched its top edge.
+      ctx.textBaseline = 'middle';
       const label = layer.name !== '' ? layer.name : layer.kind === 'group' ? 'group' : layer.module;
-      ctx.fillText(label, left + 6, top + ROW_HEIGHT - 9, Math.max(10, right - left - 12));
+      ctx.fillText(label, left + 6, top + (ROW_HEIGHT - 4) / 2 + 0.5, Math.max(10, right - left - 12));
     }
+    ctx.textBaseline = 'alphabetic';
 
     // Playhead last, so it is never hidden behind a block.
     const px = x(timelineSeconds);
@@ -163,13 +178,21 @@ export function Timeline(): React.JSX.Element {
     const y = event.clientY - rect.top;
     if (y > WAVE_HEIGHT + 4) {
       const index = Math.floor((y - WAVE_HEIGHT - 4) / ROW_HEIGHT);
-      const entries = [...walkLayers(document.layers)];
-      const hit = entries[index];
-      if (hit !== undefined) select(hit.layer.id);
+      const hit = layerRows(document)[index];
+      if (hit !== undefined) select(hit.id);
       return;
     }
     previewControls.seek(seconds);
   }
 
-  return <canvas ref={canvasRef} className="timeline" onPointerDown={onPointerDown} />;
+  const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, WAVE_HEIGHT + 4 + layerRows(document).length * ROW_HEIGHT + 6));
+  return <canvas ref={canvasRef} className="timeline" style={{ height }} onPointerDown={onPointerDown} />;
+}
+
+/**
+ * Layers top-first — the order the layer list shows them in. Drawing them in composite order
+ * (bottom first) put the timeline's rows upside down relative to the list beside it.
+ */
+function layerRows(document: ProjectDocument): Layer[] {
+  return [...walkLayers(document.layers)].map(({ layer }) => layer).reverse();
 }

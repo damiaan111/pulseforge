@@ -10,6 +10,20 @@
 
 import { copyFile, rename, rm } from 'node:fs/promises';
 
+let tempCounter = 0;
+
+/**
+ * A temp name beside `path` that no other write in this process will pick. It used to be
+ * `path.<pid>.tmp`, which two concurrent writes of the same file share — the preview analysing a
+ * track while a queued render analyses the same one, or the queue persisting from its loop while
+ * an IPC call persists too — and the second rename then fails because the first already moved it.
+ * Still ends in `.tmp`, which the cache's cleanup recognises.
+ */
+export function tempPathFor(path: string): string {
+  tempCounter += 1;
+  return `${path}.${process.pid}-${tempCounter}.tmp`;
+}
+
 export async function renameIntoPlace(temp: string, destination: string): Promise<void> {
   try {
     await rename(temp, destination);

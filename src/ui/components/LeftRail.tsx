@@ -33,11 +33,15 @@ export function LeftRail(): React.JSX.Element {
     const path = await window.pulseforge.pickAudio();
     if (path === null) return;
     await loadAudio(path);
-    const state = useStudio.getState();
+    const loaded = useStudio.getState().audio;
+    // Only if this file actually loaded. After a failure the store still holds the previous
+    // track, and recording the new path with the old track's length made a document whose
+    // timeline and file disagree.
+    if (loaded === null || loaded.path !== path) return;
     // Record the clip in the document so the timeline has a length and export knows the file.
     run(setAudio({
       path,
-      durationTicks: secondsToTicks(state.audio?.durationSeconds ?? 0),
+      durationTicks: secondsToTicks(loaded.durationSeconds),
       clipOutTicks: null,
     }));
   }

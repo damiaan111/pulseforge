@@ -26,7 +26,7 @@
 
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import { renameIntoPlace } from '../node/rename-into-place.ts';
+import { renameIntoPlace, tempPathFor } from '../node/rename-into-place.ts';
 import { join } from 'node:path';
 
 import type { AnalysisSet, BeatGrid, SourceAnalysis } from '../engine/core/analysis.ts';
@@ -451,7 +451,7 @@ export class AnalysisCache {
 
 /** Temp file in the same directory, then rename — the pattern `project-io.ts` uses and why. */
 async function writeAtomic(path: string, bytes: Uint8Array): Promise<void> {
-  const temp = `${path}.${process.pid}.tmp`;
+  const temp = tempPathFor(path);
   await writeFile(temp, bytes);
   await renameIntoPlace(temp, path);
 }

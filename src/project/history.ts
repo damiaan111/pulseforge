@@ -111,7 +111,11 @@ export class History {
   }
 
   run(command: Command): ProjectDocument {
-    const next = this.stamp(command.apply(this.current));
+    const applied = command.apply(this.current);
+    // A command that changed nothing — re-importing an asset the project already has — is not a
+    // step: an undo entry that undoes nothing, and a project marked unsaved with nothing to save.
+    if (applied === this.current) return this.current;
+    const next = this.stamp(applied);
 
     const canMerge = !this.sealed
       && command.mergeKey !== undefined
@@ -125,7 +129,10 @@ export class History {
       return next;
     }
 
-    // A new branch discards the redo tail — the redone future no longer follows from here.
+    // A new branch discards the redo tail — the redone future no longer follows from here. If the
+    // saved state was in that tail it is gone: without this, the new branch's entry at the same
+    // index would read as "saved" while holding different content.
+    if (this.savedAt > this.position) this.savedAt = -1;
     this.states.length = this.position + 1;
     this.labels.length = this.position + 1;
     this.mergeKeys.length = this.position + 1;
@@ -163,6 +170,9 @@ export class History {
   /** Called after a successful save, so `dirty` reflects the file on disk. */
   markSaved(): void {
     this.savedAt = this.position;
+    // Otherwise the next keystroke of a merging edit replaces the saved entry in place, and the
+    // project reads as saved while the file on disk is behind.
+    this.sealed = true;
   }
 
   /** Replaces the whole history — opening a different project, or accepting a recovery file. */

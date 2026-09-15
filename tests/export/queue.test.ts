@@ -331,4 +331,13 @@ describe('RenderQueue persistence', () => {
     await expect(queue.load()).resolves.toBeUndefined();
     expect(queue.list()).toHaveLength(0);
   });
+
+  it('concurrent changes all persist, and the file ends up matching memory', async () => {
+    // Enqueues racing each other used to share one temp file name; the second rename then failed.
+    const queue = makeQueue(async () => ({}));
+    await Promise.all(Array.from({ length: 12 }, (_, i) => queue.enqueue(request({ label: `job ${i}` }))));
+    const onDisk = JSON.parse(await readFile(queue.queueFilePath, 'utf8')) as { jobs: unknown[] };
+    expect(onDisk.jobs).toHaveLength(12);
+    expect(queue.list()).toHaveLength(12);
+  });
 });

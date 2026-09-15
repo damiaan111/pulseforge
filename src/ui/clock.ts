@@ -70,7 +70,16 @@ export interface PreviewTick {
   readonly seekAudioTo?: number;
   /** Stop the audio element: the playhead has left the audible stretch, or reached the end. */
   readonly pauseAudio?: boolean;
+  /** Start the audio element (after `seekAudioTo`): the playhead has entered the audible stretch. */
+  readonly playAudio?: boolean;
 }
+
+/**
+ * No restart this close to the clip's end. An element that has just finished reports "not
+ * playing" while the playhead is still a hair inside the clip; restarting it there would stutter
+ * the last few milliseconds over and over.
+ */
+const AUDIO_RESTART_GUARD_SECONDS = 0.25;
 
 export interface PreviewStats {
   /** Frames actually drawn per second, over the rolling window. */
@@ -242,6 +251,17 @@ export class PreviewClock {
     this.position = timeline;
     const source = reading.playing ? 'audio' : 'silence';
     const frame = this.emit(timeline, source, wallMs, wrapped);
+
+    // The audio element has to be started and stopped at the edges of the clip; nothing else
+    // does it. Before this, pressing play in the lead-in either started the track immediately
+    // (skipping the silence) or never started it, and a trimmed clip played on past its out-point.
+    const audible = this.audioAudibleAt(timeline);
+    if (reading.playing && !audible) {
+      return { frame, pauseAudio: true, ...(seekAudioTo === undefined ? {} : { seekAudioTo }) };
+    }
+    if (!reading.playing && audible && timeline < this.audioEndSeconds - AUDIO_RESTART_GUARD_SECONDS) {
+      return { frame, playAudio: true, seekAudioTo: seekAudioTo ?? this.audioPositionFor(timeline) };
+    }
     return seekAudioTo === undefined ? { frame } : { frame, seekAudioTo };
   }
 

@@ -17,7 +17,7 @@
 
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { renameIntoPlace } from '../node/rename-into-place.ts';
+import { renameIntoPlace, tempPathFor } from '../node/rename-into-place.ts';
 import { join } from 'node:path';
 
 import { stringifyDocument } from '../project/serialize.ts';
@@ -122,6 +122,7 @@ export class RenderQueue {
   private stopping = false;
   /** Set between jobs, so "stop after this one" does not kill the render in flight. */
   private paused = false;
+  private writing: Promise<void> = Promise.resolve();
 
   constructor(options: QueueOptions) {
     this.root = options.root;
@@ -342,10 +343,19 @@ export class RenderQueue {
     this.jobs = this.jobs.map((job) => (job.id === id ? { ...job, ...changes } : job));
   }
 
+  /**
+   * One write at a time, each taking the job list as it is when that write *starts*. The loop and
+   * IPC calls (enqueue, cancel, remove) persist independently; unserialised, two writes could
+   * finish in the wrong order and leave an older queue on disk than the one in memory.
+   */
   private async persist(): Promise<void> {
-    await mkdir(this.root, { recursive: true });
-    const file: QueueFile = { formatVersion: QUEUE_FORMAT_VERSION, jobs: this.jobs };
-    await writeAtomic(this.queueFilePath, `${JSON.stringify(file, null, 2)}\n`);
+    const write = this.writing.then(async () => {
+      await mkdir(this.root, { recursive: true });
+      const file: QueueFile = { formatVersion: QUEUE_FORMAT_VERSION, jobs: this.jobs };
+      await writeAtomic(this.queueFilePath, `${JSON.stringify(file, null, 2)}\n`);
+    });
+    this.writing = write.catch(() => {});
+    await write;
     this.emit();
   }
 
@@ -356,7 +366,7 @@ export class RenderQueue {
 
 /** Temp file then rename, as `project-io.ts` does: a crash mid-write leaves the old queue intact. */
 async function writeAtomic(path: string, text: string): Promise<void> {
-  const temp = `${path}.${process.pid}.tmp`;
+  const temp = tempPathFor(path);
   await writeFile(temp, text, 'utf8');
   await renameIntoPlace(temp, path);
 }

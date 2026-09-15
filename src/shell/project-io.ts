@@ -17,6 +17,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { backupPathFor } from '../project/migrate.ts';
 
+let saveCounter = 0;
+
 export class ProjectIoError extends Error {
   readonly path: string;
   readonly fixes: readonly string[];
@@ -83,7 +85,9 @@ export async function writeProjectText(path: string, text: string, options: Writ
   }
 
   // A distinctive name, in the same directory so the rename stays atomic.
-  const temporary = join(directory, `.${Date.now().toString(36)}.pulseforge.tmp`);
+  // Counter as well as time: two saves in the same millisecond (Save, then Save as to the same
+  // folder) must not share a temp file.
+  const temporary = join(directory, `.${Date.now().toString(36)}-${++saveCounter}.pulseforge.tmp`);
   try {
     await writeFile(temporary, text, 'utf8');
     await renameIntoPlace(temporary, path);
