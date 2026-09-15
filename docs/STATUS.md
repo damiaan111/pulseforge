@@ -904,6 +904,16 @@ the spec says the director and the modulation UI must share that code.
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
 
+> **Waiting on the RTX machine, from the laptop sessions.** Run these before building on top:
+> 1. `npm run check` — 519 tests should pass.
+> 2. `npm run golden` — the analysis path changed shape three times (cache, sections, and the
+>    audit's beat-time fix, which shifts beat positions by ~1e-16 s). No pixel should move.
+> 3. `npm run render -- <project.pvproj> -o out/test.mp4`, twice on the same audio: the second
+>    run must say `Analysis: cache hit`.
+> 4. `npm run validate -- --only 7` — the stems check, which exercises the `cmd_separate` →
+>    `_separate(args, context)` refactor (§4.24).
+> 5. The four serve-mode steps in §4.24, which have never run against real Python.
+
 Goal: *"Load audio, trim/fade, add/edit layers, live preview on the audio master clock, timeline,
 undo/redo, aspect switcher, save/load."* The Shimga-style UI (ui-spec.md).
 
@@ -924,11 +934,22 @@ Suggested order (each a commit, STATUS updated each time):
 Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
 offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
 
-**Work that does not need a GPU**, for a session on a machine without one: more effect modules
-toward M12's ten (two exist — the shaders can be written but only verified on the RTX machine),
-masks and group compositing in `toRenderProject` (§7), per-stem peaks, a preset folder on disk,
-and the auto-director's TrackDigest/StyleVector classification (auto-director-spec §2–3), which
-is pure logic over the analysis and sections that now exist.
+**Work that does not need a GPU** is now largely done — §4.16 through §4.26 were all built on a
+non-NVIDIA laptop. What is left there is thin and mostly blocked on the engine rather than on
+effort:
+
+- **Auto-director templates** (auto-director-spec §4–5). Pure logic, but the templates pick from
+  the module library, and that library is one visualizer and two effects. Writing affinity
+  scoring and slot resolution now means writing them against almost nothing to choose from; the
+  slot mechanism only earns its keep once there are modules to fill it.
+- **Per-stem peaks** — a few lines, but nothing produces stems yet.
+- **Unicode and font fallback** (S17) — there is no text engine to extend.
+- **More effect modules** (M12 wants ten, two exist). The shaders can be *written* here but only
+  *seen* on the RTX machine, and an unverified shader is worse than none.
+
+Everything else that matters now needs the GPU: P3 step 5 (the React studio), masks and group
+compositing, wiring the render queue to `runExport`, wiring the supervised sidecar to the GPU job
+queue, and verifying the items listed below.
 
 Checked and *not* needed: the modulation `derived/` envelope cache. `compileModulation` already
 precomputes envelopes across the whole track and caches them in memory (§4.10), so the
