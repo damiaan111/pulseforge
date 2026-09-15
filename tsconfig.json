@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2023",
+    "jsx": "react-jsx",
     // DOM is needed for WebGL2 types in the engine. The engine boundary (no document,
     // window, timers, wall clock…) is enforced by eslint.config.js, not by lib.
     "lib": ["ES2023", "DOM"],

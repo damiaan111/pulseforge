@@ -2,9 +2,10 @@
 
 > **Read this first in any new session.** It records what exists, what does not, how it works,
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-15 — **P0 and P2 complete**, **P3 steps 1–4 of 5 done**, and the laptop
-> sessions' work is now **verified on the RTX machine** (§9), which found and fixed a serve-mode
-> deadlock (§4.24). The engine renders multi-layer projects headlessly at 16:9 / 9:16 / 1:1,
+> Last updated: 2026-09-15 — **P0, P2 and P3 complete**. The studio runs: open a project, import
+> audio, edit layers through a schema-generated inspector, scrub a timeline, undo, switch aspect,
+> save. The laptop sessions' work is verified here (§9), which found and fixed a serve-mode
+> deadlock (§4.24). The engine renders headlessly at 16:9 / 9:16 / 1:1,
 > golden frames are green, and `npm run render` produces an MP4 from a project file.
 >
 > Also built, ahead of the milestone that needs them, because they are pure logic and a
@@ -12,7 +13,8 @@
 > waveform peaks, section detection, presets and their store, the render queue, the supervised
 > ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
 >
-> **Next: P3 step 5, the React studio (§9).** The verification list at the top of §9 is now done.
+> **P3 is complete.** Next: P4 — Library (§10): the module catalogue, which is the thing the
+> studio is currently short of.
 
 ---
 
@@ -24,7 +26,7 @@
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
-| **P3 — Studio** | 🔶 **in progress** — steps 1–4 of 5 done (see §9) |
+| **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | P4 … P8 | ⬜ not started |
 
 P3 steps:
@@ -35,7 +37,7 @@ P3 steps:
 | 2 | Command/undo stack (M8) | ✅ | `59000e0` |
 | 3 | Analysis pipeline: features, onsets, beat grid (M4) | ✅ | `05471d4` |
 | 4 | Preview clock (M31) | ✅ | `f3153e8` |
-| 5 | React studio (ui-spec) | ⬜ | |
+| 5 | React studio (ui-spec) | ✅ | `TBD` |
 
 P2 steps:
 
@@ -362,6 +364,61 @@ to being only a measurement harness.
 - `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
 - `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
 - `validate.ts` + `validate/`: `context.ts`, `media.ts` (FFmpeg decode helpers), `projects.ts` (pattern, click, heavy projects; click track), `checks-render.ts` (2 determinism, 3 readback, 4 colour), `checks-system.ts` (1 environment, 5 encoders, 6 throughput, 7 stems, 8 sync).
+
+---
+
+### 4.27 The React studio (P3 step 5) — ui-spec
+`src/ui/` — React 19 + Zustand. Layout per ui-spec §1: top bar, left rail, centre canvas, right
+inspector, bottom transport and timeline.
+
+| File | Contents |
+|---|---|
+| `main.tsx` | mount, and the `pulseforgeReady` flag anything driving the window waits on |
+| `store.ts` | Zustand state; the `History` instance is the source of truth for the document |
+| `preview/host.ts` | the WebGL2 canvas, engine, `PreviewClock` and audio element, in their own loop |
+| `components/*.tsx` | TopBar, LeftRail, CanvasPane, Inspector, TransportBar, Timeline |
+
+- **The preview loop is outside React** (ui-spec §13). It owns its rAF loop and pushes a summary
+  in at 10 Hz; re-rendering a React tree per frame is the standard way these tools get sluggish.
+- **The engine can now draw on screen.** `Engine.present()` blits the output target to the
+  default framebuffer, **letterboxed** — a preview that quietly changes the frame's shape is
+  worse than black bars, because every composition decision is then made against the wrong
+  picture. Export still reads the same target back, so preview and export start from one frame.
+- **A `needsRedraw` flag, and why it is not an optimisation.** The clock only yields a frame when
+  time has moved, which is right for playback and wrong for editing: a paused editor showed a
+  black canvas, and dragging a slider changed nothing. Any change to the document, analysis or
+  scale forces one redraw; idle with nothing changed still costs nothing.
+- **The inspector is generated from module schemas** (M10, module-spec §13) — float, int, bool,
+  enum, colour and stem controls come from the declarations, grouped and ordered by them. No
+  markup is written per module, which is the whole reason the fortieth effect costs one file.
+- **Aspect editing is unmissable** (D44): switching aspect sets the edit target, the stage gets
+  an accent border, a banner says which override is being written, and every overridden
+  parameter shows a badge with reset-to-base.
+- **Analysis is computed in the main process** through the same FFmpeg decode and on-disk cache
+  the exporter uses, then handed over as the binary container. The preview therefore reacts to
+  exactly the numbers the export will, rather than to Chromium's own decoder. Playback is
+  separate and may use the browser decoder, because the clock reads positions, not samples.
+- Audio reaches the sandboxed renderer as bytes over IPC and becomes a Blob URL; `file://` media
+  would fight the CSP and the renderer has no filesystem to point at.
+- Timeline is canvas-drawn (ui-spec §3): waveform from the peak pyramid, beat grid with
+  downbeats emphasised and skipped below 3 px spacing, section bands, layer blocks, playhead.
+  Click the wave to scrub, click a row to select.
+
+**Verified here:** `npm run dev -- --smoke` passes all five checks, and the screenshot shows the
+test pattern rendering correctly — 24 patches, right orientation, letterboxed — with undo/redo
+state correct. Golden frames still 15/15 identical, so nothing the studio added moved a pixel.
+
+**Two smoke-check bugs found and fixed along the way**, both the same shape as the one in P3
+step 2: the check was passing without testing anything. It matched CSS classes the React rewrite
+had renamed, and then matched the undo button by its *label* ("↶ Hide layer", not "Undo …"). It
+now uses a `data-action` hook and waits for React to commit before reading the DOM — React
+renders asynchronously, so the tree right after a dispatched click is still the old one.
+
+**Not yet, and deliberately named rather than implied:** no on-canvas transform handles, no
+timeline drag or zoom, no modulation matrix panel, no preset browser, no export dialog (the
+queue exists in `src/export/queue.ts` but nothing wires it to the UI), no keyframes, no lyrics
+panel, no Auto panel. The library is still one visualizer and two effects, so the inspector has
+little to show; that is P4's job, not a gap in the generation.
 
 ---
 
@@ -931,7 +988,7 @@ the spec says the director and the modulation UI must share that code.
 
 ---
 
-## 9. Next: P3 — Studio (PROJECT.md §10)
+## 9. P3 — Studio: done (PROJECT.md §10)
 
 > **Verified on the RTX machine, 2026-09-15.** All five items below have now run here.
 > 1. ✅ `npm run check` — 527 tests pass (the laptop's note said 519; the count had drifted).
@@ -956,9 +1013,7 @@ Suggested order (each a commit, STATUS updated each time):
 2. ✅ **Command/undo stack** — see §4.15.
 3. ✅ **Analysis pipeline** — see §4.4. The on-disk cache tree is still outstanding.
 4. ✅ **Preview clock** — see §4.16.
-5. **React studio** (ui-spec): canvas, timeline, schema-generated inspector, aspect switcher.
-   The clock is ready for it: drive `tick()` from the render loop, hand `frame.timelineSeconds`
-   to `renderFrame`, and apply `seekAudioTo` / `pauseAudio` to the audio element.
+5. ✅ **React studio** — see §4.27.
 
 Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
 offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).

@@ -1,0 +1,166 @@
+// The timeline (ui-spec §3): waveform, beat grid, sections, layer blocks and the playhead.
+//
+// Canvas-drawn, not DOM. A DOM timeline dies at thousands of beat ticks and waveform samples,
+// and this one draws a peak pyramid built for exactly this purpose — `peaksForRange` picks the
+// mip level for the visible span, so zooming out costs no more than zooming in.
+
+import { useCallback, useEffect, useRef } from 'react';
+
+import { peaksForRange } from '../../analysis/peaks.ts';
+import { ticksToSeconds } from '../../engine/core/time.ts';
+import { walkLayers } from '../../project/document.ts';
+import { timelineDurationTicks } from '../../project/snapshot.ts';
+import { useStudio } from '../store.ts';
+import { previewControls } from './CanvasPane.tsx';
+
+const ROW_HEIGHT = 18;
+const WAVE_HEIGHT = 56;
+const PADDING = 8;
+
+export function Timeline(): React.JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const document = useStudio((s) => s.document);
+  const peaks = useStudio((s) => s.peaks);
+  const analysis = useStudio((s) => s.analysis);
+  const sections = useStudio((s) => s.sections);
+  const timelineSeconds = useStudio((s) => s.timelineSeconds);
+  const selectedLayerId = useStudio((s) => s.selectedLayerId);
+  const select = useStudio((s) => s.select);
+
+  const duration = Math.max(0.001, ticksToSeconds(timelineDurationTicks(document)));
+  const leadIn = ticksToSeconds(document.audio.leadInTicks);
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (canvas === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.round(rect.width * dpr));
+    const height = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const ctx = canvas.getContext('2d');
+    if (ctx === null) return;
+
+    const style = getComputedStyle(canvas);
+    const colour = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+    const line = colour('--line', '#2a2a33');
+    const dim = colour('--text-dim', '#9a9aa6');
+    const accent = colour('--accent', '#ff2d95');
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    const x = (seconds: number) => PADDING + (seconds / duration) * (rect.width - PADDING * 2);
+
+    // Sections first, as backdrop bands.
+    for (const [index, section] of sections.entries()) {
+      ctx.fillStyle = index % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)';
+      const left = x(section.startSeconds + leadIn);
+      ctx.fillRect(left, 0, x(section.endSeconds + leadIn) - left, rect.height);
+    }
+
+    // Beat grid. Downbeats emphasised; skipped entirely when they would be closer than 3 px,
+    // because a solid grey wash tells you nothing.
+    const grid = analysis?.beatGrid;
+    if (grid !== undefined && grid.beats.length > 1) {
+      const spacing = x(grid.beats[1] as number) - x(grid.beats[0] as number);
+      if (spacing > 3) {
+        for (const [index, beat] of grid.beats.entries()) {
+          const bx = x(beat + leadIn);
+          if (bx < 0 || bx > rect.width) continue;
+          ctx.strokeStyle = index % 4 === 0 ? dim : line;
+          ctx.beginPath();
+          ctx.moveTo(bx, 0);
+          ctx.lineTo(bx, WAVE_HEIGHT);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Waveform from the peak pyramid.
+    if (peaks !== null) {
+      const columns = Math.max(1, Math.floor(rect.width - PADDING * 2));
+      const audioSeconds = peaks.sampleCount / peaks.sampleRate;
+      const window = peaksForRange(peaks, 0, audioSeconds, columns);
+      const mid = WAVE_HEIGHT / 2;
+      ctx.fillStyle = accent;
+      ctx.globalAlpha = 0.75;
+      for (let i = 0; i < window.min.length; i += 1) {
+        const px = PADDING + (i / window.min.length) * (rect.width - PADDING * 2) + x(leadIn) - PADDING;
+        const top = mid - (window.max[i] ?? 0) * mid;
+        const bottom = mid - (window.min[i] ?? 0) * mid;
+        ctx.fillRect(px, top, 1, Math.max(1, bottom - top));
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.strokeStyle = line;
+      ctx.beginPath();
+      ctx.moveTo(PADDING, WAVE_HEIGHT / 2);
+      ctx.lineTo(rect.width - PADDING, WAVE_HEIGHT / 2);
+      ctx.stroke();
+    }
+
+    // Layer blocks, one row each, showing the time range the engine actually honours.
+    let row = 0;
+    for (const { layer } of walkLayers(document.layers)) {
+      const top = WAVE_HEIGHT + 4 + row * ROW_HEIGHT;
+      row += 1;
+      if (top + ROW_HEIGHT > rect.height) break;
+      const from = ticksToSeconds(layer.timeRange.inTicks);
+      const to = layer.timeRange.outTicks === null ? duration : ticksToSeconds(layer.timeRange.outTicks);
+      const left = x(from);
+      const right = x(Math.min(duration, to));
+      ctx.fillStyle = layer.id === selectedLayerId ? accent : line;
+      ctx.globalAlpha = layer.enabled ? 1 : 0.35;
+      ctx.fillRect(left, top, Math.max(2, right - left), ROW_HEIGHT - 4);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = layer.id === selectedLayerId ? '#180010' : dim;
+      ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+      const label = layer.name !== '' ? layer.name : layer.kind === 'group' ? 'group' : layer.module;
+      ctx.fillText(label, left + 6, top + ROW_HEIGHT - 9, Math.max(10, right - left - 12));
+    }
+
+    // Playhead last, so it is never hidden behind a block.
+    const px = x(timelineSeconds);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, rect.height);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }, [document, peaks, analysis, sections, timelineSeconds, selectedLayerId, duration, leadIn]);
+
+  useEffect(() => {
+    draw();
+  }, [draw]);
+
+  useEffect(() => {
+    const onResize = () => draw();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [draw]);
+
+  function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>): void {
+    const canvas = canvasRef.current;
+    if (canvas === null) return;
+    const rect = canvas.getBoundingClientRect();
+    const fraction = (event.clientX - rect.left - PADDING) / Math.max(1, rect.width - PADDING * 2);
+    const seconds = Math.min(duration, Math.max(0, fraction * duration));
+
+    // Below the waveform, the click picks a layer row instead of scrubbing.
+    const y = event.clientY - rect.top;
+    if (y > WAVE_HEIGHT + 4) {
+      const index = Math.floor((y - WAVE_HEIGHT - 4) / ROW_HEIGHT);
+      const entries = [...walkLayers(document.layers)];
+      const hit = entries[index];
+      if (hit !== undefined) select(hit.layer.id);
+      return;
+    }
+    previewControls.seek(seconds);
+  }
+
+  return <canvas ref={canvasRef} className="timeline" onPointerDown={onPointerDown} />;
+}

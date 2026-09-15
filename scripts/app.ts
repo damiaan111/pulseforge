@@ -54,12 +54,13 @@ async function bundle(watch: boolean): Promise<void> {
     },
     {
       ...shared,
-      entryPoints: [join(ROOT, 'src', 'ui', 'boot.ts')],
-      outfile: join(RENDERER_OUT, 'boot.js'),
+      entryPoints: [join(ROOT, 'src', 'ui', 'main.tsx')],
+      outfile: join(RENDERER_OUT, 'main.js'),
       // Browser, with no Node shims: an accidental `node:fs` import in UI code fails here.
       platform: 'browser',
       format: 'esm',
       target: 'chrome130',
+      jsx: 'automatic',
     },
   ];
 

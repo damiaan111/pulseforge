@@ -21,11 +21,19 @@
 //  - **A strict CSP** on top, so an injected script tag has nowhere to load from either.
 
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
 import { FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE } from '../../setup/lib/paths.ts';
-import { IPC, type EnvironmentReport, type ProjectFile, type SaveRequest, type SaveResult } from './ipc.ts';
+import { AnalysisCache } from '../analysis/cache.ts';
+import { analyzeCached } from '../analysis/cached.ts';
+import { encodeAnalysis } from '../analysis/container.ts';
+import { decodeMono48k } from '../analysis/decode.ts';
+import { encodePeaks } from '../analysis/peaks.ts';
+import {
+  IPC, type AnalysisPayload, type AudioBytes, type EnvironmentReport, type ProjectFile,
+  type SaveRequest, type SaveResult,
+} from './ipc.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 
 /** Where the bundled renderer lives, relative to the compiled main bundle. */
@@ -199,6 +207,52 @@ function registerHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC.audioPick, async (): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import audio',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'opus', 'aac', 'aiff'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  ipcMain.handle(IPC.audioRead, async (_event, path: unknown): Promise<AudioBytes> => {
+    if (typeof path !== 'string') throw new Error('readAudio needs a path');
+    try {
+      return { path, bytes: new Uint8Array(await readFile(path)) };
+    } catch (cause) {
+      throw new Error(`Could not read the audio file:\n${path}\n\n${(cause as Error).message}`, { cause });
+    }
+  });
+
+  ipcMain.handle(IPC.audioAnalyze, async (_event, path: unknown): Promise<AnalysisPayload> => {
+    if (typeof path !== 'string') throw new Error('analyzeAudio needs a path');
+    if (!existsSync(FFMPEG_EXE)) {
+      throw new Error('The vendored FFmpeg is missing.\n\nTry:\n• Run `npm run setup` to provision vendor/');
+    }
+    try {
+      // The same decode and the same cache the exporter uses, so the preview reacts to exactly
+      // the numbers the export will — not to Chromium's decoder (ipc.ts, AnalysisPayload).
+      const decoded = await decodeMono48k(FFMPEG_EXE, path);
+      const cache = new AnalysisCache({ root: join(app.getPath('userData'), 'cache', 'analysis') });
+      const result = await analyzeCached(decoded.pcm, cache, { audioHash: decoded.pcmSha256 });
+      const source = result.analysis.sources.get('mix');
+      if (source === undefined) throw new Error('the analyser produced no mix source');
+      return {
+        container: encodeAnalysis(source, { source: 'mix', beatGrid: result.beatGrid, meta: { audioHash: result.audioHash } }),
+        peaks: encodePeaks(result.peaks),
+        sections: result.sections.map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, label: s.label })),
+        durationSeconds: decoded.pcm.length / 48_000,
+        fromCache: result.fromCache,
+      };
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
   ipcMain.handle(IPC.environment, (): EnvironmentReport => environmentReport());
 }
 
@@ -276,10 +330,20 @@ app.whenReady().then(async () => {
       try { await fetch('https://example.com/'); } catch { offline = true; }
       // Drive one real edit through the command stack, so the smoke check covers
       // command → history → re-render and not just "the page painted".
-      const before = document.querySelectorAll('#app .layer').length;
-      document.querySelector('#app .layer')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      const undoEnabled = [...document.querySelectorAll('#app header button')]
-        .some((b) => b.textContent.startsWith('Undo ') && !b.disabled);
+      const before = document.querySelectorAll('#app .layer-row').length;
+      // The eye toggles visibility, which is a command; clicking the row only selects.
+      document.querySelector('#app .layer-row .eye')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      // React commits asynchronously, so the DOM right after a dispatched click still shows the
+      // old tree. Yield before reading, or this check tests the render that already happened.
+      await new Promise((done) => setTimeout(done, 50));
+      // Matched on a stable hook, not on the label: the button reads "↶ Hide layer", and a
+      // check that greps prose silently stops checking anything the first time wording changes.
+      const undoButton = document.querySelector('#app header button[data-action="undo"]');
+      const undoEnabled = undoButton !== null && !undoButton.disabled;
+      // Put it back, so the screenshot below shows the project as it actually opened rather
+      // than with its only layer hidden by this check.
+      if (undoEnabled) undoButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
 
       return {
         rendered: document.querySelector('#app header') !== null,

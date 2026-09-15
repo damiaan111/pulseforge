@@ -1,0 +1,293 @@
+// The inspector (ui-spec §4, module-spec §13).
+//
+// **Nothing here is hand-written per module.** Controls are generated from the parameter
+// declarations a module ships, which is the whole reason adding the fortieth effect costs one
+// file and no UI code (module-spec §0). A control that needed bespoke markup would be a bug in
+// the schema, not a missing component.
+//
+// Two things the spec insists on and that are easy to omit:
+//  - **Which aspect an edit lands in must be unmissable** (D44). Edits go to the active target,
+//    and an overridden parameter shows a badge with reset-to-base.
+//  - **Grouping and ordering come from the declaration**, so a module author controls the panel.
+
+import { BUILTIN_MODULES } from '../../engine/engine.ts';
+import type { ParamSpec } from '../../engine/core/params.ts';
+import {
+  clearParamOverride, findLayer, renameLayer, setLayerBlend, setLayerOpacity, setLayerParam,
+  setLayerTransform,
+} from '../../project/commands.ts';
+import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket } from '../../project/document.ts';
+import { useStudio } from '../store.ts';
+
+const MANIFESTS = new Map(BUILTIN_MODULES.map((m) => [m.manifest.id, m.manifest]));
+
+export function Inspector(): React.JSX.Element {
+  const document = useStudio((s) => s.document);
+  const selectedId = useStudio((s) => s.selectedLayerId);
+  const editTarget = useStudio((s) => s.editTarget);
+  const run = useStudio((s) => s.run);
+
+  const layer = selectedId === null ? undefined : findLayer(document, selectedId);
+
+  if (layer === undefined) {
+    return (
+      <aside className="inspector">
+        <p className="empty">Select a layer to edit it.</p>
+      </aside>
+    );
+  }
+
+  const manifest = layer.kind === 'module' ? MANIFESTS.get(layer.module) : undefined;
+  const override = editTarget === 'base' ? undefined : layer.aspectOverrides[editTarget as AspectBucket];
+  const groups = new Map<string, ParamSpec[]>();
+  for (const spec of manifest?.params ?? []) {
+    const list = groups.get(spec.group) ?? [];
+    list.push(spec);
+    groups.set(spec.group, list);
+  }
+
+  return (
+    <aside className="inspector">
+      <h2>Layer</h2>
+      <label className="field">
+        <span>Name</span>
+        <input
+          type="text"
+          value={layer.name}
+          onChange={(e) => run(renameLayer(layer.id, e.target.value), { seal: false })}
+          onBlur={() => run(renameLayer(layer.id, layer.name))}
+        />
+      </label>
+      <label className="field">
+        <span>Blend</span>
+        <select value={layer.blend} onChange={(e) => run(setLayerBlend(layer.id, e.target.value as typeof layer.blend))}>
+          {BLEND_MODES.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+        </select>
+      </label>
+      <Slider
+        label="Opacity"
+        value={layer.opacity}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(v) => run(setLayerOpacity(layer.id, v), { seal: false })}
+        onCommit={() => run(setLayerOpacity(layer.id, layer.opacity))}
+      />
+
+      <h2>Transform{editTarget === 'base' ? '' : ` · ${editTarget}`}</h2>
+      {(['x', 'y'] as const).map((axis) => (
+        <Slider
+          key={axis}
+          label={axis.toUpperCase()}
+          value={(override?.transform[axis] ?? layer.transform[axis])}
+          min={-0.5}
+          max={1.5}
+          step={0.001}
+          overridden={override?.transform[axis] !== undefined}
+          onReset={() => editTarget !== 'base' && run(setLayerTransform(layer.id, {}, editTarget))}
+          onChange={(v) => run(setLayerTransform(layer.id, { [axis]: v }, editTarget), { seal: false })}
+          onCommit={() => run(setLayerTransform(layer.id, {}, editTarget))}
+        />
+      ))}
+      {(['scaleX', 'scaleY'] as const).map((axis) => (
+        <Slider
+          key={axis}
+          label={axis === 'scaleX' ? 'Scale X' : 'Scale Y'}
+          value={(override?.transform[axis] ?? layer.transform[axis])}
+          min={0}
+          max={3}
+          step={0.01}
+          overridden={override?.transform[axis] !== undefined}
+          onChange={(v) => run(setLayerTransform(layer.id, { [axis]: v }, editTarget), { seal: false })}
+          onCommit={() => run(setLayerTransform(layer.id, {}, editTarget))}
+        />
+      ))}
+      <Slider
+        label="Rotation"
+        value={override?.transform.rotationDeg ?? layer.transform.rotationDeg}
+        min={-180}
+        max={180}
+        step={0.5}
+        unit="°"
+        overridden={override?.transform.rotationDeg !== undefined}
+        onChange={(v) => run(setLayerTransform(layer.id, { rotationDeg: v }, editTarget), { seal: false })}
+        onCommit={() => run(setLayerTransform(layer.id, {}, editTarget))}
+      />
+      <label className="field">
+        <span>Anchor</span>
+        <select
+          value={layer.transform.anchor}
+          onChange={(e) => run(setLayerTransform(layer.id, { anchor: e.target.value as typeof layer.transform.anchor }, editTarget))}
+        >
+          {ANCHORS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </label>
+      <label className="field">
+        <span>Scale ref</span>
+        <select
+          value={layer.transform.scaleReference}
+          onChange={(e) => run(setLayerTransform(layer.id, { scaleReference: e.target.value as typeof layer.transform.scaleReference }, editTarget))}
+        >
+          {SCALE_REFERENCES.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </label>
+
+      {manifest === undefined ? (
+        layer.kind === 'group'
+          ? <p className="empty">Groups have no module parameters.</p>
+          : <p className="bad">Module “{layer.module}” is not installed. Its settings are preserved.</p>
+      ) : (
+        [...groups.entries()].map(([group, specs]) => (
+          <div key={group}>
+            <h2>{group}</h2>
+            {specs
+              .filter((spec) => spec.advanced !== true)
+              .map((spec) => (
+                <ParamControl
+                  key={spec.key}
+                  spec={spec}
+                  stored={layer.kind === 'module' ? layer.params[spec.key] : undefined}
+                  overrideValue={override?.params[spec.key]}
+                  onChange={(value, seal) => run(setLayerParam(layer.id, spec.key, value, editTarget), { seal })}
+                  onReset={editTarget === 'base' ? undefined : () => run(clearParamOverride(layer.id, spec.key, editTarget as AspectBucket))}
+                />
+              ))}
+          </div>
+        ))
+      )}
+    </aside>
+  );
+}
+
+/** One generated control. The type decides the widget; nothing is special-cased per module. */
+function ParamControl(props: {
+  spec: ParamSpec;
+  stored: unknown;
+  overrideValue: unknown;
+  onChange: (value: unknown, seal: boolean) => void;
+  onReset?: (() => void) | undefined;
+}): React.JSX.Element {
+  const { spec, stored, overrideValue, onChange, onReset } = props;
+  const overridden = overrideValue !== undefined;
+  const raw = overridden ? overrideValue : stored;
+
+  switch (spec.type) {
+    case 'float':
+      return (
+        <Slider
+          label={spec.label}
+          value={typeof raw === 'number' ? raw : spec.default}
+          min={spec.softMin ?? spec.min}
+          max={spec.softMax ?? spec.max}
+          step={(spec.max - spec.min) / 200}
+          unit={spec.unit ?? ''}
+          overridden={overridden}
+          onReset={onReset}
+          onChange={(v) => onChange(v, false)}
+          onCommit={() => onChange(typeof raw === 'number' ? raw : spec.default, true)}
+        />
+      );
+    case 'int':
+      return (
+        <Slider
+          label={spec.label}
+          value={typeof raw === 'number' ? raw : spec.default}
+          min={spec.min}
+          max={spec.max}
+          step={1}
+          overridden={overridden}
+          onReset={onReset}
+          onChange={(v) => onChange(Math.round(v), false)}
+          onCommit={() => onChange(typeof raw === 'number' ? raw : spec.default, true)}
+        />
+      );
+    case 'bool':
+      return (
+        <label className="field">
+          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
+          <input
+            type="checkbox"
+            checked={typeof raw === 'boolean' ? raw : spec.default}
+            onChange={(e) => onChange(e.target.checked, true)}
+          />
+        </label>
+      );
+    case 'enum':
+      return (
+        <label className="field">
+          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
+          <select value={typeof raw === 'string' ? raw : spec.default} onChange={(e) => onChange(e.target.value, true)}>
+            {spec.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+      );
+    case 'color':
+      return (
+        <label className="field">
+          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
+          <input
+            type="color"
+            value={typeof raw === 'string' ? raw.slice(0, 7) : spec.default.slice(0, 7)}
+            onChange={(e) => onChange(e.target.value, true)}
+          />
+        </label>
+      );
+    case 'select:stem':
+      return (
+        <label className="field">
+          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
+          <select value={typeof raw === 'string' ? raw : spec.default} onChange={(e) => onChange(e.target.value, true)}>
+            {['mix', 'drums', 'bass', 'vocals', 'other'].map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+      );
+  }
+}
+
+function Badge(props: { onReset?: (() => void) | undefined }): React.JSX.Element {
+  return (
+    <button type="button" className="override-badge" title="Overridden for this aspect — click to reset to base" onClick={props.onReset}>
+      override
+    </button>
+  );
+}
+
+function Slider(props: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  unit?: string;
+  overridden?: boolean;
+  onReset?: (() => void) | undefined;
+  onChange: (value: number) => void;
+  /** Called on release: ends the merge run so the drag is one undo step (ui-spec §10). */
+  onCommit?: () => void;
+}): React.JSX.Element {
+  const { label, value, min, max, step, unit, overridden, onReset, onChange, onCommit } = props;
+  return (
+    <label className="field slider">
+      <span>
+        {label}
+        {overridden === true ? <Badge onReset={onReset} /> : null}
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onPointerUp={onCommit}
+        onKeyUp={onCommit}
+      />
+      <output>{formatNumber(value)}{unit ?? ''}</output>
+    </label>
+  );
+}
+
+function formatNumber(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(Math.abs(value) < 1 ? 3 : 2);
+}

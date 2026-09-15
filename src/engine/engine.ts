@@ -80,6 +80,13 @@ export interface Engine {
    * 2-10-10-10 little-endian at 10 bits). Blocks on the GPU — the baseline for measurement.
    */
   readOutputSync(into: Uint8Array): void;
+  /**
+   * Blits the last rendered frame to the canvas's default framebuffer, letterboxed to preserve
+   * the project's aspect. For the live preview: export reads pixels back instead, and both
+   * start from the same `output` target, so what is on screen is the frame that would be
+   * written — at whatever resolution the preview is rendering (ui-spec §0.4).
+   */
+  present(drawingBufferWidth: number, drawingBufferHeight: number): void;
   /** A PBO ring for `width`×`height` output at this engine's bit depth. */
   createReadback(width: number, height: number, depth: number): FrameReadback;
   /**
@@ -317,6 +324,36 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       if (into.length !== expected) throw new RangeError(`readback buffer is ${into.length} bytes, expected ${expected}`);
       readPacked(output, into);
     },
+
+    present(drawingBufferWidth, drawingBufferHeight) {
+      if (output === undefined) throw new Error('present called before any frame was rendered');
+      // Letterbox: fit the project's aspect inside the drawing buffer rather than stretching.
+      // A preview that quietly changes the shape of the frame is worse than black bars, because
+      // every composition decision is then made against the wrong picture.
+      const scale = Math.min(drawingBufferWidth / output.width, drawingBufferHeight / output.height);
+      const width = Math.max(1, Math.round(output.width * scale));
+      const height = Math.max(1, Math.round(output.height * scale));
+      const x = Math.floor((drawingBufferWidth - width) / 2);
+      const y = Math.floor((drawingBufferHeight - height) / 2);
+
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, output.framebuffer);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      gl.viewport(0, 0, drawingBufferWidth, drawingBufferHeight);
+      gl.disable(gl.SCISSOR_TEST);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      // The output target is written bottom-up when flipY is off, which is the default screen
+      // orientation, so source and destination rows map straight across.
+      gl.blitFramebuffer(
+        0, 0, output.width, output.height,
+        x, y, x + width, y + height,
+        gl.COLOR_BUFFER_BIT,
+        scale === 1 ? gl.NEAREST : gl.LINEAR,
+      );
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    },
+
 
     createReadback(width, height, depth) {
       if (nv12 !== undefined) {

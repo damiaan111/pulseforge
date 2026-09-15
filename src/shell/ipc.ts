@@ -15,6 +15,9 @@ export const IPC = {
   projectRead: 'pf:project:read',
   projectSave: 'pf:project:save',
   projectSaveAs: 'pf:project:save-as',
+  audioPick: 'pf:audio:pick',
+  audioRead: 'pf:audio:read',
+  audioAnalyze: 'pf:audio:analyze',
   environment: 'pf:app:environment',
 } as const;
 
@@ -38,6 +41,29 @@ export interface SaveResult {
   readonly path: string;
   /** Set when a pre-migration copy was written. */
   readonly backupPath?: string;
+}
+
+
+export interface AudioBytes {
+  readonly path: string;
+  readonly bytes: Uint8Array;
+}
+
+/**
+ * Everything the studio needs from an analysed track. The analysis is computed in the **main**
+ * process through the same FFmpeg decode and on-disk cache the exporter uses, then handed over
+ * as the binary container — so the preview reacts to exactly the numbers the export will,
+ * rather than to whatever Chromium's own decoder produced. Playback is a separate concern and
+ * may use the browser decoder, because the clock reads positions, not samples.
+ */
+export interface AnalysisPayload {
+  /** `src/analysis/container.ts` bytes: spectrum, bands, features and the beat grid. */
+  readonly container: Uint8Array;
+  /** `src/analysis/peaks.ts` bytes: the waveform pyramid for the timeline. */
+  readonly peaks: Uint8Array;
+  readonly sections: readonly { readonly startSeconds: number; readonly endSeconds: number; readonly label: string }[];
+  readonly durationSeconds: number;
+  readonly fromCache: boolean;
 }
 
 /** The startup environment report (PROJECT.md M34, §8.15). */
@@ -74,6 +100,12 @@ export interface PulseforgeApi {
   saveProject(request: SaveRequest): Promise<SaveResult>;
   /** Shows a save dialog. Resolves to null when the user cancels. */
   saveProjectAs(text: string, suggestedName: string): Promise<SaveResult | null>;
+  /** Shows an open dialog for audio. Resolves to null when the user cancels. */
+  pickAudio(): Promise<string | null>;
+  /** Raw file bytes, for a Blob URL the `<audio>` element can play. */
+  readAudio(path: string): Promise<AudioBytes>;
+  /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
+  analyzeAudio(path: string): Promise<AnalysisPayload>;
   environment(): Promise<EnvironmentReport>;
 }
 
