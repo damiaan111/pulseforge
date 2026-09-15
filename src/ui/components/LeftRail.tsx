@@ -3,8 +3,10 @@
 import { BUILTIN_MODULES } from '../../engine/engine.ts';
 import { secondsToTicks } from '../../engine/core/time.ts';
 import {
-  addLayer, duplicateLayer, moveLayer, removeLayer, setAudio, setLayerFlag,
+  addLayer, addPaletteColor, duplicateLayer, moveLayer, removeLayer, removePaletteColor, setAudio,
+  setLayerFlag, setPaletteColor, setPaletteRole,
 } from '../../project/commands.ts';
+import { PALETTE_ROLES } from '../../project/palette.ts';
 import { createModuleLayer } from '../../project/create.ts';
 import { walkLayers, type Layer } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
@@ -108,7 +110,62 @@ export function LeftRail(): React.JSX.Element {
           </button>
         </div>
       )}
+
+      <PaletteEditor />
     </aside>
+  );
+}
+
+/**
+ * The palette (M17, compositor-spec §9). Colours on the left, role assignments on the right —
+ * a role is an *index* into the colour list, so this is deliberately two lists and not a row of
+ * seven pickers: two roles may point at the same colour, and changing that colour then moves
+ * both, which is the entire point of the feature.
+ */
+function PaletteEditor(): React.JSX.Element {
+  const palette = useStudio((s) => s.document.palette);
+  const run = useStudio((s) => s.run);
+
+  return (
+    <>
+      <h2>Palette</h2>
+      {palette.colors.length === 0 ? (
+        <p className="empty">No palette yet. Colours added here can be linked from any layer.</p>
+      ) : (
+        <ul className="swatches">
+          {palette.colors.map((color, index) => (
+            // Index as key: colours have no identity of their own, and the role table already
+            // addresses them positionally.
+            <li key={index}>
+              <input
+                type="color"
+                value={color.slice(0, 7)}
+                aria-label={`Palette colour ${index + 1}`}
+                onChange={(e) => run(setPaletteColor(index, e.target.value))}
+              />
+              <button type="button" title="Remove" onClick={() => run(removePaletteColor(index))}>✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" className="wide" data-action="add-palette-colour" onClick={() => run(addPaletteColor('#ff2d95'))}>
+        Add colour
+      </button>
+      {palette.colors.length > 0 && PALETTE_ROLES.map((role) => (
+        <label className="field" key={role}>
+          <span>{role}</span>
+          <select
+            value={palette.roles[role] ?? ''}
+            onChange={(e) => run(setPaletteRole(role, e.target.value === '' ? null : Number(e.target.value)))}
+          >
+            <option value="">unassigned</option>
+            {palette.colors.map((color, index) => (
+              <option key={index} value={index}>{index + 1} · {color}</option>
+            ))}
+          </select>
+        </label>
+      ))}
+    </>
   );
 }
 

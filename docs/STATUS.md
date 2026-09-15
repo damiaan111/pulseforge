@@ -1225,3 +1225,42 @@ that silently did nothing would not read as success.
 Verified: `npm run check` **570 tests pass**; `npm run golden` **15/15 byte-identical**; `--smoke`
 reports seven checks green, and the screenshot shows a bars layer, a populated inspector, an
 Effects section and "Remove effect" sitting on the undo stack.
+
+---
+
+### 4.32 The palette (P4 step 5) — M17, compositor-spec §9
+
+"Reskin in one click" needs a *link*, not a copy. `src/project/palette.ts` spells one as the
+parameter value itself — `@primary` instead of `#ff2d95`:
+
+- the document format needs no new type and old files still parse;
+- a preset carries links rather than colours, so applying it adopts **this** project's palette
+  instead of importing a foreign one (compositor-spec §9);
+- `@` is not legal anywhere in a hex colour, and a link is only recognised when it names a role
+  this build knows, so a literal can never be mistaken for one.
+
+**Links are resolved in `snapshot.ts`, on the way to the engine, and nowhere else.** The engine
+receives a literal like any other and never learns that palettes exist — which is what keeps the
+golden frames a statement about the engine rather than about the document model.
+
+A role that resolves to nothing — unassigned, or pointing past the end of the colour list — has
+its parameter **removed**, so the module's declared default applies, and a snapshot note says
+which role and where. That is the behaviour `parse.ts` has been promising since P2 step 1 when it
+validates the role table; it now exists.
+
+`removePaletteColor` is the one command with a real trap in it, and it has a test of its own:
+roles are *indices*, so deleting the second of three silently re-points every role above it.
+Roles pointing at the removed colour are dropped; roles above it shift down.
+
+UI: a palette editor in the left rail (colours, then role assignments — two lists, not seven
+pickers, because two roles may point at the same colour and moving that colour must move both),
+and every generated colour control gains a literal/role dropdown. Picking a role makes the
+swatch read-only and show what the role currently resolves to: editing it there would silently
+unlink, and "I changed the colour and it went back" is worse than a disabled control.
+
+Verified: `npm run check` **580 tests pass across 37 files**; `npm run golden` **15/15
+byte-identical** (no project uses a link, so nothing moved); `--smoke` green, and the screenshot
+shows the palette panel and the literal/role dropdown on the fill colour.
+
+Not done here, and still open from compositor-spec §9: palettes saveable independently of
+projects, and import from an image (that one belongs with the auto-director's §5.3 extraction).

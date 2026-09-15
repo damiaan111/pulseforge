@@ -17,6 +17,7 @@ import {
   setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTransform,
 } from '../../project/commands.ts';
 import { createEffect } from '../../project/create.ts';
+import { PALETTE_ROLES, linkedRole, resolveRole, roleLink, type PaletteRole } from '../../project/palette.ts';
 import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
@@ -335,14 +336,12 @@ function ParamControl(props: {
       );
     case 'color':
       return (
-        <label className="field">
-          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
-          <input
-            type="color"
-            value={typeof raw === 'string' ? raw.slice(0, 7) : spec.default.slice(0, 7)}
-            onChange={(e) => onChange(e.target.value, true)}
-          />
-        </label>
+        <ColorControl
+          label={spec.label}
+          value={typeof raw === 'string' ? raw : spec.default}
+          badge={overridden ? <Badge onReset={onReset} /> : null}
+          onChange={(value) => onChange(value, true)}
+        />
       );
     case 'select:stem':
       return (
@@ -354,6 +353,48 @@ function ParamControl(props: {
         </label>
       );
   }
+}
+
+/**
+ * A colour, either a literal or a link to a palette role (M17, compositor-spec §9).
+ *
+ * The link is stored *as the value* — `@primary` — rather than in a parallel structure, so a
+ * preset or a copied layer carries the link with it and adopts whatever palette it lands in.
+ * When a role is chosen the swatch shows what that role currently resolves to and is read-only:
+ * editing it here would silently unlink, and "I changed the colour and it went back" is a worse
+ * outcome than a disabled control.
+ */
+function ColorControl(props: {
+  label: string;
+  value: string;
+  badge: React.ReactNode;
+  onChange: (value: string) => void;
+}): React.JSX.Element {
+  const { label, value, badge, onChange } = props;
+  const palette = useStudio((s) => s.document.palette);
+  const role = linkedRole(value);
+  const resolved = role === undefined ? value : resolveRole(palette, role);
+
+  return (
+    <label className="field colour">
+      <span>{label}{badge}</span>
+      <input
+        type="color"
+        value={(resolved ?? '#000000').slice(0, 7)}
+        disabled={role !== undefined}
+        title={role === undefined ? value : `Linked to the ${role} role`}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <select
+        value={role ?? ''}
+        title="Link this colour to a palette role"
+        onChange={(e) => onChange(e.target.value === '' ? (resolved ?? value) : roleLink(e.target.value as PaletteRole))}
+      >
+        <option value="">literal</option>
+        {PALETTE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+      </select>
+    </label>
+  );
 }
 
 function Badge(props: { onReset?: (() => void) | undefined }): React.JSX.Element {

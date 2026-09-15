@@ -577,3 +577,56 @@ export function setPaletteColor(index: number, color: string): Command {
     },
   };
 }
+
+export function addPaletteColor(color: string): Command {
+  return {
+    label: 'Add palette colour',
+    apply: (document) => ({
+      ...document,
+      palette: { ...document.palette, colors: [...document.palette.colors, color] },
+    }),
+  };
+}
+
+/**
+ * Removes a colour and **repairs the role table**, which is the whole difficulty: roles are
+ * indices into the colour list, so deleting the second of four silently re-points every role
+ * above it at the wrong colour. Roles pointing at the removed colour are dropped — the module
+ * default then applies, which is what `parse.ts` promises for an unassigned role — and roles
+ * above it shift down.
+ */
+export function removePaletteColor(index: number): Command {
+  return {
+    label: 'Remove palette colour',
+    apply: (document) => {
+      const { palette } = document;
+      if (index < 0 || index >= palette.colors.length) {
+        throw new CommandError(`No palette colour at index ${index}`);
+      }
+      const colors = palette.colors.filter((_, i) => i !== index);
+      const roles: Record<string, number> = {};
+      for (const [role, at] of Object.entries(palette.roles)) {
+        if (at === index) continue;
+        roles[role] = at > index ? at - 1 : at;
+      }
+      return { ...document, palette: { ...palette, colors, roles } };
+    },
+  };
+}
+
+/** Points a role at a colour, or unassigns it with `null`. */
+export function setPaletteRole(role: string, index: number | null): Command {
+  return {
+    label: index === null ? 'Unassign palette role' : 'Assign palette role',
+    apply: (document) => {
+      const { palette } = document;
+      if (index !== null && (index < 0 || index >= palette.colors.length)) {
+        throw new CommandError(`No palette colour at index ${index}`);
+      }
+      const roles = { ...palette.roles };
+      if (index === null) delete roles[role];
+      else roles[role] = index;
+      return { ...document, palette: { ...palette, roles } };
+    },
+  };
+}

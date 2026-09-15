@@ -11,12 +11,13 @@
 // exactly what is missing and why.
 
 import { isIdentityTransform, type LayerTransform } from '../engine/core/layout.ts';
+import { hasPaletteLinks, resolvePaletteValue } from './palette.ts';
 import type { ModulationBinding } from '../engine/core/modulation.ts';
 import type { BlendMode, EffectSpec, LayerSpec, RenderProject } from '../engine/core/project.ts';
 import {
   aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type GroupLayer, type Layer,
   type EffectSpec as DocumentEffect, type ModulationBinding as DocumentBinding,
-  type ProjectDocument, type TimeRange,
+  type Palette, type ProjectDocument, type TimeRange,
 } from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
@@ -36,8 +37,41 @@ export interface SnapshotResult {
 const ENGINE_BLEND_MODES: readonly BlendMode[] = ['normal', 'add', 'screen'];
 
 /** Document effect → engine effect: the id, the module and the stored params, nothing else. */
-function toEngineEffect(effect: DocumentEffect): EffectSpec {
-  return { id: effect.id, module: effect.module, enabled: effect.enabled, params: effect.params };
+function toEngineEffect(effect: DocumentEffect, palette: Palette, path: string, notes: SnapshotNote[]): EffectSpec {
+  return {
+    id: effect.id,
+    module: effect.module,
+    enabled: effect.enabled,
+    params: applyPalette(effect.params, palette, path, notes),
+  };
+}
+
+/**
+ * Palette role links → literal colours (M17, palette.ts). This is the only place it happens:
+ * the engine receives resolved hex and never learns that palettes exist, which is what keeps
+ * the golden frames a statement about the engine rather than about the document model.
+ *
+ * A role that resolves to nothing has its parameter **removed**, so the module's own default
+ * applies — the behaviour `parse.ts` already promises when it validates the role table — and
+ * the caller is told which role and where.
+ */
+function applyPalette(
+  params: Readonly<Record<string, unknown>>,
+  palette: Palette,
+  path: string,
+  notes: SnapshotNote[],
+): Readonly<Record<string, unknown>> {
+  if (!hasPaletteLinks(params)) return params;
+  const resolved: Record<string, unknown> = {};
+  for (const [key, stored] of Object.entries(params)) {
+    const { value, unresolved } = resolvePaletteValue(palette, stored);
+    if (unresolved !== undefined) {
+      notes.push({ path: `${path}.params.${key}`, detail: `palette role "${unresolved}" is not assigned to a colour; the module default is used` });
+      continue;
+    }
+    resolved[key] = value;
+  }
+  return resolved;
 }
 
 /**
@@ -173,11 +207,11 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       enabled,
       opacity: layer.opacity,
       blend,
-      params: resolveParams(layer, override),
+      params: applyPalette(resolveParams(layer, override), document.palette, path, notes),
       timeRange: clipToParents(layer.timeRange, parents),
       transform: resolveTransform(layer, override),
       modulations: layer.modulations.map(toEngineBinding),
-      effects: layer.effects.map(toEngineEffect),
+      effects: layer.effects.map((effect) => toEngineEffect(effect, document.palette, `${path}.effects.${effect.id}`, notes)),
     });
   }
 
@@ -197,7 +231,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     layers,
     durationTicks: timelineDurationTicks(document),
     globalModulations: document.globalModulations.map(toEngineBinding),
-    globalEffects: document.globalEffects.map(toEngineEffect),
+    globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
   };
 
   return { project, notes, aspect };
