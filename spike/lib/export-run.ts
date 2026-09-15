@@ -43,6 +43,8 @@ export interface ExportRunOptions {
   /** Where the (single-run) output goes. Defaults into `workDir`, which is what the spikes want. */
   readonly outputPath?: string;
   readonly onProgress?: (line: string) => void;
+  /** Aborting kills the Electron child mid-render (harness.ts). */
+  readonly signal?: AbortSignal;
 }
 
 export interface ExportRun {
@@ -106,7 +108,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
       ffmpegExe: FFMPEG_EXE,
       ffprobeExe: FFPROBE_EXE,
     };
-    const { result, log } = await runElectron<SpikeExportResult>(config, options.onProgress);
+    const { result, log } = await runElectron<SpikeExportResult>(config, options.onProgress, options.signal);
     if (!result.ok || result.report === undefined) {
       throw new ExportRunError(`export "${options.name}" run ${run} failed: ${result.error ?? 'no report'}`, log);
     }

@@ -27,7 +27,19 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| P4 … P8 | ⬜ not started |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅ (§4.28–§4.33); remaining in §4.33 |
+| P5 … P8 | ⬜ not started |
+
+P4 steps:
+
+| # | Step | State | Commit |
+|---|---|---|---|
+| 1 | Four visualizers + analysis-texture helper | ✅ | `79574d3` |
+| 2 | Five visualizers — M11 complete | ✅ | `50f32db` |
+| 3 | Eight effects — M12 complete | ✅ | `a59a6c7` |
+| 4 | Effect chain in the studio | ✅ | `6f3c196` |
+| 5 | Palette system (M17) | ✅ | `1170fd1` |
+| 6 | One document → video pipeline, abortable (`src/export/render-document.ts`) | ✅ | (this commit) |
 
 P3 steps:
 
@@ -62,8 +74,8 @@ P0 steps:
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
 **Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check` and `npm run golden`, then continue with §9 (P3 step 4). Keep STATUS.md updated
-and commit after each step."*
+run `npm run check` and `npm run golden`, then continue with the next open item in §4.33. Keep
+STATUS.md updated and commit after each step."*
 
 ---
 
@@ -1264,3 +1276,44 @@ shows the palette panel and the literal/role dropdown on the fill colour.
 
 Not done here, and still open from compositor-spec §9: palettes saveable independently of
 projects, and import from an image (that one belongs with the auto-director's §5.3 extraction).
+
+---
+
+### 4.33 One document → video pipeline (P4 step 6)
+
+`src/export/render-document.ts` — `renderDocument(options)`: document text → load/migrate/parse →
+resolve audio (relative to the project) → decode → analysis through the cache → canvas/aspect →
+`toRenderProject` → Electron export → report. `npm run render` now calls it, and the studio's
+render queue is meant to be its second caller. Started by the previous session and finished here.
+
+- **One copy, on purpose.** The CLI and the queue were about to carry the same forty lines twice;
+  two copies drift, and "it renders differently from the CLI" would be a bug nobody chose.
+  `canvasForAspect` and `ASPECT_RATIOS` live here now; the CLI wraps them to keep its `--size` hint.
+- **Abort really stops the render.** `options.signal` → `runExportSpike` → `runElectron`, which
+  kills the Electron child. Killing Electron closes FFmpeg's stdin, so the encoder exits on its own.
+  Rejects with `ElectronCancelled` (spike/harness.ts), distinct from a failure.
+- **Partial output is deleted** on cancel or failure, with the report JSON (export-spec §13).
+- **`runElectron` deletes a stale result file before spawning.** Otherwise a child that crashed
+  before writing its result would have its *previous* run's result read back as success.
+- **Progress reads the encoded count**, not the read-back count (`parseProgress`, tested) — the
+  unfinished version took the first `n/total` in the line, which is the pump's position.
+
+Verified here: `npm run check` 584 tests; `npm run render` on `neon-bars` writes a verified MP4;
+an abort 0.5 s into a 4K HEVC render rejected `ElectronCancelled` within 0.7 s with **no
+`electron.exe` or `ffmpeg.exe` left running and no partial file**.
+
+**Remaining for P4** (PROJECT.md §10: "10+ visualizers, 10+ effects, backgrounds (incl. video
+frame cache, M39), text, logo, palette system, layer groups (M38), Three.js scene layers (M37),
+preset save/load, asset library (M40), `modules/` drop-in folder + authoring guide"), in a
+suggested order:
+
+1. **Render queue in the studio** (M24, ui-spec §7): export dialog + queue panel; shell main owns a
+   `RenderQueue` whose `JobRunner` calls `renderDocument` with the job's `AbortSignal`.
+2. **Background source layer** (M14): solid, gradient, image (decoded to linear on upload), with fit modes.
+3. **Asset library** (M40): path + hash references, missing-asset detection and relink.
+4. **Text layer** (M16, M32): deterministic glyph rasterisation at target resolution, per-word metrics.
+5. **Logo layer** (M15) — an image layer with reactive pulse, cheap once 2–3 exist.
+6. **Group compositing** (M38): group transform/opacity/blend/effects over composited children.
+7. **Video layers** (M39): frame cache at project fps.
+8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
+9. **Preset browser UI** (S8) and **`modules/` drop-in folder + authoring guide** (M35).

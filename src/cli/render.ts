@@ -21,19 +21,10 @@
 //   --quiet                      only errors and the final line
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { AnalysisCache } from '../analysis/cache.ts';
-import { analyzeCached } from '../analysis/cached.ts';
-import { decodeMono48k } from '../analysis/decode.ts';
-import { rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
-import { frameCount } from '../engine/core/time.ts';
-import { defaultEncodeSettings } from '../export/ffmpeg-args.ts';
-import { loadDocument } from '../project/load.ts';
-import { timelineDurationTicks, toRenderProject } from '../project/snapshot.ts';
-import { FFMPEG_EXE, ROOT } from '../../setup/lib/paths.ts';
-import { bundleElectron } from '../../spike/harness.ts';
-import { runExportSpike } from '../../spike/lib/export-run.ts';
+import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { RenderDocumentError, canvasForAspect as sharedCanvasForAspect, renderDocument } from '../export/render-document.ts';
+import { ROOT } from '../../setup/lib/paths.ts';
 
 export class CliError extends Error {
   readonly fixes: readonly string[];
@@ -127,15 +118,12 @@ export function parseArgs(argv: readonly string[]): Options {
  * as a Short" does not silently become a different resolution class.
  */
 export function canvasForAspect(aspect: string, base: { width: number; height: number }): { width: number; height: number } {
-  const ratios: Record<string, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
-  const ratio = ratios[aspect];
-  if (ratio === undefined) {
-    throw new CliError(`Unknown aspect "${aspect}".`, [`Use one of ${Object.keys(ratios).join(', ')}, or --size WxH`]);
+  try {
+    return sharedCanvasForAspect(aspect, base);
+  } catch (error) {
+    if (error instanceof RenderDocumentError) throw new CliError(error.message, [...error.fixes.map((f) => `${f}, or --size WxH`)]);
+    throw error;
   }
-  const pixels = base.width * base.height;
-  // Even dimensions: 4:2:0 chroma subsampling cannot encode an odd one.
-  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
-  return { width: even(Math.sqrt(pixels * ratio)), height: even(Math.sqrt(pixels / ratio)) };
 }
 
 export async function render(argv: readonly string[]): Promise<void> {
@@ -147,90 +135,45 @@ export async function render(argv: readonly string[]): Promise<void> {
   if (!existsSync(options.projectPath)) {
     throw new CliError(`Project file not found: ${options.projectPath}`);
   }
-  if (!existsSync(FFMPEG_EXE)) {
-    throw new CliError('The vendored FFmpeg is missing.', ['Run `npm run setup` to provision vendor/']);
+  if (options.aspect !== undefined) canvasForAspect(options.aspect, { width: 16, height: 9 }); // validate up front
+
+  let result;
+  try {
+    // The same pipeline the studio's render queue uses (src/export/render-document.ts), so the
+    // CLI cannot render differently from the app.
+    result = await renderDocument({
+      documentText: await readFile(options.projectPath, 'utf8'),
+      projectPath: options.projectPath,
+      audioOverride: options.audioOverride,
+      aspect: options.aspect,
+      size: options.size,
+      seconds: options.seconds,
+      codec: options.codec,
+      outputPath: options.outputPath,
+      workDir: join(ROOT, 'out', 'render'),
+      cacheRoot: join(ROOT, 'cache'),
+      name: 'cli',
+      // `--no-cache` recomputes, which is the first thing to try if a render looks like it is
+      // reacting to the wrong numbers.
+      noCache: options.noCache,
+      log: say,
+    });
+  } catch (error) {
+    if (error instanceof RenderDocumentError) {
+      throw new CliError(error.message, error.message.startsWith('The project has no audio') || error.message.startsWith('Audio file not found')
+        ? ['Point at one with --audio <file>', 'Or fix the path stored in the project']
+        : error.fixes);
+    }
+    throw error;
   }
 
-  const { document, issues, migratedFrom } = loadDocument(await readFile(options.projectPath, 'utf8'));
-  if (migratedFrom !== null) say(`Migrated from schema version ${migratedFrom}.`);
-  for (const issue of issues) console.warn(`  warning ${issue.path}: ${issue.detail}`);
-
-  // Audio paths are stored relative to the project when possible (data-formats §1.2).
-  const audioPath = options.audioOverride !== undefined
-    ? resolve(options.audioOverride)
-    : document.audio.path === ''
-      ? undefined
-      : isAbsolute(document.audio.path) ? document.audio.path : join(dirname(options.projectPath), document.audio.path);
-  if (audioPath === undefined || !existsSync(audioPath)) {
-    throw new CliError(
-      audioPath === undefined ? 'The project has no audio file.' : `Audio file not found: ${audioPath}`,
-      ['Point at one with --audio <file>', 'Or fix the path stored in the project'],
-    );
-  }
-
-  say(`Decoding ${audioPath}`);
-  const decoded = await decodeMono48k(FFMPEG_EXE, audioPath);
-
-  // Analysis goes through the on-disk cache (data-formats §4): the same audio and settings are
-  // analysed once, ever. `--no-cache` recomputes, which is the first thing to try if a render
-  // looks like it is reacting to the wrong numbers.
-  const cache = new AnalysisCache({ root: join(ROOT, 'cache') });
-  const analysed = await analyzeCached(decoded.pcm, cache, { force: options.noCache });
-  say(analysed.fromCache
-    ? `Analysis: cache hit (${analysed.audioHash.slice(0, 12)}…)`
-    : `Analysis: computed and cached (${analysed.audioHash.slice(0, 12)}…)`);
-
-  const canvas = options.size ?? (options.aspect !== undefined
-    ? canvasForAspect(options.aspect, document.canvas)
-    : { width: document.canvas.width, height: document.canvas.height });
-  const resized = { ...document, canvas: { ...document.canvas, ...canvas } };
-
-  const { project, notes, aspect } = toRenderProject(resized);
+  if (result.migratedFrom !== null) say(`Migrated from schema version ${result.migratedFrom}.`);
+  for (const issue of result.issues) console.warn(`  warning ${issue.path}: ${issue.detail}`);
   // Notes are the engine saying what it could not do. Never swallowed: a silently missing
   // effect looks like a broken module, and gets debugged as one.
-  for (const note of notes) console.warn(`  note ${note.path}: ${note.detail}`);
+  for (const note of result.notes) console.warn(`  note ${note.path}: ${note.detail}`);
 
-  const documentTicks = timelineDurationTicks(document);
-  const durationTicks = options.seconds !== undefined
-    ? Math.round(options.seconds * TICKS_PER_SECOND)
-    : documentTicks > 0 ? documentTicks : Math.round((decoded.pcm.length / decoded.sampleRate) * TICKS_PER_SECOND);
-  if (durationTicks <= 0) {
-    throw new CliError('The timeline has no length.', ['Set the audio duration in the project, or pass --seconds N']);
-  }
-
-  const fps = rational(project.canvas.fps.num, project.canvas.fps.den);
-  const frames = frameCount(durationTicks, fps);
-  say(`Rendering ${project.layers.length} layer(s) at ${canvas.width}×${canvas.height} (${aspect}) `
-    + `${fps.num / fps.den} fps, ${frames} frames, ${options.codec}`);
-
-  await mkdir(dirname(options.outputPath), { recursive: true });
-  await bundleElectron();
-
-  const summary = await runExportSpike({
-    workDir: join(ROOT, 'out', 'render'),
-    name: 'cli',
-    project: { ...project, durationTicks },
-    analysisPcm: decoded.pcm,
-    analysis: { analysis: analysed.analysis, beatGrid: analysed.beatGrid },
-    audioPath,
-    audioLabel: audioPath,
-    audioPlacement: {
-      leadInSamples: document.audio.leadInTicks,
-      clipInSamples: document.audio.clipInTicks,
-      clipOutSamples: document.audio.clipOutTicks ?? undefined,
-    },
-    durationTicks,
-    settings: defaultEncodeSettings(options.codec),
-    outputPath: options.outputPath,
-    readbackMode: 'sync',
-    readbackDepth: 1,
-    hashFrames: false,
-    dither: true,
-    runs: 1,
-    onProgress: (line) => say(`  ${line}`),
-  });
-
-  const { report } = summary.first;
+  const { report } = result;
   const seconds = report.timing.wallMs / 1000;
   console.log(`Wrote ${options.outputPath}`);
   console.log(`  ${report.timing.frames} frames in ${seconds.toFixed(1)} s `
