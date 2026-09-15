@@ -609,7 +609,7 @@ Not yet: per-stem peaks (the timeline's expandable stem rows, ui-spec §3), and 
 ---
 
 ### 4.19 Presets (M25, module-spec §10, data-formats §3)
-`src/project/presets.ts`, 20 tests in `tests/project/presets.test.ts`. Pure: the module defaults
+`src/project/presets.ts` (`a773cb3`), 20 tests in `tests/project/presets.test.ts`. Pure: the module defaults
 it needs are injected as a `ManifestLookup`, so this file never imports the engine and the tests
 need no GL.
 
