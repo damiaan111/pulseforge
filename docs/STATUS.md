@@ -408,7 +408,7 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
 - Export: the queue landed (§4.23); still no disk-space precheck, thumbnails, motion blur, SSAA or audio stream-copy.
 - Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
-- The sidecar is spawned per command; M27 needs a supervised long-lived process with cancellation.
+- The supervised sidecar landed (§4.24); nothing calls it yet, and its Python half is unverified on a GPU machine.
 
 ---
 
@@ -789,6 +789,54 @@ the window silently became the whole render — reporting 50 fps where the true 
 Not yet wired: nothing constructs a `RenderQueue` yet — the CLI still renders one job inline.
 Connecting it needs the job runner to call `runExport`, which is GPU work and belongs with the
 export UI (ui-spec §7).
+
+---
+
+### 4.24 Supervised ML sidecar (M27, PROJECT.md §3)
+`src/ml/protocol.ts`, `src/ml/supervisor.ts`, `python/pulseforge_ml/serve.py`, 19 tests in
+`tests/ml/supervisor.test.ts`.
+
+**Why, concretely:** a one-shot process pays ~4 s of Python start plus model load on every
+command (§5). That is *all* of a health check and most of a batch of short tracks. One resident
+process pays it once — a test pins that the pid does not change across requests.
+
+- **A second protocol, not a replacement.** One-shot `runSidecar` and `python -m pulseforge_ml
+  health|separate` are untouched, because that path is verified on the RTX machine and drives P0.
+  Serve mode is `python -m pulseforge_ml serve` speaking an id-addressed protocol (v2) where every
+  reply echoes its request id — so a late progress line from a cancelled request is *dropped*
+  rather than attributed to whatever is running now.
+- **Requests are serialised.** The sidecar does one GPU job at a time (M28); interleaving two
+  would interleave their progress as well. A failed request does not poison the ones behind it.
+- **Cancellation is cooperative, never a kill.** The Python side reads stdin on its own thread, so
+  a cancel arriving mid-separation is seen at once, and Demucs' per-segment callback is the
+  checkpoint where it takes effect. Killing instead would discard a loaded model and leave
+  half-written stem files. The process stays usable afterwards — asserted by a test.
+- **A crash fails the request in flight with the stderr tail**, rather than leaving a promise that
+  can never settle while somebody watches a progress bar. The next request restarts the process.
+- **Idle shutdown.** Torch holds VRAM while loaded and the renderer wants it back (M28, §4), so an
+  idle supervisor stops itself and respawns on demand.
+- Protocol mismatch, a sidecar that never reports ready, and unparseable stdout (torch and Demucs
+  write banners uninvited) each produce a specific message with a suggested fix — this is the part
+  that runs on a machine I cannot watch.
+
+**Testing approach worth reusing:** the tests drive a **stub sidecar written in Node** that speaks
+the same protocol, so restart, cancellation, crash handling, ordering and idle shutdown are all
+exercised without Python, torch or a GPU.
+
+**Unverified on this machine:** `serve.py` and the `_separate` refactor. Only syntax-checked
+(`py_compile`). On the RTX machine:
+
+1. `npm run check` — the one-shot path must still pass its existing tests.
+2. Confirm one-shot still works end to end: `npm run validate -- --only 7` (the stems check).
+3. Drive serve mode by hand — spawn `vendor/python/python.exe -m pulseforge_ml serve`, send a
+   `{"type":"request","id":"a","command":"health","params":{}}` line, and confirm a `ready` line
+   arrives first and a `result` line follows.
+4. Confirm a `cancel` during a real separation returns `cancelled` within a segment or two and
+   that a following request still succeeds on the same process.
+
+The refactor to watch is `cmd_separate` → `_separate(args, context)`: one-shot passes `context =
+None` and emits exactly as before, served mode passes a context that reports progress and raises
+`Cancelled` at the checkpoint.
 
 ---
 

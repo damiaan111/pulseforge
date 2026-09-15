@@ -39,6 +39,12 @@ def cmd_health(_args):
 
 
 def cmd_separate(args):
+    """One-shot mode: emit the result as before. The P0 validation path depends on this shape."""
+    emit("result", **_separate(args, None))
+
+
+def _separate(args, context):
+    """Stem separation. `context` is None one-shot, or serve.py's context when served."""
     from pathlib import Path
 
     import numpy as np
@@ -84,11 +90,19 @@ def cmd_separate(args):
         nonlocal done, last_emit
         if state.get("state") != "end":
             return
+        # The cancellation checkpoint. apply_model calls this once per segment, so a cancel
+        # lands within a second or two rather than at the end of the whole separation.
+        if context is not None:
+            context.check()
         done += 1
         now = time.perf_counter()
         if now - last_emit >= 0.25 or done == total:
             last_emit = now
-            emit("progress", fraction=min(1.0, done / total), segmentsDone=done, segmentsTotal=total)
+            fraction = min(1.0, done / total)
+            if context is None:
+                emit("progress", fraction=fraction, segmentsDone=done, segmentsTotal=total)
+            else:
+                context.progress(fraction=fraction, stage="separating")
 
     if args.device == "cuda":
         torch.cuda.reset_peak_memory_stats()
@@ -126,7 +140,49 @@ def cmd_separate(args):
         result["peakAllocatedMiB"] = torch.cuda.max_memory_allocated() / 2**20
         result["peakReservedMiB"] = torch.cuda.max_memory_reserved() / 2**20
         result["device"] = torch.cuda.get_device_name(0)
-    emit("result", **result)
+    return result
+
+
+def _served_health(_params, _context):
+    """Health as a served command. Returns the report instead of emitting it."""
+    import torch
+
+    info = {
+        "protocol": PROTOCOL_VERSION,
+        "python": sys.version.split()[0],
+        "executable": sys.executable,
+        "torch": torch.__version__,
+        "torchCuda": torch.version.cuda,
+        "cudaAvailable": bool(torch.cuda.is_available()),
+    }
+    if info["cudaAvailable"]:
+        props = torch.cuda.get_device_properties(0)
+        info["device"] = props.name
+        info["vramMiB"] = props.total_memory // (1024 * 1024)
+    return info
+
+
+def _served_separate(params, context):
+    """Stem separation, reporting progress and stopping when asked (serve.py)."""
+    args = argparse.Namespace(
+        input=params["input"],
+        channels=int(params.get("channels", 2)),
+        sample_rate=int(params.get("sampleRate", 44100)),
+        model=params.get("model", "htdemucs"),
+        repo=params["repo"],
+        out_dir=params.get("outDir"),
+        device=params.get("device", "cuda"),
+        shifts=int(params.get("shifts", 1)),
+        overlap=float(params.get("overlap", 0.25)),
+    )
+    return _separate(args, context)
+
+
+def cmd_serve(_args):
+    """Long-lived mode: one process, many requests, model stays loaded (M27)."""
+    from .serve import serve
+
+    return serve({"health": _served_health, "separate": _served_separate})
 
 
 def main(argv=None):
@@ -134,6 +190,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
 
     commands.add_parser("health", help="report interpreter, torch, CUDA and demucs versions")
+    commands.add_parser("serve", help="long-lived JSON-lines server on stdin/stdout")
 
     separate = commands.add_parser("separate", help="stem separation with Demucs")
     separate.add_argument("--input", required=True, help="raw little-endian float32 PCM, interleaved")
@@ -148,6 +205,8 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     try:
+        if args.command == "serve":
+            return cmd_serve(args) or 0
         {"health": cmd_health, "separate": cmd_separate}[args.command](args)
         return 0
     except Exception as error:
