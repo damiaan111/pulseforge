@@ -18,7 +18,7 @@ const A1 = '0000000000A000000000000001';
 const A2 = '0000000000A000000000000002';
 const K1 = '0000000000K000000000000001';
 
-const asset = (id: string, hash: string, name = 'sky.png'): AssetRef => ({ id, kind: 'image', path: `D:/art/${name}`, hash, name, extra: {} });
+const asset = (id: string, hash: string, name = 'sky.png'): AssetRef => ({ id, kind: 'image', path: `D:/art/${name}`, hash, size: 1234, name, extra: {} });
 const blank = () => createDocument({ timestamp: '2026-09-15T00:00:00.000Z', id: '0000000000P000000000000001' });
 
 describe('asset commands', () => {

@@ -129,6 +129,32 @@ dl.compact { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10p
 dl.compact dt { color: var(--text-dim); }
 dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Assets and library (M40) */
+.asset-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; }
+.asset-row { border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 7px; }
+/* state-* rather than the bare state name: `.ok`, `.warn` and `.bad` are global text colours. */
+.asset-row.state-missing, .asset-row.state-error { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); }
+.asset-row.state-changed { border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
+.asset-row-head { display: flex; gap: 6px; align-items: baseline; }
+.asset-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.asset-state { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+.asset-state.state-ok { color: var(--ok); }
+.asset-state.state-missing, .asset-state.state-error { color: var(--bad); }
+.asset-state.state-changed { color: var(--warn); }
+.asset-row-meta { color: var(--text-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-row-detail { font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; user-select: text; }
+.asset-row-actions { display: flex; gap: 4px; margin-top: 4px; }
+.asset-row-actions button { padding: 1px 6px; font-size: 11px; }
+.asset-tools { display: grid; gap: 4px; }
+.library-bar { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
+.library-bar select { flex: 1 0 100%; }
+.library-bar button { padding: 2px 6px; font-size: 11px; }
+.library-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 4px; }
+.library-item { width: 100%; padding: 2px; display: grid; gap: 2px; background: var(--panel); }
+.library-thumb { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #000; border-radius: 3px; }
+.library-thumb.broken { display: grid; place-items: center; color: var(--text-dim); }
+.library-name { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .layer-list { list-style: none; margin: 0; padding: 0; }
 .layer-row { display: flex; align-items: stretch; border: 1px solid transparent; border-radius: var(--radius); }
 .layer-row:hover { background: var(--panel); }

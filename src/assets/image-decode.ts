@@ -22,6 +22,8 @@ export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'ti
 export interface ImportedImage extends DecodedImage {
   /** SHA-256 of the file's bytes — the asset hash (data-formats §1.2). */
   readonly sha256: string;
+  /** The file's size in bytes. */
+  readonly fileSize: number;
   readonly name: string;
   /** The file's own size, before any downscale. */
   readonly sourceWidth: number;
@@ -86,6 +88,7 @@ export async function decodeImageFile(ffmpegExe: string, ffprobeExe: string, pat
     // Copied into a fresh buffer: Buffer.concat may hand back a slice of Node's shared pool.
     pixels: new Uint8Array(decoded.stdout),
     sha256: createHash('sha256').update(bytes).digest('hex'),
+    fileSize: bytes.length,
     name: basename(path),
     sourceWidth: stream.width,
     sourceHeight: stream.height,

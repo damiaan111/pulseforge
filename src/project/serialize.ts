@@ -216,7 +216,7 @@ export function toJson(document: ProjectDocument): Json {
     ...(document.assets.length > 0
       ? {
         assets: document.assets.map((asset) =>
-          withExtra(asset.extra, { id: asset.id, kind: asset.kind, name: asset.name, path: asset.path, hash: asset.hash }),
+          withExtra(asset.extra, { id: asset.id, kind: asset.kind, name: asset.name, path: asset.path, hash: asset.hash, size: asset.size }),
         ),
       }
       : {}),

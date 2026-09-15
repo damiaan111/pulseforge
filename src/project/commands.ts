@@ -602,6 +602,83 @@ export function sequence(label: string, commands: readonly Command[]): Command {
   return { label, apply: (document) => commands.reduce((current, command) => command.apply(current), document) };
 }
 
+/** Where an asset is used: a readable location per reference ("Sky · image", "Sky · 9:16 · image"). */
+export interface AssetUse {
+  readonly layerId: string;
+  readonly where: string;
+}
+
+/**
+ * Every reference to every asset. Parameters hold asset **ids** (module-spec: param type
+ * `asset`), and ids are ULIDs, so a string parameter equal to an asset's id is a reference —
+ * which lets this work without module manifests, and so for modules that are not installed.
+ * Base params, aspect overrides and effects on layers and on the project all count.
+ */
+export function assetUsage(document: ProjectDocument): ReadonlyMap<string, readonly AssetUse[]> {
+  const ids = new Set(document.assets.map((a) => a.id));
+  const uses = new Map<string, AssetUse[]>();
+  const scan = (params: Readonly<Record<string, unknown>>, layerId: string, where: string) => {
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value !== 'string' || !ids.has(value)) continue;
+      const list = uses.get(value) ?? [];
+      list.push({ layerId, where: `${where} · ${key}` });
+      uses.set(value, list);
+    }
+  };
+  for (const { layer } of walkLayers(document.layers)) {
+    const label = layer.name || (layer.kind === 'module' ? layer.module : 'group');
+    if (layer.kind === 'module') scan(layer.params, layer.id, label);
+    for (const [bucket, override] of Object.entries(layer.aspectOverrides)) {
+      if (override !== undefined) scan(override.params, layer.id, `${label} · ${bucket}`);
+    }
+    for (const effect of layer.effects) scan(effect.params, layer.id, `${label} · ${effect.name || effect.module}`);
+  }
+  for (const effect of document.globalEffects) scan(effect.params, '', `project · ${effect.name || effect.module}`);
+  return uses;
+}
+
+/**
+ * Points an asset at another file (M40 relink). The id stays, so every layer using it follows
+ * without being touched; path, hash, size and name describe the new file.
+ */
+export function relinkAsset(id: string, file: { path: string; hash: string; size: number; name: string }): Command {
+  return {
+    label: `Relink ${file.name}`,
+    apply: (document) => {
+      if (!document.assets.some((a) => a.id === id)) throw new CommandError(`No asset with id "${id}" in this project`);
+      return { ...document, assets: document.assets.map((a) => (a.id === id ? { ...a, ...file } : a)) };
+    },
+  };
+}
+
+/** Removes an asset nothing uses. A used one is refused: removing it would break those layers. */
+export function removeAsset(id: string): Command {
+  return {
+    label: 'Remove asset',
+    apply: (document) => {
+      const asset = document.assets.find((a) => a.id === id);
+      if (asset === undefined) throw new CommandError(`No asset with id "${id}" in this project`);
+      const uses = assetUsage(document).get(id) ?? [];
+      if (uses.length > 0) {
+        throw new CommandError(`"${asset.name}" is still used by ${uses.map((u) => u.where).join(', ')}`);
+      }
+      return { ...document, assets: document.assets.filter((a) => a.id !== id) };
+    },
+  };
+}
+
+/** Removes every asset no parameter refers to. */
+export function removeUnusedAssets(): Command {
+  return {
+    label: 'Remove unused assets',
+    apply: (document) => {
+      const used = assetUsage(document);
+      const kept = document.assets.filter((a) => used.has(a.id));
+      return kept.length === document.assets.length ? document : { ...document, assets: kept };
+    },
+  };
+}
+
 /** The asset already holding this file, if the project has one — so a re-import reuses it. */
 export function findAssetByHash(document: ProjectDocument, hash: string): AssetRef | undefined {
   return document.assets.find((a) => a.hash === hash);

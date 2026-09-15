@@ -20,6 +20,7 @@
 //    than working on this machine and breaking on a disconnected one.
 //  - **A strict CSP** on top, so an injected script tag has nowhere to load from either.
 
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -31,11 +32,18 @@ import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
-  IPC, type AnalysisPayload, type AudioBytes, type EnvironmentReport, type ImageBytes, type ProjectFile,
-  type SaveRequest, type SaveResult,
+  IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult,
+  type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type WantedAsset,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
+import { collectProject } from '../assets/collect-files.ts';
+import { findFilesInFolder } from '../assets/find-in-folder.ts';
+import { addToLibrary, listLibrary } from '../assets/library.ts';
+import { loadDocument } from '../project/load.ts';
+
+/** Library thumbnails: decoded this small, so a panel of fifty costs little. */
+const THUMBNAIL_SIDE = 160;
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
@@ -202,19 +210,86 @@ function registerHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC.projectSaveAs, async (_event, text: unknown, suggestedName: unknown): Promise<SaveResult | null> => {
-    if (typeof text !== 'string') throw new Error('saveProjectAs needs the project text');
+  ipcMain.handle(IPC.projectPickSavePath, async (_event, suggestedName: unknown): Promise<string | null> => {
     const result = await dialog.showSaveDialog({
       title: 'Save project as',
       defaultPath: typeof suggestedName === 'string' ? suggestedName : 'untitled.pvproj',
       filters: PROJECT_FILTERS,
     });
-    if (result.canceled || result.filePath === undefined) return null;
+    return result.canceled || result.filePath === undefined ? null : result.filePath;
+  });
+
+  ipcMain.handle(IPC.projectCollect, async (_event, text: unknown): Promise<CollectSummary | null> => {
+    if (typeof text !== 'string') throw new Error('collectProject needs the project text');
+    const result = await dialog.showOpenDialog({
+      title: 'Collect files into folder',
+      buttonLabel: 'Collect here',
+      properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
+    });
+    const folder = result.canceled ? undefined : result.filePaths[0];
+    if (folder === undefined) return null;
     try {
-      return await writeProjectText(result.filePath, text);
+      // The studio's text holds absolute paths (asset-paths.ts), so no source project path is needed.
+      return await collectProject(loadDocument(text).document, null, folder);
     } catch (error) {
       throw describe(error);
     }
+  });
+
+  ipcMain.handle(IPC.assetFindInFolder, async (_event, wanted: unknown): Promise<FolderSearchResult | null> => {
+    if (!Array.isArray(wanted)) throw new Error('findAssetsInFolder needs a list');
+    const clean: WantedAsset[] = wanted.filter((w): w is WantedAsset =>
+      typeof w === 'object' && w !== null && typeof w.id === 'string' && typeof w.name === 'string'
+      && typeof w.size === 'number' && typeof w.hash === 'string');
+    const result = await dialog.showOpenDialog({ title: 'Find missing files in folder', properties: ['openDirectory'] });
+    const folder = result.canceled ? undefined : result.filePaths[0];
+    if (folder === undefined) return null;
+    return { folder, ...(await findFilesInFolder(folder, clean)) };
+  });
+
+  ipcMain.handle(IPC.assetReveal, async (_event, path: unknown): Promise<void> => {
+    if (typeof path === 'string' && existsSync(path)) shell.showItemInFolder(path);
+  });
+
+  // Documents, because the library is the user's own collection and should be where they look
+  // for files. `PULSEFORGE_LIBRARY` overrides it — the smoke check uses that to stay out of the
+  // owner's Documents folder.
+  const libraryFolder = () => process.env['PULSEFORGE_LIBRARY'] ?? join(app.getPath('documents'), 'Pulseforge', 'Library');
+  const libraryListing = async (): Promise<LibraryListing> => {
+    const folder = libraryFolder();
+    return { folder, items: await listLibrary(folder) };
+  };
+
+  ipcMain.handle(IPC.libraryList, async (): Promise<LibraryListing> => {
+    try {
+      return await libraryListing();
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
+  ipcMain.handle(IPC.libraryAdd, async (_event, category: unknown): Promise<LibraryListing> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Add images to the library',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      await addToLibrary(libraryFolder(), result.filePaths, typeof category === 'string' ? category : '');
+    }
+    return libraryListing();
+  });
+
+  ipcMain.handle(IPC.libraryThumbnail, async (_event, path: unknown): Promise<ImageBytes> => {
+    if (typeof path !== 'string') throw new Error('libraryThumbnail needs a path');
+    const image = await decodeImageFile(FFMPEG_EXE, FFPROBE_EXE, path, THUMBNAIL_SIDE);
+    return { path, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
+  });
+
+  ipcMain.handle(IPC.libraryReveal, async (): Promise<void> => {
+    const folder = libraryFolder();
+    await mkdir(folder, { recursive: true });
+    await shell.openPath(folder);
   });
 
   ipcMain.handle(IPC.audioPick, async (): Promise<string | null> => {
@@ -268,7 +343,7 @@ function registerHandlers(): void {
       throw new Error('The vendored FFmpeg is missing.\n\nTry:\n• Run `npm run setup` to provision vendor/');
     }
     const image = await decodeImageFile(FFMPEG_EXE, FFPROBE_EXE, path);
-    return { path, hash: image.sha256, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
+    return { path, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
   };
 
   ipcMain.handle(IPC.imageImport, async (): Promise<ImageBytes | null> => {
@@ -289,15 +364,15 @@ function registerHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC.imageLoad, async (_event, stored: unknown, projectPath: unknown): Promise<ImageBytes> => {
+  ipcMain.handle(IPC.imageLoad, async (_event, stored: unknown, projectPath: unknown): Promise<ImageLoadResult> => {
     if (typeof stored !== 'string') throw new Error('loadImage needs a path');
     const path = resolveAssetPath(stored, typeof projectPath === 'string' ? projectPath : null);
-    if (path === undefined) throw new Error(`The image path "${stored}" is relative and the project is not saved.`);
-    if (!existsSync(path)) throw new Error(`Image not found: ${path}`);
+    if (path === undefined) return { status: 'missing', path: stored };
+    if (!existsSync(path)) return { status: 'missing', path };
     try {
-      return await decodeForRenderer(path);
+      return { status: 'ok', image: await decodeForRenderer(path) };
     } catch (error) {
-      throw describe(error);
+      return { status: 'error', path, message: describe(error).message };
     }
   });
 
@@ -413,6 +488,18 @@ app.whenReady().then(async () => {
   lockDownSession();
   guardWebContents();
   registerHandlers();
+
+  if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LIBRARY'] === undefined) {
+    // A library of our own for the smoke check, with one generated image, set before the window
+    // lists it — never the owner's Documents folder.
+    const library = join(ROOT, 'out', 'smoke-library');
+    const image = join(library, 'backgrounds', 'smoke-bars.png');
+    await mkdir(dirname(image), { recursive: true });
+    if (!existsSync(image) && existsSync(FFMPEG_EXE)) {
+      spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'smptebars=s=320x180', '-frames:v', '1', image], { windowsHide: true });
+    }
+    process.env['PULSEFORGE_LIBRARY'] = library;
+  }
 
   // The queue's state and scratch live on the repo's drive, not in the profile: scratch holds a
   // float WAV per job (~115 MB for five minutes of stereo) and C: is nearly full on the build
@@ -540,13 +627,36 @@ app.whenReady().then(async () => {
         typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
         await new Promise((done) => setTimeout(done, 50));
         const chooser = document.querySelector('#app .inspector [data-action="choose-image"]');
-        let bridgeAnswers = false;
-        try { await window.pulseforge.loadImage('Z:/definitely/missing.png', null); }
-        catch (error) { bridgeAnswers = String(error).includes('not found'); }
-        imageControl = chooser !== null && bridgeAnswers;
+        const answer = await window.pulseforge.loadImage('Z:/definitely/missing.png', null);
+        imageControl = chooser !== null && answer.status === 'missing';
         // Back to how it was, for the screenshot.
         document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await new Promise((done) => setTimeout(done, 50));
+      }
+
+      // The asset library (M40), end to end: the smoke library holds one generated image; clicking
+      // it must add a background layer, record the asset, and load it (status "ok" in the Assets
+      // panel means the main process decoded it through FFmpeg and the preview has the pixels).
+      // Undone afterwards, which must also leave the asset list empty again.
+      let libraryToAsset = false;
+      for (let i = 0; i < 40 && document.querySelector('#app .library-item') === null; i += 1) {
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      const libraryItem = document.querySelector('#app .library-item');
+      if (libraryItem !== null) {
+        const layersBefore = document.querySelectorAll('#app .layer-row').length;
+        libraryItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        let state = null;
+        for (let i = 0; i < 60; i += 1) {
+          await new Promise((done) => setTimeout(done, 50));
+          state = document.querySelector('#app .asset-row .asset-state')?.textContent ?? null;
+          if (state === 'ok') break;
+        }
+        const layersAfter = document.querySelectorAll('#app .layer-row').length;
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+        libraryToAsset = state === 'ok' && layersAfter === layersBefore + 1
+          && document.querySelectorAll('#app .asset-row').length === 0;
       }
 
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
@@ -568,6 +678,7 @@ app.whenReady().then(async () => {
         undoable: undoEnabled,
         effectChain,
         imageControl,
+        libraryToAsset,
         exportDialog,
       };
     })()`) as Record<string, boolean>;
@@ -648,6 +759,8 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
       if (picker && option) { picker.value = option.value; picker.dispatchEvent(new Event('change', { bubbles: true })); }
     `);
     await snap(`${label}-1-layer-and-effect`);
+    await js(`${click('#app .library-item')}; await new Promise((d) => setTimeout(d, 1200))`);
+    await snap(`${label}-1b-assets-and-library`);
     await js(click('#app .inspector'));
     await js(`document.querySelector('#app .inspector').scrollTop = 99999`);
     await snap(`${label}-2-inspector-scrolled`);

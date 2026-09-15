@@ -434,11 +434,13 @@ function AssetControl(props: {
 }): React.JSX.Element {
   const { label, assetId, badge, assign } = props;
   const assets = useStudio((s) => s.document.assets);
-  const problems = useStudio((s) => s.imageProblems);
+  const statuses = useStudio((s) => s.assetStatus);
   const importImage = useStudio((s) => s.importImage);
   const run = useStudio((s) => s.run);
   const asset = assetId === '' ? undefined : assets.find((a) => a.id === assetId);
-  const problem = asset === undefined ? undefined : problems[asset.id];
+  const status = asset === undefined ? undefined : statuses[asset.id];
+  const problem = status === undefined || status.state === 'ok' || status.state === 'loading' ? undefined : status.detail;
+  const relink = useStudio((s) => s.relink);
 
   async function choose(): Promise<void> {
     if (assign === undefined) return;
@@ -465,7 +467,12 @@ function AssetControl(props: {
         )}
       </div>
       {asset === undefined && assetId !== '' ? <p className="bad">This layer refers to an asset the project does not contain.</p> : null}
-      {problem === undefined ? null : <p className="bad">{problem}</p>}
+      {problem === undefined || asset === undefined ? null : (
+        <p className={status?.state === 'changed' ? 'warn' : 'bad'}>
+          {problem}{' '}
+          <button type="button" onClick={() => void relink(asset.id)}>Relink…</button>
+        </p>
+      )}
     </div>
   );
 }

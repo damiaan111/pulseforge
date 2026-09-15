@@ -351,6 +351,11 @@ export interface AssetRef {
   readonly path: string;
   /** SHA-256 of the file's bytes at import. A mismatch on load means the file changed. */
   readonly hash: string;
+  /**
+   * File size in bytes at import (data-formats §1.2); 0 when unknown. Cheap to compare, so a
+   * folder search for a moved file hashes only the candidates of the right size.
+   */
+  readonly size: number;
   /** What the UI shows; the file name at import. */
   readonly name: string;
   readonly extra: Extra;

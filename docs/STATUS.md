@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅ (§4.28–§4.35); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅ (§4.28–§4.37); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -41,7 +41,9 @@ P4 steps:
 | 5 | Palette system (M17) | ✅ | `1170fd1` |
 | 6 | One document → video pipeline, abortable (`src/export/render-document.ts`) | ✅ | `8ad784b` |
 | 7 | Render queue in the studio: export dialog, queue drawer; EXDEV fix | ✅ | `024fd7c` |
-| 8 | Background layer (M14): solid/gradient/image, fit modes, Ken Burns; image assets end to end | ✅ | (this commit) |
+| 8 | Background layer (M14): solid/gradient/image, fit modes, Ken Burns; image assets end to end | ✅ | `e20d14c` |
+| — | Code and UI audit (§4.36) | ✅ | `96520b9` |
+| 9 | Asset library (M40): status, relink, find-in-folder, collect files, relative paths, library folder | ✅ | (this commit) |
 
 P3 steps:
 
@@ -1327,9 +1329,7 @@ suggested order:
 
 1. ✅ **Render queue in the studio** — §4.34.
 2. ✅ **Background source layer** (M14) — §4.35.
-3. **Asset library** (M40): the data model exists (§4.35: `document.assets`, hash, reported missing /
-   changed files). Still to do: an asset panel, relink (by path, and by hash search in a folder),
-   removing unused assets, storing paths relative to the project on save.
+3. ✅ **Asset library** (M40) — §4.37. Fonts join it with the text layer; video with M39.
 4. **Text layer** (M16, M32): deterministic glyph rasterisation at target resolution, per-word metrics.
 5. **Logo layer** (M15) — an image layer with reactive pulse, cheap once 2–3 exist.
 6. **Group compositing** (M38): group transform/opacity/blend/effects over composited children.
@@ -1479,3 +1479,63 @@ labels have no timestamps (cosmetic); IPC path trust and quit ordering (§7).
 
 Verified here: `npm run check` **619 tests** (twice); `npm run golden` 15/15 identical; `--smoke` with
 the UI tour 9/9 and screenshots re-reviewed after the fixes.
+
+---
+
+### 4.37 Asset library (P4 step 9) — M40, D6, data-formats §1.2, ui-spec §5
+
+**Paths** — `src/project/asset-paths.ts` (pure; runs in the renderer): a file **inside the project's
+folder** is stored relative (with `/`), anything else absolute; `..` paths are never written, since
+they break exactly when the folder moves. The studio holds **absolute** paths in memory
+(`withAbsolutePaths` on open) and relativises on write against the file being written
+(`withStoredPaths`). "Save as" therefore became *pick path, then serialise*: IPC `saveProjectAs`
+was replaced by `pickProjectSavePath` + `saveProject`. The CLI and queue still resolve relative
+paths themselves (`render-document.ts`, `load-images.ts`), so both forms work everywhere.
+
+**Document** — `AssetRef.size` (bytes, 0 = unknown). Commands: `assetUsage(document)` (a string
+param equal to an asset id is a reference — base params, aspect overrides, layer and global
+effects; works without manifests), `relinkAsset(id, file)` (id kept, so layers follow),
+`removeAsset` (refused while used), `removeUnusedAssets`.
+
+**Status** — store `assetStatus[id] = { state: loading | ok | missing | changed | error, detail, path,
+hash }`. The path+hash pair makes a status go stale when undo/redo/relink changes the asset, and
+`loadImages` re-checks after any command that touches `assets` and after undo/redo. IPC `loadImage`
+now returns `{status: 'ok' | 'missing' | 'error'}` instead of throwing. A changed file still draws
+(under the recorded hash) and says so; it is never silently accepted — relinking to a file whose
+content differs asks first.
+
+**Relink and find** — per asset **Relink…** (panel and inspector). **Find N missing files in folder…**:
+`src/assets/find-in-folder.ts` walks the folder (depth 8, 50 000 files, reports truncation), hashes
+only candidates (same size, or same name when the size is unknown) and relinks on an exact hash
+match only; a same-name file with different bytes is not taken.
+
+**Collect files** — `src/project/collect.ts` plans (pure, tested): `<folder>/<name>.pvproj`,
+`audio/`, `assets/`; same file shared once (hash or source path), different file with the same name
+→ `name-2.ext`, never overwrites anything already in the folder. `src/assets/collect-files.ts`
+copies, checks sizes, and writes the project **last**; a missing source keeps its original path in
+the collected project and is listed. Verified end to end: the image-background project collected
+into `out/bg-collected/` and rendered from there with `npm run render` (verified MP4).
+
+**Library** — a plain folder (`Documents/Pulseforge/Library`, override `PULSEFORGE_LIBRARY`) with
+`backgrounds/` and `logos/`; `src/assets/library.ts` lists images and copies files in (identical
+file skipped, same name → suffix, nothing overwritten). Panel: category, **Add…**, **Random**,
+**Folder**, refresh, 160 px FFmpeg thumbnails (cached per session). Clicking an image adds a
+background layer **just above the topmost existing background** (at the very bottom it hid behind
+an opaque background — seen in the UI tour and fixed).
+
+**Panel** — `src/ui/components/AssetsPanel.tsx`, in the left rail under Audio: each asset with
+state, where it is used, size, Relink / Show / Remove (disabled while used, with the reason), plus
+Find missing, Check again, Remove unused, Collect files.
+
+**Smoke** — new `libraryToAsset` check: the smoke run gets its own library (`out/smoke-library`, one
+FFmpeg-generated image); clicking it must add a layer and show the asset **ok** (decoded by the main
+process), and undo must remove both. The UI tour adds `*-1b-assets-and-library.png`.
+
+**Not done (deliberately):** drag-and-drop import (ui-spec §5 "drag-drop anywhere" — needs
+`webUtils.getPathForFile` in preload), library search/tags, font and video assets (with M16 / M39),
+audio relink from the panel (audio has its own "Replace audio…"), a "missing files" prompt on open
+(the panel shows it; a modal would interrupt every open of a moved project).
+
+Verified here: `npm run check` **636 tests** (new: `tests/project/asset-paths.test.ts`,
+`tests/project/asset-library.test.ts`, `tests/assets/library-files.test.ts`); `--smoke` 10/10
+including `libraryToAsset`; collect + CLI render of the collected copy.

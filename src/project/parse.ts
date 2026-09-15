@@ -601,6 +601,7 @@ function parseAsset(node: Node, issues: DocumentIssue[]): AssetRef {
     kind: kind as AssetKind,
     path,
     hash: node.str('hash', ''),
+    size: node.num('size', 0, { integer: true, min: 0 }),
     name: node.str('name', ''),
     extra: node.rest(),
   };

@@ -11,6 +11,7 @@ import { createModuleLayer } from '../../project/create.ts';
 import { walkLayers, type Layer } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
+import { AssetsPanel } from './AssetsPanel.tsx';
 
 const VISUALIZERS = BUILTIN_MODULES.filter((m) => m.manifest.kind === 'visualizer' || m.manifest.kind === 'source');
 
@@ -78,6 +79,8 @@ export function LeftRail(): React.JSX.Element {
           {analysisMessage}
         </p>
       )}
+
+      <AssetsPanel />
 
       <h2>Add layer</h2>
       <div className="module-buttons">

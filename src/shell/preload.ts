@@ -10,14 +10,21 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type ProjectFile, type PulseforgeApi, type RenderJob, type SaveRequest, type SaveResult } from './ipc.ts';
+// (SaveResult stays imported for saveProject's cast.)
 
 const api: PulseforgeApi = {
   initialProject: () => ipcRenderer.invoke(IPC.projectInitial) as Promise<ProjectFile | null>,
   openProject: () => ipcRenderer.invoke(IPC.projectOpen) as Promise<ProjectFile | null>,
   readProject: (path) => ipcRenderer.invoke(IPC.projectRead, path) as Promise<ProjectFile>,
   saveProject: (request: SaveRequest) => ipcRenderer.invoke(IPC.projectSave, request) as Promise<SaveResult>,
-  saveProjectAs: (text, suggestedName) =>
-    ipcRenderer.invoke(IPC.projectSaveAs, text, suggestedName) as Promise<SaveResult | null>,
+  pickProjectSavePath: (suggestedName) => ipcRenderer.invoke(IPC.projectPickSavePath, suggestedName) as Promise<string | null>,
+  collectProject: (text) => ipcRenderer.invoke(IPC.projectCollect, text) as ReturnType<PulseforgeApi['collectProject']>,
+  findAssetsInFolder: (wanted) => ipcRenderer.invoke(IPC.assetFindInFolder, wanted) as ReturnType<PulseforgeApi['findAssetsInFolder']>,
+  revealAsset: (path) => ipcRenderer.invoke(IPC.assetReveal, path) as Promise<void>,
+  listLibrary: () => ipcRenderer.invoke(IPC.libraryList) as ReturnType<PulseforgeApi['listLibrary']>,
+  addToLibrary: (category) => ipcRenderer.invoke(IPC.libraryAdd, category) as ReturnType<PulseforgeApi['addToLibrary']>,
+  libraryThumbnail: (path) => ipcRenderer.invoke(IPC.libraryThumbnail, path) as ReturnType<PulseforgeApi['libraryThumbnail']>,
+  revealLibrary: () => ipcRenderer.invoke(IPC.libraryReveal) as Promise<void>,
   pickAudio: () => ipcRenderer.invoke(IPC.audioPick) as ReturnType<PulseforgeApi['pickAudio']>,
   readAudio: (path) => ipcRenderer.invoke(IPC.audioRead, path) as ReturnType<PulseforgeApi['readAudio']>,
   analyzeAudio: (path) => ipcRenderer.invoke(IPC.audioAnalyze, path) as ReturnType<PulseforgeApi['analyzeAudio']>,

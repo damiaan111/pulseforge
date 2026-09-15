@@ -19,7 +19,14 @@ export const IPC = {
   projectOpen: 'pf:project:open',
   projectRead: 'pf:project:read',
   projectSave: 'pf:project:save',
-  projectSaveAs: 'pf:project:save-as',
+  projectPickSavePath: 'pf:project:pick-save-path',
+  projectCollect: 'pf:project:collect',
+  assetFindInFolder: 'pf:asset:find-in-folder',
+  assetReveal: 'pf:asset:reveal',
+  libraryList: 'pf:library:list',
+  libraryAdd: 'pf:library:add',
+  libraryThumbnail: 'pf:library:thumbnail',
+  libraryReveal: 'pf:library:reveal',
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
@@ -94,10 +101,62 @@ export interface ImageBytes {
   readonly path: string;
   /** SHA-256 of the file bytes: the asset hash. */
   readonly hash: string;
+  /** File size in bytes. */
+  readonly size: number;
   readonly name: string;
   readonly width: number;
   readonly height: number;
   readonly pixels: Uint8Array;
+}
+
+/** Loading an image the project references: the pixels, or why not — distinguishable, for the asset panel. */
+export type ImageLoadResult =
+  | { readonly status: 'ok'; readonly image: ImageBytes }
+  | { readonly status: 'missing'; readonly path: string }
+  | { readonly status: 'error'; readonly path: string; readonly message: string };
+
+/** A missing asset to look for, by content (src/assets/find-in-folder.ts). */
+export interface WantedAsset {
+  readonly id: string;
+  readonly name: string;
+  readonly size: number;
+  readonly hash: string;
+}
+
+export interface FoundAsset {
+  readonly id: string;
+  readonly path: string;
+  readonly size: number;
+  readonly name: string;
+  readonly hash: string;
+}
+
+export interface FolderSearchResult {
+  readonly folder: string;
+  readonly found: readonly FoundAsset[];
+  readonly filesListed: number;
+  readonly truncated: boolean;
+}
+
+export interface CollectSummary {
+  readonly projectPath: string;
+  readonly copied: number;
+  readonly bytes: number;
+  readonly problems: readonly string[];
+}
+
+/** One file in the managed library (M40, D6). */
+export interface LibraryItem {
+  readonly path: string;
+  readonly name: string;
+  readonly size: number;
+  /** `backgrounds`, `logos`, … — the sub-folder it sits in; '' at the top level. */
+  readonly category: string;
+}
+
+export interface LibraryListing {
+  readonly folder: string;
+  readonly items: readonly LibraryItem[];
 }
 
 /** The startup environment report (PROJECT.md M34, §8.15). */
@@ -132,8 +191,24 @@ export interface PulseforgeApi {
   /** Reads a known path — for recent files and the crash-recovery flow. */
   readProject(path: string): Promise<ProjectFile>;
   saveProject(request: SaveRequest): Promise<SaveResult>;
-  /** Shows a save dialog. Resolves to null when the user cancels. */
-  saveProjectAs(text: string, suggestedName: string): Promise<SaveResult | null>;
+  /**
+   * Shows a save dialog and only returns the path. The document is serialised *after*, against
+   * that path, because paths inside the project folder are stored relative to it.
+   */
+  pickProjectSavePath(suggestedName: string): Promise<string | null>;
+  /** "Collect files": asks for a folder, copies the project's media into it, writes the project there. */
+  collectProject(text: string): Promise<CollectSummary | null>;
+  /** Asks for a folder and searches it for the given missing files, by content. */
+  findAssetsInFolder(wanted: readonly WantedAsset[]): Promise<FolderSearchResult | null>;
+  /** Opens the OS file manager at a file, if it exists. */
+  revealAsset(path: string): Promise<void>;
+  /** The managed library folder's image files. Creates the folder on first use. */
+  listLibrary(): Promise<LibraryListing>;
+  /** Asks for image files and copies them into the library (optionally a category folder). */
+  addToLibrary(category: string): Promise<LibraryListing>;
+  /** A small decode of a library image, for the panel's thumbnail. */
+  libraryThumbnail(path: string): Promise<ImageBytes>;
+  revealLibrary(): Promise<void>;
   /** Shows an open dialog for audio. Resolves to null when the user cancels. */
   pickAudio(): Promise<string | null>;
   /** Raw file bytes, for a Blob URL the `<audio>` element can play. */
@@ -143,7 +218,7 @@ export interface PulseforgeApi {
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
   importImage(): Promise<ImageBytes | null>;
   /** Decodes an asset the project already references; the path may be relative to `projectPath`. */
-  loadImage(path: string, projectPath: string | null): Promise<ImageBytes>;
+  loadImage(path: string, projectPath: string | null): Promise<ImageLoadResult>;
   environment(): Promise<EnvironmentReport>;
 
   /** Shows a save dialog for a render's output. Resolves to null when the user cancels. */
