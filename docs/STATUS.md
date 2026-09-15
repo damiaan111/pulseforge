@@ -841,7 +841,7 @@ None` and emits exactly as before, served mode passes a context that reports pro
 ---
 
 ### 4.25 Preset store on disk (M25, S8's data layer)
-`src/project/preset-store.ts`, 20 tests in `tests/project/preset-store.test.ts`.
+`src/project/preset-store.ts`, 20 tests in `tests/project/preset-store.test.ts` (`ca6d8ca`).
 
 A folder of small JSON files rather than a database, because presets are meant to be copied
 between machines, dropped into a folder, kept in git and hand-edited when one value is off — and
