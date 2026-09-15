@@ -8,6 +8,11 @@
 // renderer sandboxed (no Node, no `fs`) and keeps the file on disk the single source of truth,
 // rather than a structured-clone of an object graph that has been through IPC.
 
+// Type-only: the queue and render service are main-process code, but the renderer needs their
+// shapes. `import type` is erased, so none of their Node imports reach the browser bundle.
+import type { JobStatus, RenderJob } from '../export/queue.ts';
+import type { RenderRequest } from './render-service.ts';
+
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
 export const IPC = {
   projectInitial: 'pf:project:initial',
@@ -19,7 +24,19 @@ export const IPC = {
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
   environment: 'pf:app:environment',
+  renderPickOutput: 'pf:render:pick-output',
+  renderEnqueue: 'pf:render:enqueue',
+  renderList: 'pf:render:list',
+  renderCancel: 'pf:render:cancel',
+  renderRetry: 'pf:render:retry',
+  renderRemove: 'pf:render:remove',
+  renderClearFinished: 'pf:render:clear-finished',
+  renderReveal: 'pf:render:reveal',
+  /** Main → renderer: the queue changed. The only channel pushed rather than asked for. */
+  renderChanged: 'pf:render:changed',
 } as const;
+
+export type { RenderJob, JobStatus, RenderRequest };
 
 export interface ProjectFile {
   readonly path: string;
@@ -107,6 +124,20 @@ export interface PulseforgeApi {
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
   analyzeAudio(path: string): Promise<AnalysisPayload>;
   environment(): Promise<EnvironmentReport>;
+
+  /** Shows a save dialog for a render's output. Resolves to null when the user cancels. */
+  pickRenderOutput(suggestedName: string): Promise<string | null>;
+  /** Snapshots the document as it is now and queues it (export-spec §12). */
+  enqueueRender(request: RenderRequest): Promise<RenderJob>;
+  listRenders(): Promise<readonly RenderJob[]>;
+  cancelRender(id: string): Promise<void>;
+  retryRender(id: string): Promise<void>;
+  removeRender(id: string): Promise<void>;
+  clearFinishedRenders(): Promise<void>;
+  /** Opens the OS file manager at a finished render. Only paths the queue itself produced. */
+  revealRender(path: string): Promise<void>;
+  /** Subscribes to queue changes; returns the unsubscribe function. */
+  onRendersChanged(listener: (jobs: readonly RenderJob[]) => void): () => void;
 }
 
 declare global {

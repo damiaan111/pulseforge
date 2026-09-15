@@ -46,7 +46,7 @@ export function runElectron<T>(
     } catch {
       // unwritable directory: the spawn below fails with a clearer message
     }
-    const child = spawn(electronPath as unknown as string, [join(SPIKE_OUT, 'main.cjs')], {
+    const child = spawn(electronBinary(), [join(SPIKE_OUT, 'main.cjs')], {
       env: { ...process.env, PULSEFORGE_SPIKE_CONFIG: JSON.stringify(config), ELECTRON_ENABLE_LOGGING: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -81,6 +81,16 @@ export function runElectron<T>(
       }
     });
   });
+}
+
+/**
+ * The Electron executable to spawn. From plain Node, the `electron` package's default export is
+ * the binary's path. From inside Electron's own main process — the studio's render queue — the
+ * same import is the Electron API object, and the running binary is `process.execPath`.
+ * Spawning the object would fail with an unhelpful "argument must be of type string".
+ */
+export function electronBinary(): string {
+  return typeof electronPath === 'string' ? electronPath : process.execPath;
 }
 
 /** Thrown when the caller aborted; distinct from a failure, because it is not one. */

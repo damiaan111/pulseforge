@@ -39,8 +39,9 @@ async function bundle(watch: boolean): Promise<void> {
       outfile: join(OUT, 'main.js'),
       platform: 'node',
       format: 'esm',
-      // Electron is provided by the runtime, not bundled.
-      external: ['electron'],
+      // Electron is provided by the runtime, not bundled. esbuild ships a native binary and
+      // cannot be bundled either: the render queue uses it at runtime to build the render host.
+      external: ['electron', 'esbuild'],
       // esbuild emits ESM that uses import.meta; main.ts relies on import.meta.dirname.
       banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
     },

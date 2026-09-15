@@ -11,7 +11,8 @@
 //     forward, the original is copied to `name.v3.bak` (data-formats §2.2). If the migration
 //     was wrong, last year's project is still there.
 
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { renameIntoPlace } from '../node/rename-into-place.ts';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { backupPathFor } from '../project/migrate.ts';
@@ -85,7 +86,7 @@ export async function writeProjectText(path: string, text: string, options: Writ
   const temporary = join(directory, `.${Date.now().toString(36)}.pulseforge.tmp`);
   try {
     await writeFile(temporary, text, 'utf8');
-    await rename(temporary, path);
+    await renameIntoPlace(temporary, path);
   } catch (cause) {
     await rm(temporary, { force: true });
     const code = (cause as NodeJS.ErrnoException).code;

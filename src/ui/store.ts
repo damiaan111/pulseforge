@@ -25,6 +25,7 @@ import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
+import type { RenderJob } from '../shell/ipc.ts';
 import type { PreviewStats, Transport } from './clock.ts';
 
 /** The one history for the open project. Module-level: there is exactly one document. */
@@ -82,6 +83,14 @@ export interface StudioState {
   transport: Transport;
   timelineSeconds: number;
   stats: PreviewStats | null;
+
+  /** The render queue, pushed from the main process (M24). */
+  renders: readonly RenderJob[];
+  exportOpen: boolean;
+  queueOpen: boolean;
+  setRenders(jobs: readonly RenderJob[]): void;
+  setExportOpen(open: boolean): void;
+  setQueueOpen(open: boolean): void;
 
   run(command: Command, options?: { seal?: boolean }): void;
   undo(): void;
@@ -141,6 +150,19 @@ export const useStudio = create<StudioState>((set, get) => ({
   transport: 'stopped',
   timelineSeconds: 0,
   stats: null,
+
+  renders: [],
+  exportOpen: false,
+  queueOpen: false,
+  setRenders(jobs) {
+    set({ renders: jobs });
+  },
+  setExportOpen(open) {
+    set({ exportOpen: open });
+  },
+  setQueueOpen(open) {
+    set({ queueOpen: open });
+  },
 
   run(command, options) {
     try {

@@ -39,7 +39,8 @@ P4 steps:
 | 3 | Eight effects — M12 complete | ✅ | `a59a6c7` |
 | 4 | Effect chain in the studio | ✅ | `6f3c196` |
 | 5 | Palette system (M17) | ✅ | `1170fd1` |
-| 6 | One document → video pipeline, abortable (`src/export/render-document.ts`) | ✅ | (this commit) |
+| 6 | One document → video pipeline, abortable (`src/export/render-document.ts`) | ✅ | `8ad784b` |
+| 7 | Render queue in the studio: export dialog, queue drawer; EXDEV fix | ✅ | (this commit) |
 
 P3 steps:
 
@@ -91,6 +92,13 @@ STATUS.md updated and commit after each step."*
   `sed -i`, for text edits.
   In the Bash tool, avoid `cd` (it moves the session's working directory). FFmpeg `crop` needs ≥ 2×2 on 4:2:0.
 - Do not run GPU work (spikes, validate) concurrently with benchmarks — it skews timings.
+- **`%APPDATA%\Electron` (the dev app's userData) is a redirected folder** (`C:\WpSystem\…`):
+  `rename` inside it fails with EXDEV even within one directory. Every temp-then-rename write goes
+  through `src/node/rename-into-place.ts`, which falls back to copy. Before that fix the render
+  queue crashed the studio at startup, and the studio's analysis cache silently never saved.
+- `npm run dev -- --smoke` opens a real window on the owner's screen for a few seconds. Results
+  are in `out/smoke-result.json` (stdout from Electron does not reliably reach a captured shell).
+  `PULSEFORGE_SMOKE_RENDER=<audio file>` adds a real queued render from inside the app.
 
 ---
 
@@ -1307,8 +1315,7 @@ frame cache, M39), text, logo, palette system, layer groups (M38), Three.js scen
 preset save/load, asset library (M40), `modules/` drop-in folder + authoring guide"), in a
 suggested order:
 
-1. **Render queue in the studio** (M24, ui-spec §7): export dialog + queue panel; shell main owns a
-   `RenderQueue` whose `JobRunner` calls `renderDocument` with the job's `AbortSignal`.
+1. ✅ **Render queue in the studio** — §4.34.
 2. **Background source layer** (M14): solid, gradient, image (decoded to linear on upload), with fit modes.
 3. **Asset library** (M40): path + hash references, missing-asset detection and relink.
 4. **Text layer** (M16, M32): deterministic glyph rasterisation at target resolution, per-word metrics.
@@ -1317,3 +1324,27 @@ suggested order:
 7. **Video layers** (M39): frame cache at project fps.
 8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
 9. **Preset browser UI** (S8) and **`modules/` drop-in folder + authoring guide** (M35).
+
+---
+
+### 4.34 Render queue in the studio (P4 step 7) — M24, ui-spec §7
+
+- `src/export/export-presets.ts`: YouTube 1080p / 4K, Shorts, Square (H.264), Master HEVC 10-bit
+  and Project size. Pure; the dialog and the runner read the same table. Every fixed 8-bit size
+  keeps the GPU NV12 path (tested).
+- `src/shell/render-service.ts` (plain Node): `RenderQueue` + a runner that calls `renderDocument`,
+  adapting the queue's polled cancel flag to an `AbortSignal` (200 ms poll), feeding
+  `ProgressTracker`, rejecting unverified output, and reporting a final 100 % snapshot.
+- Main (`src/shell/main.ts`): the service lives in `out/studio-render/{queue,work}` on the repo
+  drive; validated IPC handlers (`pf:render:*`); queue changes pushed on `pf:render:changed`;
+  reveal only for paths the queue produced; a running render is cancelled on quit so its Electron
+  child cannot outlive the app; a queue that fails to start leaves the studio usable.
+- `spike/harness.ts`: `electronBinary()` — inside Electron's main process `import 'electron'` is
+  the API object, so the running binary is `process.execPath`. `esbuild` is external in the main bundle.
+- UI: **▸ Export** (Ctrl+E) opens the dialog (preset, output file, snapshot note, no-audio warning);
+  **Renders (n)** toggles the queue drawer (status, progress, fps, ETA, cancel/retry/show file/remove,
+  clear finished).
+
+Verified here: 588 tests; a Node-side run cancelled a 4K job mid-render (cancelled, no file) and
+completed a square job (done, report) with no leftover processes; `--smoke` passes nine checks
+including `exportDialog` and a real `queuedRender` from inside the app.

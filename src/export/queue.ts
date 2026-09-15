@@ -16,7 +16,8 @@
 // is also why the queue can be driven from the CLI and the app alike.
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { renameIntoPlace } from '../node/rename-into-place.ts';
 import { join } from 'node:path';
 
 import { stringifyDocument } from '../project/serialize.ts';
@@ -357,5 +358,5 @@ export class RenderQueue {
 async function writeAtomic(path: string, text: string): Promise<void> {
   const temp = `${path}.${process.pid}.tmp`;
   await writeFile(temp, text, 'utf8');
-  await rename(temp, path);
+  await renameIntoPlace(temp, path);
 }

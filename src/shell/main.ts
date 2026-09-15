@@ -24,7 +24,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
-import { FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE } from '../../setup/lib/paths.ts';
+import { FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { encodeAnalysis } from '../analysis/container.ts';
@@ -35,6 +35,14 @@ import {
   type SaveRequest, type SaveResult,
 } from './ipc.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
+import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
+import { createDocument, createModuleLayer } from '../project/create.ts';
+import { stringifyDocument } from '../project/serialize.ts';
+
+/** The analysis cache the preview and the render queue share, so a queued render is a cache hit. */
+function analysisCacheRoot(): string {
+  return join(app.getPath('userData'), 'cache', 'analysis');
+}
 
 /** Where the bundled renderer lives, relative to the compiled main bundle. */
 const RENDERER_DIR = join(import.meta.dirname, 'renderer');
@@ -237,7 +245,7 @@ function registerHandlers(): void {
       // The same decode and the same cache the exporter uses, so the preview reacts to exactly
       // the numbers the export will — not to Chromium's decoder (ipc.ts, AnalysisPayload).
       const decoded = await decodeMono48k(FFMPEG_EXE, path);
-      const cache = new AnalysisCache({ root: join(app.getPath('userData'), 'cache', 'analysis') });
+      const cache = new AnalysisCache({ root: analysisCacheRoot() });
       const result = await analyzeCached(decoded.pcm, cache, { audioHash: decoded.pcmSha256 });
       const source = result.analysis.sources.get('mix');
       if (source === undefined) throw new Error('the analyser produced no mix source');
@@ -254,6 +262,66 @@ function registerHandlers(): void {
   });
 
   ipcMain.handle(IPC.environment, (): EnvironmentReport => environmentReport());
+}
+
+/** Stands in for a queue that failed to start: an empty list, and a reason on any action. */
+function unavailableRenderService(reason: string): RenderService {
+  const refuse = async (): Promise<never> => {
+    throw new RenderRequestError(`The render queue could not start, so rendering is unavailable.\n\n${reason}`);
+  };
+  return {
+    list: () => [],
+    enqueue: refuse,
+    cancel: refuse,
+    retry: refuse,
+    remove: refuse,
+    clearFinished: refuse,
+    stop: async () => {},
+    idle: async () => {},
+  };
+}
+
+function registerRenderHandlers(renders: RenderService): void {
+  const needId = (id: unknown): string => {
+    if (typeof id !== 'string') throw new Error('a render job id is required');
+    return id;
+  };
+  const wrap = (error: unknown): Error =>
+    error instanceof RenderRequestError ? new Error(error.message) : describe(error);
+
+  ipcMain.handle(IPC.renderPickOutput, async (_event, suggestedName: unknown): Promise<string | null> => {
+    const result = await dialog.showSaveDialog({
+      title: 'Render to',
+      defaultPath: typeof suggestedName === 'string' ? suggestedName : 'render.mp4',
+      filters: [{ name: 'MP4 video', extensions: ['mp4'] }],
+    });
+    return result.canceled || result.filePath === undefined ? null : result.filePath;
+  });
+
+  ipcMain.handle(IPC.renderEnqueue, async (_event, request: RenderRequest) => {
+    // Validated here, not trusted: the renderer could in principle be running a drop-in module.
+    if (typeof request?.text !== 'string' || typeof request.presetId !== 'string' || typeof request.outputPath !== 'string'
+      || (request.projectPath !== null && typeof request.projectPath !== 'string')) {
+      throw new Error('enqueueRender needs text, presetId, outputPath and projectPath');
+    }
+    try {
+      return await renders.enqueue(request);
+    } catch (error) {
+      throw wrap(error);
+    }
+  });
+  ipcMain.handle(IPC.renderList, () => renders.list());
+  ipcMain.handle(IPC.renderCancel, (_event, id: unknown) => renders.cancel(needId(id)));
+  ipcMain.handle(IPC.renderRetry, (_event, id: unknown) => renders.retry(needId(id)));
+  ipcMain.handle(IPC.renderRemove, (_event, id: unknown) => renders.remove(needId(id)));
+  ipcMain.handle(IPC.renderClearFinished, () => renders.clearFinished());
+  ipcMain.handle(IPC.renderReveal, (_event, path: unknown) => {
+    // Only files the queue itself produced: revealing arbitrary paths is not a capability the
+    // renderer should hold.
+    const known = typeof path === 'string' && renders.list().some((job) => job.outputPath === path || job.reportPath === path);
+    if (!known) throw new Error('Only a finished render can be revealed.');
+    shell.showItemInFolder(path);
+  });
 }
 
 async function createWindow(): Promise<BrowserWindow> {
@@ -291,6 +359,38 @@ app.whenReady().then(async () => {
   lockDownSession();
   guardWebContents();
   registerHandlers();
+
+  // The queue's state and scratch live on the repo's drive, not in the profile: scratch holds a
+  // float WAV per job (~115 MB for five minutes of stereo) and C: is nearly full on the build
+  // machine (STATUS §2) — and %APPDATA%\Electron is a redirected folder there (rename-into-place.ts).
+  // A queue that cannot start must not take the studio down with it: editing still works, and
+  // rendering explains itself when used.
+  let renders: RenderService;
+  try {
+    renders = await createRenderService({
+      root: join(ROOT, 'out', 'studio-render', 'queue'),
+      workRoot: join(ROOT, 'out', 'studio-render', 'work'),
+      cacheRoot: analysisCacheRoot(),
+      onChange: (jobs) => {
+        for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.renderChanged, jobs);
+      },
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`[render-queue] could not start: ${reason}`);
+    renders = unavailableRenderService(reason);
+  }
+  registerRenderHandlers(renders);
+
+  // A render runs in its own Electron process, which would outlive the app if the app simply
+  // quit. Cancel it first; the queue records it as cancelled and the child is killed.
+  let quitting = false;
+  app.on('before-quit', (event) => {
+    if (quitting || !renders.list().some((job) => job.status === 'running')) return;
+    event.preventDefault();
+    quitting = true;
+    void renders.stop().finally(() => app.quit());
+  });
 
   if (!existsSync(RENDERER_HTML)) {
     dialog.showErrorBox(
@@ -374,6 +474,15 @@ app.whenReady().then(async () => {
         effectChain = added === 1 && removed === 0;
       }
 
+      // The export dialog opens from the top bar and lists every preset. Queueing is exercised
+      // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
+      document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
+      const presets = document.querySelectorAll('#app .export-dialog input[data-action="export-preset"]').length;
+      document.querySelector('#app .modal-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
+      const exportDialog = presets >= 6 && document.querySelector('#app .export-dialog') === null;
+
       return {
         rendered: document.querySelector('#app header') !== null,
         bridge: typeof window.pulseforge?.openProject === 'function',
@@ -383,8 +492,24 @@ app.whenReady().then(async () => {
         layerAdded: before === 1,
         undoable: undoEnabled,
         effectChain,
+        exportDialog,
       };
     })()`) as Record<string, boolean>;
+
+    // A real render through the studio's queue, from inside Electron's main process. This is the
+    // path the Node-side check cannot cover: here `electron` is the API object, not a path, and
+    // esbuild must load at runtime rather than from the bundle.
+    const smokeAudio = process.env['PULSEFORGE_SMOKE_RENDER'];
+    if (smokeAudio !== undefined && smokeAudio !== '') {
+      const project = createDocument({ name: 'Smoke render', canvas: { width: 640, height: 360 } });
+      const withLayer = { ...project, layers: [createModuleLayer('core.visualizer.bars', { name: 'bars' })], audio: { ...project.audio, path: smokeAudio } };
+      const output = join(ROOT, 'out', 'smoke-render.mp4');
+      const job = await renders.enqueue({ text: stringifyDocument(withLayer), projectPath: null, presetId: 'project-h264', outputPath: output });
+      await Promise.race([renders.idle(), new Promise((done) => setTimeout(done, 120_000))]);
+      const finished = renders.list().find((entry) => entry.id === job.id);
+      if (finished?.error) console.error(`[smoke] render error: ${finished.error}`);
+      checks['queuedRender'] = finished?.status === 'done' && existsSync(output) && finished.progress?.fraction === 1;
+    }
 
     const failed = [...(settled ? [] : ["settled"]), ...Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name)];
     for (const [name, ok] of Object.entries(checks)) console.log(`[smoke] ${ok ? 'ok  ' : 'FAIL'} ${name}`);
@@ -408,6 +533,9 @@ app.whenReady().then(async () => {
     }
 
     if (failed.length > 0) console.error(`[smoke] FAILED: ${failed.join(', ')}`);
+    // Also to a file: Electron's stdout does not always reach a parent that captures it (a GUI
+    // subsystem binary under a piped shell), and a smoke check whose verdict can vanish is no check.
+    await writeFile(join(dirname(shot), 'smoke-result.json'), `${JSON.stringify({ checks, failed }, null, 2)}\n`);
     app.exit(failed.length === 0 ? 0 : 1);
     return;
   }

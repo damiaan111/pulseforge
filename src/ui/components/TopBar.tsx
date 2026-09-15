@@ -16,6 +16,10 @@ export function TopBar(): React.JSX.Element {
   const saveAs = useStudio((s) => s.saveAs);
   const undo = useStudio((s) => s.undo);
   const redo = useStudio((s) => s.redo);
+  const setExportOpen = useStudio((s) => s.setExportOpen);
+  const queueOpen = useStudio((s) => s.queueOpen);
+  const setQueueOpen = useStudio((s) => s.setQueueOpen);
+  const activeRenders = useStudio((s) => s.renders.filter((job) => job.status === 'queued' || job.status === 'running').length);
 
   return (
     <header className="topbar">
@@ -37,6 +41,12 @@ export function TopBar(): React.JSX.Element {
       <span className="project-name" title={path ?? 'not saved yet'}>
         {name}{dirty ? ' •' : ''}
       </span>
+      <button type="button" data-action="render-queue" className={queueOpen ? 'active' : ''} onClick={() => setQueueOpen(!queueOpen)}>
+        Renders{activeRenders > 0 ? ` (${activeRenders})` : ''}
+      </button>
+      <button type="button" className="primary" data-action="export" title="Ctrl+E" onClick={() => setExportOpen(true)}>
+        ▸ Export
+      </button>
     </header>
   );
 }

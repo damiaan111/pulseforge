@@ -25,7 +25,8 @@
 // That is why there is no checksum and why `prune` can delete freely.
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { renameIntoPlace } from '../node/rename-into-place.ts';
 import { join } from 'node:path';
 
 import type { AnalysisSet, BeatGrid, SourceAnalysis } from '../engine/core/analysis.ts';
@@ -452,7 +453,7 @@ export class AnalysisCache {
 async function writeAtomic(path: string, bytes: Uint8Array): Promise<void> {
   const temp = `${path}.${process.pid}.tmp`;
   await writeFile(temp, bytes);
-  await rename(temp, path);
+  await renameIntoPlace(temp, path);
 }
 
 async function readIfPresent(path: string): Promise<string | null> {

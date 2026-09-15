@@ -10,7 +10,8 @@
 //
 // The browser (S8) is a view over `list()`; nothing here draws anything.
 
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { renameIntoPlace } from '../node/rename-into-place.ts';
 import { join } from 'node:path';
 
 import { parsePreset, stringifyPreset, PresetError, type Preset } from './presets.ts';
@@ -234,5 +235,5 @@ async function jsonFilesIn(dir: string): Promise<readonly string[]> {
 async function writeAtomic(path: string, text: string): Promise<void> {
   const temp = `${path}.${process.pid}.tmp`;
   await writeFile(temp, text, 'utf8');
-  await rename(temp, path);
+  await renameIntoPlace(temp, path);
 }
