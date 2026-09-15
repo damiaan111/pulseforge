@@ -349,8 +349,8 @@ export class AnalysisCache {
   /** Every entry with its size — the data behind the cache panel's biggest-first list (M33). */
   async list(): Promise<readonly CacheEntrySummary[]> {
     const summaries: CacheEntrySummary[] = [];
-    for (const audioHash of await readdirIfPresent(this.analysisRoot)) {
-      for (const settingsHash of await readdirIfPresent(join(this.analysisRoot, audioHash))) {
+    for (const audioHash of await subdirectories(this.analysisRoot)) {
+      for (const settingsHash of await subdirectories(join(this.analysisRoot, audioHash))) {
         const path = join(this.analysisRoot, audioHash, settingsHash);
         const meta = await this.readMeta(audioHash, settingsHash);
         summaries.push({
@@ -398,7 +398,36 @@ export class AnalysisCache {
     await rm(this.analysisRoot, { recursive: true, force: true });
   }
 
+  /**
+   * Meta updates for one entry run one at a time.
+   *
+   * `updateMeta` is a read-modify-write, and stems are written **as they finish** (M5) — three
+   * concurrent `writeSource` calls each read the same meta and the last write wins, silently
+   * losing the other two sources. Chaining per entry costs nothing (the writes are milliseconds)
+   * and makes "drums, bass and vocals all landed" true rather than usually true.
+   */
+  private metaQueue = new Map<string, Promise<void>>();
+
   private async updateMeta(
+    audioHash: string,
+    settingsHash: string,
+    build: (existing: CacheMeta | null) => CacheMeta,
+  ): Promise<void> {
+    const key = this.entryPath(audioHash, settingsHash);
+    const previous = this.metaQueue.get(key) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.writeMeta(audioHash, settingsHash, build));
+    this.metaQueue.set(key, next);
+    try {
+      await next;
+    } finally {
+      // Only the last writer clears the slot, so a later caller still chains onto the queue.
+      if (this.metaQueue.get(key) === next) this.metaQueue.delete(key);
+    }
+  }
+
+  private async writeMeta(
     audioHash: string,
     settingsHash: string,
     build: (existing: CacheMeta | null) => CacheMeta,
@@ -444,13 +473,34 @@ async function readBytesIfPresent(path: string): Promise<Uint8Array | null> {
   }
 }
 
+/**
+ * `ENOTDIR` matters as much as `ENOENT` here: Windows drops `Thumbs.db` and `desktop.ini` into
+ * folders on its own, and an interrupted `writeAtomic` leaves a `.tmp` behind. Treating a file
+ * where a directory was expected as "nothing to list" keeps one stray byte from taking out the
+ * cache panel, the size report and pruning.
+ */
 async function readdirIfPresent(path: string): Promise<readonly string[]> {
   try {
     return await readdir(path);
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    const code = (cause as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return [];
     throw cause;
   }
+}
+
+/** Only directories are cache entries; anything else in the tree is ignored, never listed. */
+async function subdirectories(path: string): Promise<readonly string[]> {
+  const names = await readdirIfPresent(path);
+  const dirs: string[] = [];
+  for (const name of names) {
+    try {
+      if ((await stat(join(path, name))).isDirectory()) dirs.push(name);
+    } catch {
+      // Vanished between the listing and the stat: nothing to report, nothing to list.
+    }
+  }
+  return dirs;
 }
 
 async function directorySize(path: string): Promise<number> {

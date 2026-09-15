@@ -184,3 +184,19 @@ describe('sectionsToJson', () => {
     expect(json['novelty']).toBeUndefined();
   });
 });
+
+describe('beat grid exactness (audit regression)', () => {
+  it('beat times are computed from the index, never accumulated', async () => {
+    const { detectTempo } = await import('../../src/analysis/features.ts');
+    const rate = 240;
+    const onset = new Float32Array(rate * 60);
+    for (let i = 0; i < onset.length; i += 113) onset[i] = 1; // ~127.4 bpm, not a round period
+    const grid = detectTempo(onset, 60, { rate });
+    const period = 60 / grid.bpm;
+    const first = grid.beats[0]!;
+    // `t += period` drifts; the seventh beat lands on 2.8249999999999997 instead of 2.825.
+    for (let i = 0; i < grid.beats.length; i += 1) {
+      expect(grid.beats[i]!).toBe(first + i * period);
+    }
+  });
+});

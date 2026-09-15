@@ -113,14 +113,26 @@ export function nonDefaultValues(
   return out;
 }
 
+/**
+ * Structural equality, **independent of key order**.
+ *
+ * A `JSON.stringify` comparison looks equivalent and is not: `{r,g,b}` and `{b,g,r}` are the
+ * same colour and stringify differently, so an identical value rebuilt by a UI control would be
+ * stored as a non-default. That quietly defeats the whole point of storing only non-defaults —
+ * the value is then frozen against every future improvement to the module's default.
+ */
 function sameValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  // Colours and vectors are small plain objects or arrays; JSON order is stable for both here
-  // because every writer builds them the same way.
-  if (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null) {
-    return JSON.stringify(a) === JSON.stringify(b);
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((value, i) => sameValue(value, b[i]));
   }
-  return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key]));
 }
 
 /**

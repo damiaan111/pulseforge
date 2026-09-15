@@ -263,10 +263,21 @@ export function detectTempo(onsetStrength: Float32Array, durationSeconds: number
   return { bpm, beats: layOutBeats(bpm, bestPhase / rate, durationSeconds), confidence };
 }
 
+/**
+ * Beat times are **computed from the beat index, never accumulated** — the same rule frame time
+ * follows (CLAUDE.md constraint 5, export-spec §2). `t += period` drifts: at 127.4 bpm the
+ * seventh beat comes out 2.8249999999999997 instead of 2.825. Musically that is nothing, but
+ * these times are about to drive quantisation and beat-synced LFO phase, where "on the grid"
+ * should mean exactly on the grid, and the exact form costs the same.
+ */
 function layOutBeats(bpm: number, offsetSeconds: number, durationSeconds: number): number[] {
   const period = 60 / bpm;
   const beats: number[] = [];
-  for (let t = offsetSeconds; t <= durationSeconds; t += period) beats.push(t);
+  for (let i = 0; ; i += 1) {
+    const t = offsetSeconds + i * period;
+    if (t > durationSeconds) break;
+    beats.push(t);
+  }
   return beats;
 }
 

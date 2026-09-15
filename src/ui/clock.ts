@@ -223,11 +223,15 @@ export class PreviewClock {
 
     let timeline = this.playheadFor(reading, wallMs);
     let seekAudioTo: number | undefined;
+    // A wrap is a jump backwards, so it redraws even when it lands on the frame already shown —
+    // otherwise the first frame of each loop pass is silently skipped.
+    let wrapped = false;
 
     if (this.loop && timeline >= this.loop.endSeconds) {
       timeline = this.loop.startSeconds;
       this.reanchor(timeline);
       seekAudioTo = this.audioPositionFor(timeline);
+      wrapped = true;
     } else if (timeline >= this.durationSeconds) {
       // The end is a hard stop on the last frame, not a fade into nothing.
       this.transportState = 'stopped';
@@ -237,7 +241,7 @@ export class PreviewClock {
 
     this.position = timeline;
     const source = reading.playing ? 'audio' : 'silence';
-    const frame = this.emit(timeline, source, wallMs, false);
+    const frame = this.emit(timeline, source, wallMs, wrapped);
     return seekAudioTo === undefined ? { frame } : { frame, seekAudioTo };
   }
 

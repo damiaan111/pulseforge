@@ -208,3 +208,19 @@ describe('PreviewClock', () => {
     expect(clock.audioAudibleAt(8)).toBe(false); // one past the clip end
   });
 });
+
+describe('loop wrap (audit regression)', () => {
+  it('redraws even when the wrap lands on the frame already shown', () => {
+    const { clock, advance } = makeClock();
+    clock.setLoop({ startSeconds: 3, endSeconds: 4 });
+    clock.play();
+    clock.tick(sounding(6)); // timeline 3 → frame 180
+    advance(16);
+    // Past the loop end: wraps back to 3 s, which is the frame on screen. A wrap is a jump
+    // backwards and must redraw, or the first frame of every loop pass is skipped.
+    const wrapped = clock.tick(sounding(7.5));
+    expect(wrapped.frame).not.toBeNull();
+    expect(wrapped.frame!.frameIndex).toBe(180);
+    expect(wrapped.seekAudioTo).toBeCloseTo(6, 6);
+  });
+});

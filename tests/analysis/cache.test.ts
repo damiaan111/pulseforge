@@ -331,3 +331,33 @@ describe('peaks in the cache', () => {
     expect(second.peaks.levels[0]!.data).toEqual(first.peaks.levels[0]!.data);
   });
 });
+
+describe('cache robustness (audit regressions)', () => {
+  it('a stray file in the tree does not break listing', async () => {
+    // Windows drops Thumbs.db and desktop.ini into folders on its own, and an interrupted
+    // atomic write leaves a .tmp behind. One stray byte must not take out the cache panel.
+    const cache = makeCache();
+    await cache.writeSource('audio1', 'set1', 'mix', fakeSource());
+    await writeFile(join(cache.analysisRoot, 'Thumbs.db'), 'x');
+    await writeFile(join(cache.analysisRoot, 'audio1', 'desktop.ini'), 'x');
+
+    const entries = await cache.list();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.audioHash).toBe('audio1');
+    await expect(cache.totalBytes()).resolves.toBeGreaterThan(0);
+    await expect(cache.prune(10 ** 9)).resolves.toEqual([]);
+  });
+
+  it('sources written concurrently all survive', async () => {
+    // Stems finish independently and are written as they land (M5). meta.json is a
+    // read-modify-write, so without serialisation the last writer erases the others.
+    const cache = makeCache();
+    await Promise.all([
+      cache.writeSource('a', 's', 'drums', fakeSource(1)),
+      cache.writeSource('a', 's', 'bass', fakeSource(2)),
+      cache.writeSource('a', 's', 'vocals', fakeSource(3)),
+      cache.markSource('a', 's', 'other', 'pending'),
+    ]);
+    expect(Object.keys(await cache.readiness('a', 's')).sort()).toEqual(['bass', 'drums', 'other', 'vocals']);
+  });
+});

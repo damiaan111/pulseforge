@@ -289,3 +289,21 @@ describe('applyProjectPreset', () => {
     );
   });
 });
+
+describe('default comparison (audit regression)', () => {
+  it('is independent of key order', () => {
+    // A JSON.stringify comparison calls these different, so an identical colour rebuilt by a UI
+    // control would be stored as a non-default — freezing it against future default changes.
+    const values = nonDefaultValues(
+      'core.visualizer.bars',
+      { color: { a: 1, b: 1, g: 0, r: 1 } },
+      manifests,
+    );
+    expect(values).toEqual({});
+  });
+
+  it('still notices a real difference inside a nested value', () => {
+    const values = nonDefaultValues('core.visualizer.bars', { color: { r: 1, g: 0.5, b: 1, a: 1 } }, manifests);
+    expect(values).toEqual({ color: { r: 1, g: 0.5, b: 1, a: 1 } });
+  });
+});

@@ -700,6 +700,56 @@ dynamic acoustic playing. `librosa`/`madmom` refinement is S16 if that becomes a
 
 ---
 
+### 4.22 Code audit — five bugs found and fixed
+A deliberate pass over all 15.5 k lines looking for defects rather than confirming correctness.
+Each was **reproduced by a failing test first**, then fixed; the tests stayed as regressions.
+
+| # | Severity | Where | What |
+|---|---|---|---|
+| 1 | High | `analysis/cache.ts` | A stray **file** in the cache tree crashed listing, sizing and pruning |
+| 2 | High | `analysis/cache.ts` | **Concurrent source writes lost each other** in `meta.json` |
+| 3 | Medium | `project/presets.ts` | Default comparison was **key-order sensitive** |
+| 4 | Low | `ui/clock.ts` | A loop wrap **skipped one frame** |
+| 5 | Low | `analysis/features.ts` | Beat times were **accumulated**, not computed |
+
+**1 — `readdirIfPresent` handled only `ENOENT`.** Anything that is a file where a directory was
+expected threw `ENOTDIR` straight out of `list()`, `totalBytes()`, `prune()` and `remove()` —
+i.e. all of M33's cache panel. Windows creates `Thumbs.db` and `desktop.ini` unprompted, and an
+interrupted `writeAtomic` leaves a `.tmp` behind, so this was a matter of time. Now `ENOTDIR`
+reads as "nothing to list", and entry enumeration only considers directories.
+
+**2 — `updateMeta` is a read-modify-write, and stems are written as they finish (M5).** Three
+concurrent `writeSource` calls each read the same `meta.json` and the last write won, silently
+erasing the other two sources — they existed on disk as `.bin` files but were invisible to every
+reader. Meta updates now chain per entry. This was on the critical path for the feature stems
+were designed around, and a sequential test would never have caught it.
+
+**3 — `sameValue` compared with `JSON.stringify`.** `{r,g,b}` and `{b,g,r}` are the same colour
+and stringify differently, so an identical value rebuilt by a UI control counted as a
+non-default. That defeats the entire reason for storing only non-defaults: the value is then
+frozen against every future improvement to the module's default. Now a structural comparison.
+
+**4 — a loop wrap lands on a position whose frame may be the one already shown**, and `emit`
+skips a repeat frame. A wrap is a jump backwards, so it now forces a redraw like any other seek.
+
+**5 — `layOutBeats` did `t += period`.** At 127.4 bpm the seventh beat came out
+`2.8249999999999997` instead of `2.825`. Musically nothing, but it breaks the project's own rule
+(CLAUDE.md constraint 5) in the one place about to feed quantisation and beat-synced LFO phase,
+where "on the grid" should mean exactly on the grid. Computed from the beat index now.
+
+**Checked and found correct** (worth not re-auditing): the PRNG and its GLSL twin; `sampleTrack`
+clamping; the value-resolution order in `params.ts` (clamp once, at the end); envelope
+precomputation in `compileModulation` (modulation-spec §5 is genuinely met); premultiplied blend
+functions; `layerIsLive`; the migration chain and unknown-field round-trip; FFmpeg argument
+construction including all four colour tags; `samplesForFrames` rounding; download checksum
+verification; and every `.sort()` call (all on strings, where lexicographic is correct).
+
+**Noted, not fixed** — performance, not correctness: `resolveParams` allocates a `Set` and two
+objects per layer per frame, and `PreviewClock.stats` filters two arrays per read. Both are
+cheap enough at current scale and are the kind of thing to fix against a profile, not a hunch.
+
+---
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
