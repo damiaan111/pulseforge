@@ -37,7 +37,7 @@ P3 steps:
 | 2 | Command/undo stack (M8) | ✅ | `59000e0` |
 | 3 | Analysis pipeline: features, onsets, beat grid (M4) | ✅ | `05471d4` |
 | 4 | Preview clock (M31) | ✅ | `f3153e8` |
-| 5 | React studio (ui-spec) | ✅ | `TBD` |
+| 5 | React studio (ui-spec) | ✅ | `a571971` |
 
 P2 steps:
 
