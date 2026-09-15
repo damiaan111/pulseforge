@@ -13,9 +13,10 @@
 
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { AnalysisCache } from '../analysis/cache.ts';
+import { loadImageAssets } from '../assets/load-images.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
@@ -23,7 +24,8 @@ import { frameCount, rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { loadDocument } from '../project/load.ts';
 import { timelineDurationTicks, toRenderProject, type SnapshotNote } from '../project/snapshot.ts';
 import type { DocumentIssue } from '../project/parse.ts';
-import { FFMPEG_EXE } from '../../setup/lib/paths.ts';
+import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
+import type { ImageFile } from '../../spike/electron/protocol.ts';
 import { bundleElectron } from '../../spike/harness.ts';
 import { runExportSpike } from '../../spike/lib/export-run.ts';
 import type { RenderReport } from './report.ts';
@@ -168,6 +170,22 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   say(`Rendering ${project.layers.length} layer(s) at ${canvas.width}×${canvas.height} (${aspect}) `
     + `${fps.num / fps.den} fps, ${frames} frames, ${options.codec}`);
 
+  // Image assets decode here, through the same code the studio preview uses, and cross to the
+  // Electron child as raw files. Problems become notes: the render still goes ahead.
+  const loaded = await loadImageAssets(document, options.projectPath, { ffmpegExe: FFMPEG_EXE, ffprobeExe: FFPROBE_EXE });
+  const allNotes: SnapshotNote[] = [
+    ...notes,
+    ...loaded.problems.map((problem) => ({ path: `assets.${problem.assetId}`, detail: problem.detail })),
+  ];
+  for (const problem of loaded.problems) say(`Warning: ${problem.detail}`);
+  await mkdir(options.workDir, { recursive: true });
+  const images: ImageFile[] = [];
+  for (const [hash, image] of loaded.images) {
+    const file = join(options.workDir, `${options.name}.image-${hash.slice(0, 16)}.rgba`);
+    await writeFile(file, image.pixels);
+    images.push({ hash, width: image.width, height: image.height, file });
+  }
+
   await mkdir(dirname(options.outputPath), { recursive: true });
   await bundleElectron();
 
@@ -191,6 +209,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
       clipOutSamples: document.audio.clipOutTicks ?? undefined,
     },
     durationTicks,
+    images,
     settings: defaultEncodeSettings(options.codec),
     outputPath: options.outputPath,
     // Sync readback: measured faster than the PBO ring through ANGLE (D50).
@@ -208,7 +227,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   }).catch(async (error: unknown) => {
     await discardPartial();
     throw error;
-  });
+  }).finally(() => Promise.all(images.map((image) => rm(image.file, { force: true }))));
 
   const { report } = summary.first;
   return {
@@ -217,7 +236,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     report,
     frames,
     issues,
-    notes,
+    notes: allNotes,
     migratedFrom,
   };
 }

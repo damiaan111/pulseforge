@@ -21,6 +21,9 @@ import { frameStartTick, frameTimeSeconds, ticksToSeconds, timelineToSourceSecon
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
 import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
 import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
+import { ImageStore } from './render/images.ts';
+import { backgroundModule } from './modules/background.ts';
+import type { DecodedImage } from './core/image.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
@@ -47,7 +50,8 @@ import { flashModule } from './modules/flash.ts';
 import { testPatternModule } from './modules/test-pattern.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
-  // Visualizers (M11), then effects (M12), then the test modules the validator uses.
+  // Sources (M14), visualizers (M11), then effects (M12), then the test modules the validator uses.
+  backgroundModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
@@ -121,6 +125,12 @@ export interface Engine {
   createSyncReadback(width: number, height: number): FrameReadback;
   /** Peak simultaneous pooled render targets (render report). */
   readonly targetHighWaterMark: number;
+  /**
+   * Registers decoded pixels for an image asset under its content hash (image.ts). The host does
+   * this for every image the project references before rendering; the engine never reads files.
+   */
+  setImage(hash: string, image: DecodedImage): void;
+  hasImage(hash: string): boolean;
   dispose(): void;
 }
 
@@ -147,6 +157,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const context = requireContextFeatures(gl);
   const registry = new Map((options.modules ?? BUILTIN_MODULES).map((m) => [m.manifest.id, m]));
   const pool = new TargetPool(gl);
+  const images = new ImageStore(gl);
   const compositor = new Compositor(gl, pool);
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
   let output: RenderTarget | undefined;
@@ -231,6 +242,10 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         gl,
         quality: options.quality,
         warn: (message: string) => warnings.push(message),
+        image: (assetId: string) => {
+          const ref = project.assets?.[assetId];
+          return ref === undefined ? undefined : images.texture(ref.hash);
+        },
       };
 
       const program = programFor(project, analysis);
@@ -424,9 +439,16 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       };
     },
 
+    setImage(hash, image) {
+      images.set(hash, image);
+    },
+
+    hasImage: (hash) => images.has(hash),
+
     dispose() {
       for (const { instance } of instances.values()) instance.dispose();
       instances.clear();
+      images.dispose();
       nv12?.dispose();
       compositor.dispose();
       pool.dispose();

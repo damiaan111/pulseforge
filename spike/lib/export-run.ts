@@ -11,7 +11,7 @@ import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import type { RenderReport } from '../../src/export/report.ts';
 import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
-import type { ExportConfig, SpikeExportResult } from '../electron/protocol.ts';
+import type { ExportConfig, ImageFile, SpikeExportResult } from '../electron/protocol.ts';
 import { runElectron } from '../harness.ts';
 
 // Re-exported so the spike orchestrators have one import site for the vendored tools.
@@ -34,6 +34,8 @@ export interface ExportRunOptions {
   /** Defaults to the whole file starting at t=0, which is what the spikes want. */
   readonly audioPlacement?: ExportConfig['audioPlacement'];
   readonly durationTicks: number;
+  /** Image assets already written as raw RGBA files. */
+  readonly images?: readonly ImageFile[];
   readonly settings: EncodeSettings;
   readonly readbackMode: 'sync' | 'async';
   readonly readbackDepth: number;
@@ -97,6 +99,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
       audioPlacement: options.audioPlacement ?? { leadInSamples: 0, clipInSamples: 0, clipOutSamples: undefined },
       durationTicks: options.durationTicks,
       project: options.project,
+      ...(options.images !== undefined && options.images.length > 0 ? { images: [...options.images] } : {}),
       dither: options.dither,
       outputPath,
       scratchDir: join(options.workDir, `${options.name}-scratch-${run}`),

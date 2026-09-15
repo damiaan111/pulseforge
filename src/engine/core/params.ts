@@ -83,7 +83,18 @@ export interface StemParam extends ParamCommon {
   readonly default: Stem;
 }
 
-export type ParamSpec = FloatParam | IntParam | BoolParam | EnumParam | ColorParam | StemParam;
+/**
+ * A reference to a project asset, by asset id (module-spec §3.2 `asset`). The empty string means
+ * "none chosen". Whether the id actually resolves is known only at render time, where the module
+ * reports it — the schema cannot see the project's asset table.
+ */
+export interface AssetParam extends ParamCommon {
+  readonly type: 'asset';
+  readonly default: '';
+  readonly accept: 'image';
+}
+
+export type ParamSpec = FloatParam | IntParam | BoolParam | EnumParam | ColorParam | StemParam | AssetParam;
 export type ParamValue = number | boolean | string;
 export type ParamValues = Readonly<Record<string, ParamValue>>;
 
@@ -137,6 +148,8 @@ function baseValue(spec: ParamSpec, stored: unknown, issues: ParamIssue[]): Para
       issues.push({ key: spec.key, problem: 'invalid-value', detail: `"${stored}" is not a stem (${STEMS.join(', ')}); using default` });
       return spec.default;
     }
+    case 'asset':
+      return typeof stored === 'string' ? stored : wrongType('an asset id');
   }
 }
 

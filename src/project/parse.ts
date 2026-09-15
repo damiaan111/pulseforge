@@ -13,10 +13,10 @@
 // so a document that has been through a newer build survives a round-trip through this one.
 
 import {
-  ANCHORS, ASPECT_BUCKETS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE,
+  ANCHORS, ASPECT_BUCKETS, ASSET_KINDS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE,
   DEFAULT_ENVELOPE, DEFAULT_LOOK_AHEAD_MS, ENVELOPE_MODES, IDENTITY_TRANSFORM,
   MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
-  type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride,
+  type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
   type DocumentBlendMode, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
@@ -589,6 +589,23 @@ function parsePalette(node: Node, issues: DocumentIssue[]): Palette {
   return { colors, roles, extra: p.rest() };
 }
 
+function parseAsset(node: Node, issues: DocumentIssue[]): AssetRef {
+  const kind = node.str('kind', 'image');
+  if (!(ASSET_KINDS as readonly string[]).includes(kind)) {
+    issues.push({ path: `${node.path}.kind`, problem: 'invalid-value', detail: `unknown asset kind "${kind}"; kept, and not usable by this version` });
+  }
+  const path = node.str('path', '');
+  if (path === '') issues.push({ path: `${node.path}.path`, problem: 'missing', detail: 'an asset needs a file path; layers using it will report it missing' });
+  return {
+    id: node.id('id', node.path),
+    kind: kind as AssetKind,
+    path,
+    hash: node.str('hash', ''),
+    name: node.str('name', ''),
+    extra: node.rest(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cross-references
 // ---------------------------------------------------------------------------
@@ -627,6 +644,7 @@ function checkReferences(document: ProjectDocument, issues: DocumentIssue[]): vo
     for (const binding of layer.modulations) claim(binding.id, `${path}.modulations.${binding.id}`);
   }
   for (const effect of document.globalEffects) claim(effect.id, `globalEffects.${effect.id}`);
+  for (const asset of document.assets) claim(asset.id, `assets.${asset.id}`);
   for (const binding of document.globalModulations) claim(binding.id, `globalModulations.${binding.id}`);
 
   index = 0;
@@ -688,6 +706,7 @@ export function parseDocument(raw: unknown): ParseResult {
     layers: root.children('layers').map((n) => parseLayer(n, issues)),
     globalEffects: root.children('globalEffects').map(parseEffect),
     globalModulations: root.children('globalModulations').map((n) => parseBinding(n, issues)),
+    assets: root.children('assets').map((n) => parseAsset(n, issues)),
     extra: root.rest(RESERVED_DOCUMENT_KEYS),
   };
 

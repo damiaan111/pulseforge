@@ -13,9 +13,10 @@
 import { BUILTIN_MODULES } from '../../engine/engine.ts';
 import type { ParamSpec } from '../../engine/core/params.ts';
 import {
-  addEffect, clearParamOverride, findLayer, moveEffect, removeEffect, renameLayer, setEffectEnabled,
-  setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTransform,
+  addAsset, addEffect, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
+  sequence, setEffectEnabled, setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTransform,
 } from '../../project/commands.ts';
+import type { Command } from '../../project/history.ts';
 import { createEffect } from '../../project/create.ts';
 import { PALETTE_ROLES, linkedRole, resolveRole, roleLink, type PaletteRole } from '../../project/palette.ts';
 import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec } from '../../project/document.ts';
@@ -25,21 +26,24 @@ import { useState } from 'react';
 
 const MANIFESTS = new Map(BUILTIN_MODULES.map((m) => [m.manifest.id, m.manifest]));
 
-/** module-spec §3.1: show this control only when another parameter has a given value. */
-function isVisible(spec: ParamSpec, values: Readonly<Record<string, unknown>>): boolean {
+/**
+ * module-spec §3.1: show this control only when another parameter has a given value. Conditions
+ * chain — `angle` depends on `gradient`, which depends on `mode` — so a control whose condition
+ * parameter is itself hidden is hidden too.
+ *
+ * Defaults come from **this module's own** declaration. They were once looked up in one map keyed
+ * by parameter name across every module, so another module's `mode` default decided whether the
+ * background's gradient controls appeared.
+ */
+function isVisible(spec: ParamSpec, values: Readonly<Record<string, unknown>>, params: readonly ParamSpec[], depth = 0): boolean {
   const condition = spec.visibleWhen;
   if (condition === undefined) return true;
-  const other = values[condition.param];
-  const effective = other === undefined
-    ? MANIFEST_DEFAULTS.get(condition.param)
-    : other;
+  const other = params.find((p) => p.key === condition.param);
+  if (other !== undefined && depth < 8 && !isVisible(other, values, params, depth + 1)) return false;
+  const stored = values[condition.param];
+  const effective = stored === undefined ? other?.default : stored;
   return effective === condition.equals;
 }
-
-/** Defaults by key, so a condition still resolves before anything has been edited. */
-const MANIFEST_DEFAULTS = new Map<string, unknown>(
-  BUILTIN_MODULES.flatMap((m) => m.manifest.params.map((p) => [p.key, p.default] as const)),
-);
 
 export function Inspector(): React.JSX.Element {
   const document = useStudio((s) => s.document);
@@ -158,14 +162,19 @@ export function Inspector(): React.JSX.Element {
           ? <p className="empty">Groups have no module parameters.</p>
           : <p className="bad">Module “{layer.module}” is not installed. Its settings are preserved.</p>
       ) : (
-        [...groups.entries()].map(([group, specs]) => (
+        [...groups.entries()].map(([group, specs]) => {
+          // `visibleWhen` hides a control without touching its value: toggling a mode away and
+          // back must not silently reset what it held (module-spec §13). Conditions read the
+          // override-merged values, because that is what the render for this aspect uses.
+          const values = layer.kind === 'module' ? { ...layer.params, ...override?.params } : {};
+          const visible = specs.filter((spec) => isVisible(spec, values, manifest.params));
+          const shown = visible.filter((spec) => spec.advanced !== true || showAdvanced);
+          // A group with nothing to show gets no heading — "Image" over nothing, in gradient mode.
+          if (visible.length === 0) return null;
+          return (
           <div key={group}>
             <h2>{group}</h2>
-            {specs
-              // `visibleWhen` hides a control without touching its value: toggling a mode away
-              // and back must not silently reset what it held (module-spec §13).
-              .filter((spec) => isVisible(spec, layer.kind === 'module' ? layer.params : {}))
-              .filter((spec) => spec.advanced !== true || showAdvanced)
+            {shown
               .map((spec) => (
                 <ParamControl
                   key={spec.key}
@@ -173,16 +182,18 @@ export function Inspector(): React.JSX.Element {
                   stored={layer.kind === 'module' ? layer.params[spec.key] : undefined}
                   overrideValue={override?.params[spec.key]}
                   onChange={(value, seal) => run(setLayerParam(layer.id, spec.key, value, editTarget), { seal })}
+                  assign={(value) => setLayerParam(layer.id, spec.key, value, editTarget)}
                   onReset={editTarget === 'base' ? undefined : () => run(clearParamOverride(layer.id, spec.key, editTarget as AspectBucket))}
                 />
               ))}
-            {specs.some((spec) => spec.advanced === true) && (
+            {visible.some((spec) => spec.advanced === true) && (
               <button type="button" className="wide" onClick={() => setShowAdvanced(!showAdvanced)}>
                 {showAdvanced ? 'Hide advanced' : 'Show advanced'}
               </button>
             )}
           </div>
-        ))
+          );
+        })
       )}
 
       <EffectChain layerId={layer.id} effects={layer.effects} />
@@ -245,7 +256,7 @@ function EffectChain(props: { layerId: string; effects: readonly EffectSpec[] })
               <p className="bad">Module “{effect.module}” is not installed. Its settings are preserved.</p>
             ) : open ? (
               manifest.params
-                .filter((spec) => isVisible(spec, effect.params))
+                .filter((spec) => isVisible(spec, effect.params, manifest.params))
                 // No "show advanced" here: the chain is already a disclosure, and nesting a
                 // second one inside each entry hides things two clicks deep.
                 .map((spec) => (
@@ -255,6 +266,7 @@ function EffectChain(props: { layerId: string; effects: readonly EffectSpec[] })
                     stored={effect.params[spec.key]}
                     overrideValue={undefined}
                     onChange={(value, seal) => run(setEffectParam(layerId, effect.id, spec.key, value), { seal })}
+                    assign={(value) => setEffectParam(layerId, effect.id, spec.key, value)}
                   />
                 ))
             ) : null}
@@ -279,8 +291,10 @@ function ParamControl(props: {
   overrideValue: unknown;
   onChange: (value: unknown, seal: boolean) => void;
   onReset?: (() => void) | undefined;
+  /** The command that sets this parameter, so an asset import and its use are one undo step. */
+  assign?: ((value: unknown) => Command) | undefined;
 }): React.JSX.Element {
-  const { spec, stored, overrideValue, onChange, onReset } = props;
+  const { spec, stored, overrideValue, onChange, onReset, assign } = props;
   const overridden = overrideValue !== undefined;
   const raw = overridden ? overrideValue : stored;
 
@@ -343,6 +357,15 @@ function ParamControl(props: {
           onChange={(value) => onChange(value, true)}
         />
       );
+    case 'asset':
+      return (
+        <AssetControl
+          label={spec.label}
+          assetId={typeof raw === 'string' ? raw : spec.default}
+          badge={overridden ? <Badge onReset={onReset} /> : null}
+          {...(assign === undefined ? {} : { assign })}
+        />
+      );
     case 'select:stem':
       return (
         <label className="field">
@@ -394,6 +417,56 @@ function ColorControl(props: {
         {PALETTE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>
     </label>
+  );
+}
+
+/**
+ * An asset reference (M14 background image). The value is an asset **id**; the file, its hash
+ * and its name live in `document.assets`, so two layers using one image share one entry and one
+ * GPU texture. Importing a file the project already holds reuses that asset rather than adding a
+ * duplicate. A reference that cannot be shown says why — missing file, unreadable, unknown id.
+ */
+function AssetControl(props: {
+  label: string;
+  assetId: string;
+  badge: React.ReactNode;
+  assign?: (value: unknown) => Command;
+}): React.JSX.Element {
+  const { label, assetId, badge, assign } = props;
+  const assets = useStudio((s) => s.document.assets);
+  const problems = useStudio((s) => s.imageProblems);
+  const importImage = useStudio((s) => s.importImage);
+  const run = useStudio((s) => s.run);
+  const asset = assetId === '' ? undefined : assets.find((a) => a.id === assetId);
+  const problem = asset === undefined ? undefined : problems[asset.id];
+
+  async function choose(): Promise<void> {
+    if (assign === undefined) return;
+    const imported = await importImage();
+    if (imported === null) return;
+    const existing = findAssetByHash(useStudio.getState().document, imported.hash);
+    run(existing === undefined
+      ? sequence(`Use image ${imported.name}`, [addAsset(imported), assign(imported.id)])
+      : assign(existing.id));
+  }
+
+  return (
+    <div className="field asset">
+      <span>{label}{badge}</span>
+      <div className="asset-pick">
+        <span className="asset-name" title={asset?.path ?? ''}>
+          {assetId === '' ? 'none' : asset === undefined ? 'unknown asset' : asset.name}
+        </span>
+        <button type="button" data-action="choose-image" disabled={assign === undefined} onClick={() => void choose()}>
+          Choose…
+        </button>
+        {assetId !== '' && assign !== undefined && (
+          <button type="button" title="Clear" onClick={() => run(assign(''))}>✕</button>
+        )}
+      </div>
+      {asset === undefined && assetId !== '' ? <p className="bad">This layer refers to an asset the project does not contain.</p> : null}
+      {problem === undefined ? null : <p className="bad">{problem}</p>}
+    </div>
   );
 }
 

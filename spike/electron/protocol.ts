@@ -5,6 +5,17 @@ import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import type { RenderReport } from '../../src/export/report.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 
+/**
+ * A decoded image asset handed to the renderer as a raw RGBA8 file (straight alpha, sRGB, top row
+ * first) rather than inline: a 4K image is 60 MB, far too much for a JSON config.
+ */
+export interface ImageFile {
+  hash: string;
+  width: number;
+  height: number;
+  file: string;
+}
+
 export interface DeterminismConfig {
   mode: 'determinism';
   analysisFile: string;
@@ -31,6 +42,7 @@ export interface ExportConfig {
   audioPlacement: { leadInSamples: number; clipInSamples: number; clipOutSamples: number | undefined };
   durationTicks: number;
   project: RenderProject;
+  images?: ImageFile[];
   dither: boolean;
   outputPath: string;
   scratchDir: string;
@@ -54,6 +66,7 @@ export interface FramesConfig {
   resultFile: string;
   rawDir: string;
   project: RenderProject;
+  images?: ImageFile[];
   frames: number[];
   dither: boolean;
 }

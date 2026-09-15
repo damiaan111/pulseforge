@@ -31,9 +31,11 @@ import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
-  IPC, type AnalysisPayload, type AudioBytes, type EnvironmentReport, type ProjectFile,
+  IPC, type AnalysisPayload, type AudioBytes, type EnvironmentReport, type ImageBytes, type ProjectFile,
   type SaveRequest, type SaveResult,
 } from './ipc.ts';
+import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
+import { resolveAssetPath } from '../assets/load-images.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
@@ -261,6 +263,44 @@ function registerHandlers(): void {
     }
   });
 
+  const decodeForRenderer = async (path: string): Promise<ImageBytes> => {
+    if (!existsSync(FFMPEG_EXE) || !existsSync(FFPROBE_EXE)) {
+      throw new Error('The vendored FFmpeg is missing.\n\nTry:\n• Run `npm run setup` to provision vendor/');
+    }
+    const image = await decodeImageFile(FFMPEG_EXE, FFPROBE_EXE, path);
+    return { path, hash: image.sha256, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
+  };
+
+  ipcMain.handle(IPC.imageImport, async (): Promise<ImageBytes | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose an image',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Images', extensions: [...IMAGE_EXTENSIONS] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    const path = result.canceled ? undefined : result.filePaths[0];
+    if (path === undefined) return null;
+    try {
+      return await decodeForRenderer(path);
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
+  ipcMain.handle(IPC.imageLoad, async (_event, stored: unknown, projectPath: unknown): Promise<ImageBytes> => {
+    if (typeof stored !== 'string') throw new Error('loadImage needs a path');
+    const path = resolveAssetPath(stored, typeof projectPath === 'string' ? projectPath : null);
+    if (path === undefined) throw new Error(`The image path "${stored}" is relative and the project is not saved.`);
+    if (!existsSync(path)) throw new Error(`Image not found: ${path}`);
+    try {
+      return await decodeForRenderer(path);
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
   ipcMain.handle(IPC.environment, (): EnvironmentReport => environmentReport());
 }
 
@@ -474,6 +514,27 @@ app.whenReady().then(async () => {
         effectChain = added === 1 && removed === 0;
       }
 
+      // The background layer's image control (M14): switching the selected background to image
+      // mode must reveal the generated asset picker, and the decode bridge must answer — here
+      // with a clear "not found", since the smoke has no image and must not open a dialog.
+      // The first add-layer button is the Background module, so the selected layer is one.
+      let imageControl = false;
+      const typeSelect = [...document.querySelectorAll('#app .inspector select')]
+        .find((s) => s.querySelector('option[value="image"]') !== null);
+      if (typeSelect !== undefined) {
+        typeSelect.value = 'image';
+        typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+        const chooser = document.querySelector('#app .inspector [data-action="choose-image"]');
+        let bridgeAnswers = false;
+        try { await window.pulseforge.loadImage('Z:/definitely/missing.png', null); }
+        catch (error) { bridgeAnswers = String(error).includes('not found'); }
+        imageControl = chooser !== null && bridgeAnswers;
+        // Back to how it was, for the screenshot.
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -492,6 +553,7 @@ app.whenReady().then(async () => {
         layerAdded: before === 1,
         undoable: undoEnabled,
         effectChain,
+        imageControl,
         exportDialog,
       };
     })()`) as Record<string, boolean>;

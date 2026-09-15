@@ -13,11 +13,12 @@ import { ipcRenderer } from 'electron';
 import { createEngine, type Engine } from '../../src/engine/engine.ts';
 import { hash32 } from '../../src/engine/core/prng.ts';
 import type { AnalysisSet } from '../../src/engine/core/analysis.ts';
+import type { DecodedImage } from '../../src/engine/core/image.ts';
 import { decodeAnalysis } from '../../src/analysis/container.ts';
 import { spikeProject } from '../project.ts';
 import { runExport } from '../../src/export/job.ts';
 import type {
-  DeterminismConfig, ExportConfig, FramesConfig, PassResult, SpikeConfig, SpikeExportResult,
+  DeterminismConfig, ExportConfig, FramesConfig, ImageFile, PassResult, SpikeConfig, SpikeExportResult,
   SpikeFramesResult, SpikeRenderResult,
 } from './protocol.ts';
 
@@ -35,6 +36,19 @@ function createContext(): WebGL2RenderingContext {
   });
   if (gl === null) throw new Error('WebGL2 is not available in this Electron renderer');
   return gl;
+}
+
+/** Raw image files → the map the engine registers; sizes are checked, not trusted. */
+function loadImages(files: readonly ImageFile[] | undefined): Map<string, DecodedImage> {
+  const images = new Map<string, DecodedImage>();
+  for (const entry of files ?? []) {
+    const bytes = readFileSync(entry.file);
+    if (bytes.length !== entry.width * entry.height * 4) {
+      throw new Error(`image ${entry.hash.slice(0, 12)}: ${bytes.length} bytes, expected ${entry.width}×${entry.height}×4`);
+    }
+    images.set(entry.hash, { width: entry.width, height: entry.height, pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length) });
+  }
+  return images;
 }
 
 function newEngine(dither = true): Engine {
@@ -140,6 +154,7 @@ function runFrames(config: FramesConfig): SpikeFramesResult {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
     const engine = newEngine(config.dither);
+    for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     const pixels = new Uint8Array(width * height * 4);
     const warnings = new Set<string>();
     const paramIssues = new Set<string>();
@@ -197,6 +212,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
         label: config.audioLabel,
       },
       durationTicks: config.durationTicks,
+      images: loadImages(config.images),
       outputPath: config.outputPath,
       scratchDir: config.scratchDir,
       settings: config.settings,

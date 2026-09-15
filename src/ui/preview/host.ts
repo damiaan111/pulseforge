@@ -13,6 +13,7 @@
 
 import { analysisFrameCount } from '../../analysis/spectrum.ts';
 import type { AnalysisSet } from '../../engine/core/analysis.ts';
+import type { DecodedImage } from '../../engine/core/image.ts';
 import type { RenderProject } from '../../engine/core/project.ts';
 import { frameTimeSeconds, secondsToTicks, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
@@ -47,6 +48,7 @@ export class PreviewHost {
   private project: RenderProject | null = null;
   private analysis: AnalysisSet = EMPTY_ANALYSIS;
   private scale = 1;
+  private images: ReadonlyMap<string, DecodedImage> = new Map();
 
   private running = false;
   private rafHandle = 0;
@@ -85,6 +87,7 @@ export class PreviewHost {
       return;
     }
     this.running = true;
+    this.uploadImages();
     this.loop();
   }
 
@@ -116,6 +119,33 @@ export class PreviewHost {
     this.project = toRenderProject(document).project;
     this.needsRedraw = true;
     if (durationChanged || this.clock === null || analysisChanged) this.rebuildClock(document);
+  }
+
+  /**
+   * Decoded image assets by hash. Uploaded once each; the engine keeps them across documents, so
+   * undoing an image change back and forth never re-uploads. Applied again on start, in case the
+   * images arrived before the context did.
+   */
+  setImages(images: ReadonlyMap<string, DecodedImage>): void {
+    this.images = images;
+    this.uploadImages();
+  }
+
+  private uploadImages(): void {
+    const { engine } = this;
+    if (engine === null) return;
+    let added = false;
+    for (const [hash, image] of this.images) {
+      if (engine.hasImage(hash)) continue;
+      try {
+        engine.setImage(hash, image);
+        added = true;
+      } catch (error) {
+        // Too large for this GPU, say: the layer shows its placeholder and the user is told why.
+        this.callbacks.onError(explain(error));
+      }
+    }
+    if (added) this.needsRedraw = true;
   }
 
   setScale(scale: number): void {

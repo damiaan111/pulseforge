@@ -9,6 +9,7 @@
 //  6. Allocate in init/resize, not per frame.
 
 import type { AnalysisSet } from './analysis.ts';
+import type { ImageTexture } from './image.ts';
 import type { ParamSpec, ParamValues } from './params.ts';
 import type { Prng } from './prng.ts';
 import type { RenderTarget, TargetPool } from '../render/targets.ts';
@@ -85,6 +86,12 @@ export interface RenderContext {
   readonly quality: 'preview' | 'final';
   /** Reports a problem for this frame's report. Never a reason to render differently between runs. */
   readonly warn: (message: string) => void;
+  /**
+   * The texture for an image asset, by the asset id an `asset` param holds. Undefined when the id
+   * is not in the project, or the host has not registered its pixels — a missing file. The module
+   * must then say so through `warn` and draw something visibly wrong, never nothing.
+   */
+  readonly image: (assetId: string) => ImageTexture | undefined;
 }
 
 /** A module instance draws into the currently bound framebuffer: linear light, premultiplied alpha. */

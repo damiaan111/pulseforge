@@ -9,6 +9,7 @@ import { createReadStream } from 'node:fs';
 import { rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
+import type { DecodedImage } from '../engine/core/image.ts';
 import type { RenderProject } from '../engine/core/project.ts';
 import { frameCount } from '../engine/core/time.ts';
 import { ENGINE_VERSION, createEngine } from '../engine/engine.ts';
@@ -26,6 +27,8 @@ export interface ExportRequest {
   readonly audio: { readonly source: AudioSource; readonly placement: AudioPlacement; readonly label: string } | undefined;
   /** Timeline length in ticks (= samples at 48 kHz). */
   readonly durationTicks: number;
+  /** Decoded image assets by content hash, registered before the first frame. */
+  readonly images?: ReadonlyMap<string, DecodedImage>;
   readonly outputPath: string;
   readonly scratchDir: string;
   readonly settings: EncodeSettings;
@@ -109,6 +112,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     output: { transfer: 'srgb', dither: request.dither ?? true, flipY: true, bitDepth: settings.bitDepth },
     packing: settings.conversion === 'gpu-nv12' ? 'nv12' : 'rgba',
   });
+  for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
   const readback = readbackMode === 'sync' ? engine.createSyncReadback(width, height) : engine.createReadback(width, height, request.readbackDepth);
   const warnings = new Set<string>();
   const frameHashes: string[] = [];

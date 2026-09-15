@@ -30,7 +30,6 @@ export const RESERVED_DOCUMENT_KEYS: readonly string[] = [
   'lyrics', // lyrics-spec, P6
   'automation', // PROJECT.md S1, keyframe tracks
   'exportPresets', // export-spec §12, P5
-  'assets', // M40 managed asset library, P4
 ];
 
 /** Undeclared fields preserved verbatim from the file (data-formats §2.2). */
@@ -333,6 +332,30 @@ export const DEFAULT_LOOK_AHEAD_MS = 30;
 // The document
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Assets (M40 — the first slice: images for backgrounds)
+// ---------------------------------------------------------------------------
+
+export const ASSET_KINDS = ['image'] as const;
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/**
+ * A file the project uses, referenced by **path plus content hash** (data-formats §1.2): the path
+ * finds it, the hash proves it is the same file. Layers point at the asset's id, never at the path,
+ * so relinking a moved file (M40) changes one entry rather than every layer that uses it.
+ */
+export interface AssetRef {
+  readonly id: string;
+  readonly kind: AssetKind;
+  /** Absolute, or relative to the project file. */
+  readonly path: string;
+  /** SHA-256 of the file's bytes at import. A mismatch on load means the file changed. */
+  readonly hash: string;
+  /** What the UI shows; the file name at import. */
+  readonly name: string;
+  readonly extra: Extra;
+}
+
 export interface ProjectDocument {
   readonly schemaVersion: number;
   readonly id: string;
@@ -352,6 +375,7 @@ export interface ProjectDocument {
   readonly layers: readonly Layer[];
   readonly globalEffects: readonly EffectSpec[];
   readonly globalModulations: readonly ModulationBinding[];
+  readonly assets: readonly AssetRef[];
   readonly extra: Extra;
 }
 

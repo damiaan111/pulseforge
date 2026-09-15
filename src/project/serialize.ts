@@ -211,6 +211,15 @@ export function toJson(document: ProjectDocument): Json {
     layers: document.layers.map(layerJson),
     globalEffects: document.globalEffects.map(effectJson),
     globalModulations: document.globalModulations.map(bindingJson),
+    // Only written when there is something to write, so every project saved before assets existed
+    // round-trips to the same bytes.
+    ...(document.assets.length > 0
+      ? {
+        assets: document.assets.map((asset) =>
+          withExtra(asset.extra, { id: asset.id, kind: asset.kind, name: asset.name, path: asset.path, hash: asset.hash }),
+        ),
+      }
+      : {}),
   });
 }
 

@@ -20,7 +20,9 @@ import { decodePeaks, type PeakPyramid } from '../analysis/peaks.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { EditTarget } from '../project/commands.ts';
 import { createDocument } from '../project/create.ts';
-import type { ProjectDocument } from '../project/document.ts';
+import type { AssetRef, ProjectDocument } from '../project/document.ts';
+import type { DecodedImage } from '../engine/core/image.ts';
+import { newId } from '../project/ids.ts';
 import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
@@ -83,6 +85,18 @@ export interface StudioState {
   transport: Transport;
   timelineSeconds: number;
   stats: PreviewStats | null;
+
+  /**
+   * Decoded image assets by content hash, for the preview. Not in the document: the document
+   * records which file, this holds the pixels, and the pixels are never undoable state.
+   */
+  images: ReadonlyMap<string, DecodedImage>;
+  /** Assets that could not be loaded, by asset id — shown in the inspector, never silently. */
+  imageProblems: Readonly<Record<string, string>>;
+  /** Loads every image asset the document references that is not loaded yet. */
+  loadImages(): Promise<void>;
+  /** Picks and decodes an image, keeping its pixels; the caller records the asset in the document. */
+  importImage(): Promise<AssetRef | null>;
 
   /** The render queue, pushed from the main process (M24). */
   renders: readonly RenderJob[];
@@ -151,6 +165,46 @@ export const useStudio = create<StudioState>((set, get) => ({
   timelineSeconds: 0,
   stats: null,
 
+  images: new Map(),
+  imageProblems: {},
+
+  async loadImages() {
+    const document = history.current;
+    const projectPath = get().path;
+    for (const asset of document.assets) {
+      if (asset.kind !== 'image' || get().images.has(asset.hash)) continue;
+      try {
+        const image = await window.pulseforge.loadImage(asset.path, projectPath);
+        const images = new Map(get().images);
+        // Under the recorded hash, which is what the snapshot looks up; a changed file still draws.
+        images.set(asset.hash, { width: image.width, height: image.height, pixels: image.pixels });
+        const { [asset.id]: _cleared, ...rest } = get().imageProblems;
+        set({
+          images,
+          imageProblems: image.hash === asset.hash
+            ? rest
+            : { ...rest, [asset.id]: `"${asset.name}" has changed on disk since it was imported` },
+        });
+      } catch (error) {
+        set({ imageProblems: { ...get().imageProblems, [asset.id]: error instanceof Error ? error.message : String(error) } });
+      }
+    }
+  },
+
+  async importImage() {
+    try {
+      const image = await window.pulseforge.importImage();
+      if (image === null) return null;
+      const images = new Map(get().images);
+      images.set(image.hash, { width: image.width, height: image.height, pixels: image.pixels });
+      set({ images });
+      return { id: newId(), kind: 'image', path: image.path, hash: image.hash, name: image.name, extra: {} };
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Importing the image'), kind: 'bad' } });
+      return null;
+    }
+  },
+
   renders: [],
   exportOpen: false,
   queueOpen: false,
@@ -217,6 +271,8 @@ export const useStudio = create<StudioState>((set, get) => ({
       migratedFrom: null,
       selectedLayerId: null,
       toast: null,
+      images: new Map(),
+      imageProblems: {},
     }));
   },
 
@@ -237,6 +293,8 @@ export const useStudio = create<StudioState>((set, get) => ({
     }));
     const audioPath = loaded.document.audio.path;
     if (audioPath !== '') void get().loadAudio(audioPath);
+    set({ images: new Map(), imageProblems: {} });
+    void get().loadImages();
   },
 
   async openProject() {

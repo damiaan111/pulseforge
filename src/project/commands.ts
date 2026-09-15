@@ -16,7 +16,7 @@
 
 import {
   IDENTITY_TRANSFORM, walkLayers,
-  type AspectBucket, type AspectOverride, type EffectSpec, type GroupLayer, type Layer,
+  type AspectBucket, type AspectOverride, type AssetRef, type EffectSpec, type GroupLayer, type Layer,
   type ModulationBinding, type ModuleLayer, type ProjectDocument, type Transform,
 } from './document.ts';
 import type { Command } from './history.ts';
@@ -576,6 +576,35 @@ export function setPaletteColor(index: number, color: string): Command {
       return { ...document, palette: { ...document.palette, colors } };
     },
   };
+}
+
+/**
+ * Adds a file to the project's assets. Importing the same file twice (same hash) returns the
+ * existing entry's document unchanged rather than a duplicate, so choosing the same background
+ * for two layers shares one asset.
+ */
+export function addAsset(asset: AssetRef): Command {
+  return {
+    label: `Import ${asset.name || 'asset'}`,
+    apply: (document) => {
+      if (document.assets.some((a) => a.id === asset.id)) throw new CommandError(`An asset with id ${asset.id} already exists`);
+      if (document.assets.some((a) => a.hash === asset.hash && a.kind === asset.kind && asset.hash !== '')) return document;
+      return { ...document, assets: [...document.assets, asset] };
+    },
+  };
+}
+
+/**
+ * Several commands as one undo step — "import an image and use it here" is one thing the user
+ * did, and undoing half of it would leave an asset nothing points at.
+ */
+export function sequence(label: string, commands: readonly Command[]): Command {
+  return { label, apply: (document) => commands.reduce((current, command) => command.apply(current), document) };
+}
+
+/** The asset already holding this file, if the project has one — so a re-import reuses it. */
+export function findAssetByHash(document: ProjectDocument, hash: string): AssetRef | undefined {
+  return document.assets.find((a) => a.hash === hash);
 }
 
 export function addPaletteColor(color: string): Command {

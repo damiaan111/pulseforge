@@ -232,6 +232,10 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     durationTicks: timelineDurationTicks(document),
     globalModulations: document.globalModulations.map(toEngineBinding),
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
+    // Files are not the engine's business: it gets id → hash, and the host registers the pixels.
+    ...(document.assets.length > 0
+      ? { assets: Object.fromEntries(document.assets.filter((a) => a.kind === 'image').map((a) => [a.id, { kind: 'image' as const, hash: a.hash, name: a.name }])) }
+      : {}),
   };
 
   return { project, notes, aspect };

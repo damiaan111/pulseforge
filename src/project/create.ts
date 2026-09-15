@@ -86,6 +86,7 @@ export function createDocument(options: CreateDocumentOptions = {}): ProjectDocu
     audio: { ...DEFAULT_AUDIO, ...options.audio },
     analysisSettings: DEFAULT_ANALYSIS_SETTINGS,
     palette: DEFAULT_PALETTE,
+    assets: [],
     layers: [],
     globalEffects: [],
     globalModulations: [],

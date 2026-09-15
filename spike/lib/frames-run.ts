@@ -12,7 +12,8 @@ import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import { encodeAnalysis } from '../../src/analysis/container.ts';
-import type { FramesConfig, SpikeFramesResult } from '../electron/protocol.ts';
+import type { DecodedImage } from '../../src/engine/core/image.ts';
+import type { FramesConfig, ImageFile, SpikeFramesResult } from '../electron/protocol.ts';
 import { SPIKE_OUT, runElectron } from '../harness.ts';
 import { synthesizeTestTrack } from '../test-signal.ts';
 
@@ -25,6 +26,8 @@ export interface FramesOptions {
   readonly pcm?: Float32Array;
   /** Off by default: dither noise is exactly what a pixel-position check does not want. */
   readonly dither?: boolean;
+  /** Decoded images by content hash, for layers that reference assets. */
+  readonly images?: ReadonlyMap<string, DecodedImage>;
 }
 
 /** One rendered frame, top-down RGBA8 (the engine's export orientation). */
@@ -71,12 +74,20 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
   const analysisFile = join(SPIKE_OUT, `analysis-${options.name}.bin`);
   await writeFile(analysisFile, encodeAnalysis(analysis.sources.get('mix')!, { source: 'mix', beatGrid, meta: { pcmSha256 } }));
 
+  const images: ImageFile[] = [];
+  for (const [hash, image] of options.images ?? []) {
+    const file = join(SPIKE_OUT, `image-${options.name}-${hash.slice(0, 16)}.rgba`);
+    await writeFile(file, image.pixels);
+    images.push({ hash, width: image.width, height: image.height, file });
+  }
+
   const config: FramesConfig = {
     mode: 'frames',
     analysisFile,
     resultFile: join(SPIKE_OUT, `frames-${options.name}.json`),
     rawDir,
     project: options.project,
+    ...(images.length > 0 ? { images } : {}),
     frames: [...options.frames],
     dither: options.dither ?? false,
   };

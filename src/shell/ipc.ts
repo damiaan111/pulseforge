@@ -23,6 +23,8 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  imageImport: 'pf:image:import',
+  imageLoad: 'pf:image:load',
   environment: 'pf:app:environment',
   renderPickOutput: 'pf:render:pick-output',
   renderEnqueue: 'pf:render:enqueue',
@@ -83,6 +85,21 @@ export interface AnalysisPayload {
   readonly fromCache: boolean;
 }
 
+/**
+ * A decoded image, from the main process. Decoded there, by the vendored FFmpeg, for the same
+ * reason as the analysis: the export decodes the same way, so preview and export see the same
+ * pixels. RGBA8, straight alpha, sRGB, top row first.
+ */
+export interface ImageBytes {
+  readonly path: string;
+  /** SHA-256 of the file bytes: the asset hash. */
+  readonly hash: string;
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+  readonly pixels: Uint8Array;
+}
+
 /** The startup environment report (PROJECT.md M34, §8.15). */
 export interface EnvironmentReport {
   readonly appVersion: string;
@@ -123,6 +140,10 @@ export interface PulseforgeApi {
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
   analyzeAudio(path: string): Promise<AnalysisPayload>;
+  /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
+  importImage(): Promise<ImageBytes | null>;
+  /** Decodes an asset the project already references; the path may be relative to `projectPath`. */
+  loadImage(path: string, projectPath: string | null): Promise<ImageBytes>;
   environment(): Promise<EnvironmentReport>;
 
   /** Shows a save dialog for a render's output. Resolves to null when the user cancels. */

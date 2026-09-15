@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅ (§4.28–§4.33); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅ (§4.28–§4.35); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -40,7 +40,8 @@ P4 steps:
 | 4 | Effect chain in the studio | ✅ | `6f3c196` |
 | 5 | Palette system (M17) | ✅ | `1170fd1` |
 | 6 | One document → video pipeline, abortable (`src/export/render-document.ts`) | ✅ | `8ad784b` |
-| 7 | Render queue in the studio: export dialog, queue drawer; EXDEV fix | ✅ | (this commit) |
+| 7 | Render queue in the studio: export dialog, queue drawer; EXDEV fix | ✅ | `024fd7c` |
+| 8 | Background layer (M14): solid/gradient/image, fit modes, Ken Burns; image assets end to end | ✅ | (this commit) |
 
 P3 steps:
 
@@ -1316,8 +1317,10 @@ preset save/load, asset library (M40), `modules/` drop-in folder + authoring gui
 suggested order:
 
 1. ✅ **Render queue in the studio** — §4.34.
-2. **Background source layer** (M14): solid, gradient, image (decoded to linear on upload), with fit modes.
-3. **Asset library** (M40): path + hash references, missing-asset detection and relink.
+2. ✅ **Background source layer** (M14) — §4.35.
+3. **Asset library** (M40): the data model exists (§4.35: `document.assets`, hash, reported missing /
+   changed files). Still to do: an asset panel, relink (by path, and by hash search in a folder),
+   removing unused assets, storing paths relative to the project on save.
 4. **Text layer** (M16, M32): deterministic glyph rasterisation at target resolution, per-word metrics.
 5. **Logo layer** (M15) — an image layer with reactive pulse, cheap once 2–3 exist.
 6. **Group compositing** (M38): group transform/opacity/blend/effects over composited children.
@@ -1355,3 +1358,66 @@ and badges so that state stays unmissable. Timeline waveform neutral; selected l
 Verified here: 588 tests; a Node-side run cancelled a 4K job mid-render (cancelled, no file) and
 completed a square job (done, report) with no leftover processes; `--smoke` passes nine checks
 including `exportDialog` and a real `queuedRender` from inside the app.
+
+---
+
+### 4.35 Background layer and image assets (P4 step 8) — M14, data-formats §1.2
+
+**Module** `src/engine/modules/background.ts` — `core.source.background` (kind `source`, first in
+`BUILTIN_MODULES`, so it is the first "Add layer" button). Params: `mode` solid | gradient | image;
+`colorA` (palette role `background`), `colorB`; `gradient` linear | radial; `angle`; `image` (new
+param type `asset`, value = asset id); `fit` cover | contain | stretch | tile; `dim`; `zoom`
+(modulatable, aspect-overridable — audio-reactive movement is a modulation on it); `drift` and
+`driftSeconds` (Ken Burns).
+
+- Gradients mix in **linear light** (GPU test: midpoint of black→white is sRGB 188, not 128).
+- `kenBurns(t, zoom, drift, period)` is closed form in `t`; its base magnification is exactly enough
+  that the largest drift never reveals the image edge in cover mode (unit-tested over time/drift).
+- Contain bars and transparent image areas show `colorA`. A missing image draws a dark checkerboard
+  and warns — visibly wrong, never black.
+- The texture is sampled outside per-pixel branches (derivatives); wrap is set per draw because one
+  texture may be shared by two layers with different fit modes.
+
+**Engine** — `core/image.ts` (`DecodedImage`: RGBA8 straight sRGB, top row first), `render/images.ts`
+(`ImageStore`: uploads `SRGB8_ALPHA8` + mipmaps, checks `MAX_TEXTURE_SIZE`),
+`Engine.setImage(hash, image)` / `hasImage(hash)`, `RenderContext.image(assetId)` resolving via
+`RenderProject.assets` (id → `{kind, hash, name}`). The engine never sees paths.
+
+**Document** — `document.assets: AssetRef[]` (`id, kind, path, hash, name, extra`); parsed with
+unknown kinds kept and reported; **serialised only when non-empty**, so every older project still
+round-trips byte-identically (goldens unchanged). Commands: `addAsset` (dedupes by hash — returns the
+document unchanged, so callers must use `findAssetByHash` for the id), `findAssetByHash`, and
+`sequence(label, commands)` for one-undo-step composites ("Use image X" = add asset + set param).
+
+**Decoding** — `src/assets/image-decode.ts`: always the vendored FFmpeg (never Chromium's decoder),
+so preview and export see identical pixels. ffprobe for size, `-f rawvideo -pix_fmt rgba` for pixels,
+scaled down past 8192 px on the long side, SHA-256 of the file bytes as the hash. Limits, stated:
+first frame of animated files; EXIF orientation not applied; ICC profiles ignored (treated as sRGB).
+`src/assets/load-images.ts`: `resolveAssetPath` (relative to the project file) and
+`loadImageAssets(document, projectPath)` → images by recorded hash + problems (missing file,
+changed on disk, undecodable). Problems are **not fatal**: the render proceeds with the placeholder.
+
+**Where images flow**
+- Studio: IPC `pf:image:import` (dialog + decode) and `pf:image:load` (stored path + project path);
+  store `images` (hash → pixels, not undoable state) and `imageProblems` (asset id → message), loaded
+  on project open; `PreviewHost.setImages` uploads each hash once. Inspector `AssetControl`: name,
+  **Choose…**, clear, and the reason if the asset cannot be shown.
+- Export / CLI / queue: `renderDocument` decodes assets, writes each as a raw `.rgba` in the work dir,
+  passes `images: ImageFile[]` in `ExportConfig`; the Electron renderer reads them and
+  `runExport({ images })` registers them before the first frame; files deleted afterwards. Asset
+  problems are returned as snapshot notes (`assets.<id>`) and logged by the CLI.
+- Frames mode (`renderFrames({ images })`) takes decoded images too, for GPU tests.
+
+**Inspector bug found by the smoke screenshot and fixed:** `visibleWhen` defaults were looked up in
+one map keyed by parameter name across *all* modules, so another module's `mode` default hid the
+background's gradient controls. Defaults now come from the layer's own manifest; conditions chain
+(a control whose condition parameter is hidden is hidden) and read override-merged values; a group
+whose controls are all hidden has no heading.
+
+Verified here: `npm run check` **610 tests** (new: `tests/project/assets.test.ts`,
+`tests/assets/image-decode.test.ts`, `tests/golden/background-gpu.test.ts` — solid, linear-light
+gradient, stretch orientation, contain bars, missing checkerboard, drift determinism);
+`npm run golden` **15/15 identical**; `npm run render` of a project with an image background
+(relative path) + additive bars wrote a verified 1080p60 MP4 at 131 fps with no leftover `.rgba`;
+`--smoke` **10/10** including new `imageControl` (picker appears in image mode; the image bridge
+answers) and `queuedRender`.
