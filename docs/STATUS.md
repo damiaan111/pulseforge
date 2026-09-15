@@ -794,7 +794,7 @@ export UI (ui-spec §7).
 
 ### 4.24 Supervised ML sidecar (M27, PROJECT.md §3)
 `src/ml/protocol.ts`, `src/ml/supervisor.ts`, `python/pulseforge_ml/serve.py`, 19 tests in
-`tests/ml/supervisor.test.ts`.
+`tests/ml/supervisor.test.ts` (`ac11b9f`).
 
 **Why, concretely:** a one-shot process pays ~4 s of Python start plus model load on every
 command (§5). That is *all* of a health check and most of a batch of short tracks. One resident
