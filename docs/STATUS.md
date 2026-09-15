@@ -751,7 +751,7 @@ cheap enough at current scale and are the kind of thing to fix against a profile
 ---
 
 ### 4.23 Render queue and progress (M24, export-spec §12–13)
-`src/export/queue.ts` + `src/export/progress.ts`, 21 tests in `tests/export/queue.test.ts`.
+`src/export/queue.ts` + `src/export/progress.ts`, 21 tests in `tests/export/queue.test.ts` (`987986a`).
 GPU-free by construction: the queue owns *what* runs and in what order and is handed a
 `JobRunner` that owns *how*, so all of it is testable without a renderer — and the same queue
 drives the CLI and the app.
