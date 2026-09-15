@@ -868,6 +868,38 @@ Not yet: the browser UI itself, animated thumbnails, and nothing ships a `builti
 
 ---
 
+### 4.26 Auto-director classification (M21, auto-director-spec §2–3)
+`src/director/digest.ts`, 17 tests in `tests/director/digest.test.ts`. The director's first two
+steps — summarise what the analysis measured (`TrackDigest`), then classify what kind of track it
+is (`StyleVector`). Pure, so all of it is testable here; the rest of P7 builds on these.
+
+- **Normalised against music in general, not against the track.** Ranges are hand-tuned shipped
+  constants (D27). Normalising within the track would rate an ambient piece's loudest moment as
+  maximum energy, and the director would dress it like a festival banger — there is a test with
+  exactly those two tracks. Learning the ranges from the user's library was rejected on purpose:
+  the same track would then classify differently on two machines, breaking the promise that a
+  seed plus a track reproduce a project.
+- **Every axis is an explicit rule**, no model. `organic`, for instance, is the inverse of how
+  closely onsets land on the beat grid, tempered by tempo confidence — a quantised production
+  scores near 0, a drummer pushing and pulling around the beat scores above 0.5.
+- **Tempo is perceptual**: 90→140 bpm spans more of the axis than 140→190, because that is where
+  the distinction between kinds of music actually lives. Pinned by a test.
+- **Percentiles, not extremes**, throughout: `dynamicRange` is p90 − p10, so one clipped sample
+  or one silent gap does not define how dynamic a track is.
+- **Unmeasurable axes say so.** Stems are not produced yet, so `vocalWeight` lands in
+  `unmeasured` rather than being guessed — a director that knows it is guessing can pick a
+  template that does not depend on the guess. `stems.vocalPresence` is `null`, never `0`, for the
+  same reason a pending stem reads as absent rather than silent (data-formats §4.4).
+- `describeStyle` renders the vector as a sentence ("fast, high-energy, bright, electronic,
+  vocal-led") — the decision log's first line (auto-director-spec §8), and the thing that makes a
+  wrong classification obvious rather than mysterious.
+
+Next for P7, in order: the template format and affinity scoring (§4), slot resolution (§5.1),
+then modulation calibration (§5.2) — which can reuse `autoRange` from `compileModulation`, since
+the spec says the director and the modulation UI must share that code.
+
+---
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
