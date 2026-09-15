@@ -196,3 +196,63 @@ describe('layerIsLive', () => {
     expect(layerIsLive(undefined, 0)).toBe(true);
   });
 });
+
+describe('groups clip and solo their children', () => {
+  const doc = (layers: ReturnType<typeof createGroupLayer>[]) => ({
+    ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }),
+    layers,
+  });
+
+  it('a group time range clips its children', () => {
+    // A group scoped to a section must scope everything inside it, or a layer keeps drawing
+    // after the section it belongs to has ended.
+    const child = layer('0000000000K000000000000001', { timeRange: { inTicks: 0, outTicks: null } });
+    const group = createGroupLayer([child], {
+      id: '0000000000G000000000000001',
+      timeRange: { inTicks: 48_000, outTicks: 96_000 },
+    });
+    const { project } = toRenderProject(doc([group]));
+    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 48_000, outTicks: 96_000 });
+  });
+
+  it('intersects rather than replaces, so the tighter bound wins on each side', () => {
+    const child = layer('0000000000K000000000000001', { timeRange: { inTicks: 60_000, outTicks: 200_000 } });
+    const group = createGroupLayer([child], {
+      id: '0000000000G000000000000001',
+      timeRange: { inTicks: 48_000, outTicks: 96_000 },
+    });
+    const { project } = toRenderProject(doc([group]));
+    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 60_000, outTicks: 96_000 });
+  });
+
+  it('an open-ended parent leaves the child’s own bound alone', () => {
+    const child = layer('0000000000K000000000000001', { timeRange: { inTicks: 10, outTicks: 20 } });
+    const group = createGroupLayer([child], { id: '0000000000G000000000000001' });
+    const { project } = toRenderProject(doc([group]));
+    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 10, outTicks: 20 });
+  });
+
+  it('nests through several groups', () => {
+    const child = layer('0000000000K000000000000001');
+    const inner = createGroupLayer([child], {
+      id: '0000000000G000000000000002',
+      timeRange: { inTicks: 0, outTicks: 150_000 },
+    });
+    const outer = createGroupLayer([inner], {
+      id: '0000000000G000000000000001',
+      timeRange: { inTicks: 48_000, outTicks: null },
+    });
+    const { project } = toRenderProject(doc([outer]));
+    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 48_000, outTicks: 150_000 });
+  });
+
+  it('soloing a group shows its children, not nothing', () => {
+    // Without this, solo on a group hides everything it contains — the opposite of what solo means.
+    const child = layer('0000000000K000000000000001');
+    const group = { ...createGroupLayer([child], { id: '0000000000G000000000000001' }), soloed: true };
+    const other = layer('0000000000K000000000000002');
+    const { project } = toRenderProject(doc([group, other as never]));
+    expect(project.layers.find((l) => l.id === '0000000000K000000000000001')!.enabled).toBe(true);
+    expect(project.layers.find((l) => l.id === '0000000000K000000000000002')!.enabled).toBe(false);
+  });
+});

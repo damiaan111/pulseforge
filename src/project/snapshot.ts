@@ -14,9 +14,9 @@ import { isIdentityTransform, type LayerTransform } from '../engine/core/layout.
 import type { ModulationBinding } from '../engine/core/modulation.ts';
 import type { BlendMode, EffectSpec, LayerSpec, RenderProject } from '../engine/core/project.ts';
 import {
-  aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer,
+  aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type GroupLayer, type Layer,
   type EffectSpec as DocumentEffect, type ModulationBinding as DocumentBinding,
-  type ProjectDocument,
+  type ProjectDocument, type TimeRange,
 } from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
@@ -96,10 +96,33 @@ function resolveParams(layer: Layer & { params: Readonly<Record<string, unknown>
 }
 
 /**
+ * A layer's time range narrowed by every group above it. A group scoped to a section has to
+ * scope what it contains, or a layer keeps drawing after the section it belongs to has ended.
+ *
+ * Intersection, not replacement: the tighter bound wins on each side independently, and a
+ * `null` out-point means "to the end" so it never narrows anything. An empty result (in ≥ out)
+ * is kept as it is rather than clamped — the engine's liveness check already reads that as
+ * never live, and rewriting it would hide the fact that the ranges do not overlap.
+ */
+function clipToParents(range: TimeRange, parents: readonly GroupLayer[]): { inTicks: number; outTicks: number | null } {
+  let inTicks = range.inTicks;
+  let outTicks = range.outTicks;
+  for (const parent of parents) {
+    inTicks = Math.max(inTicks, parent.timeRange.inTicks);
+    if (parent.timeRange.outTicks !== null) {
+      outTicks = outTicks === null ? parent.timeRange.outTicks : Math.min(outTicks, parent.timeRange.outTicks);
+    }
+  }
+  return { inTicks, outTicks };
+}
+
+/**
  * Flattens groups into the engine's flat layer list. Group *compositing* (M38 — children
  * rendered into one target, then the group's own transform, opacity, blend and effects applied
  * to that result) is still to come; until then a group's children render in place and the
- * group's own settings are reported rather than silently ignored.
+ * group's own settings are reported rather than silently ignored. What a group says about
+ * *visibility* — enabled, soloed, time range — is applied to its children here, because
+ * flattening would otherwise drop it.
  */
 export function toRenderProject(document: ProjectDocument): SnapshotResult {
   const notes: SnapshotNote[] = [];
@@ -124,9 +147,12 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       continue;
     }
 
-    // A disabled group hides its children, which flattening would otherwise lose.
+    // Flattening loses whatever a group said about its children unless it is applied here.
+    // A disabled group hides them; a soloed group *shows* them, or solo on a group would hide
+    // everything it contains — the opposite of what solo means.
     const hiddenByParent = parents.some((parent) => !parent.enabled);
-    const enabled = layer.enabled && !hiddenByParent && (!anySoloed || layer.soloed);
+    const soloed = layer.soloed || parents.some((parent) => parent.soloed);
+    const enabled = layer.enabled && !hiddenByParent && (!anySoloed || soloed);
 
     if (parents.some((parent) => !isIdentityTransform(resolveTransform(parent, parent.aspectOverrides[aspect])))) {
       notes.push({ path, detail: 'a parent group has a transform; group transforms do not yet compose onto their children (M38)' });
@@ -148,7 +174,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       opacity: layer.opacity,
       blend,
       params: resolveParams(layer, override),
-      timeRange: { inTicks: layer.timeRange.inTicks, outTicks: layer.timeRange.outTicks },
+      timeRange: clipToParents(layer.timeRange, parents),
       transform: resolveTransform(layer, override),
       modulations: layer.modulations.map(toEngineBinding),
       effects: layer.effects.map(toEngineEffect),

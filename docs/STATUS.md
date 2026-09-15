@@ -396,7 +396,8 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   (16-bit samples packed like NV12) would likely close the gap.
 - Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7) and
   **group compositing** (M38 — a group's own transform, opacity, blend and effects applied to its
-  composited children). Blend modes beyond normal/add/screen fall back with a note.
+  composited children). Blend modes beyond normal/add/screen fall back with a note. What a group
+  says about *visibility* — enabled, soloed, time range — does now reach its children (§4.20).
 - Two effects exist (bloom, vignette) against M12's target of ten.
 - Presets landed (§4.19); a preset *browser* and thumbnails (S8) have not.
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
@@ -640,6 +641,23 @@ need no GL.
 
 Not yet: wiring into the UI (a Save Preset button, the browser and thumbnails — S8), a preset
 folder on disk, and applying a *project* preset back onto a document.
+
+---
+
+### 4.20 Two group bugs in `toRenderProject` — fixed
+Found while looking at what group compositing would need. Both were pure-logic faults in
+flattening, both had a clearly correct answer, and both are now covered by tests.
+
+- **A group's time range did not clip its children.** A group scoped to a section kept drawing
+  everything inside it after the section ended. Now intersected with every ancestor's range:
+  the tighter bound wins on each side independently, `null` means "to the end" and narrows
+  nothing, and an empty result is left empty rather than clamped — the engine already reads that
+  as never live, and rewriting it would hide the fact that the ranges do not overlap.
+- **Soloing a group hid everything inside it** — the opposite of what solo means. A layer now
+  counts as soloed if it or any ancestor is.
+
+Golden frames are unaffected: neither golden project uses a group or a solo (checked, not
+assumed). The change is still worth re-running `npm run golden` against on the RTX machine.
 
 ---
 
