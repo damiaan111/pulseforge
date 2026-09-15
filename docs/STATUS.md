@@ -531,7 +531,7 @@ Not yet: the render loop itself, audio element wiring, and the on-screen indicat
 ---
 
 ### 4.17 Analysis cache tree — M4, M33, data-formats §4
-`src/analysis/cache.ts` + `src/analysis/cached.ts`, 23 tests in `tests/analysis/cache.test.ts`.
+`src/analysis/cache.ts` + `src/analysis/cached.ts` (`f5325f1`), 23 tests in `tests/analysis/cache.test.ts`.
 Closes the gap §4.4 left open: the container format existed, nothing wrote a keyed tree.
 
 ```
