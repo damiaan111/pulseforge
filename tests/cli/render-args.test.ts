@@ -20,6 +20,7 @@ describe('parseArgs', () => {
     expect(options.aspect).toBeUndefined();
     expect(options.size).toBeUndefined();
     expect(options.quiet).toBe(false);
+    expect(options.noCache).toBe(false);
   });
 
   it('accepts the long form of the output flag', () => {
@@ -27,12 +28,13 @@ describe('parseArgs', () => {
   });
 
   it('parses a size, an aspect, a codec and a duration', () => {
-    const options = parseArgs([...base, '--size', '1920x1080', '--aspect', '9:16', '--codec', 'hevc', '--seconds', '12.5', '--quiet']);
+    const options = parseArgs([...base, '--size', '1920x1080', '--aspect', '9:16', '--codec', 'hevc', '--seconds', '12.5', '--quiet', '--no-cache']);
     expect(options.size).toEqual({ width: 1920, height: 1080 });
     expect(options.aspect).toBe('9:16');
     expect(options.codec).toBe('hevc');
     expect(options.seconds).toBe(12.5);
     expect(options.quiet).toBe(true);
+    expect(options.noCache).toBe(true);
   });
 
   it('says what to do when the project or output is missing', () => {

@@ -4,8 +4,8 @@
 > how to verify it, and what to do next. Update it at the end of every step, in the same commit.
 > Last updated: 2026-09-15 — **P0 and P2 complete**, P3 steps 1–4 of 5 done: the engine renders
 > multi-layer projects headlessly at 16:9 / 9:16 / 1:1, golden frames are green, `npm run render`
-> produces an MP4 from a project file, and the preview clock is in place. Next: P3 step 5, the
-> React studio (§9).
+> produces an MP4 from a project file, the preview clock is in place, and analysis is cached on
+> disk. Next: P3 step 5, the React studio (§9).
 
 ---
 
@@ -136,6 +136,8 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
 | `features.ts` | `levelToUnit`, `spectralCentroid`, `spectralFlux`, windowed RMS/peak, `stereoWidth`, `detectOnsets`, `detectTempo`, `beatPulse` |
 | `analyze.ts` | `analyzeMix` — the single entry point, so the CLI, the app and the spikes produce identical numbers |
 | `container.ts` | the binary cache format (data-formats §4.2): float32 LE, JSON header, versions checked on read |
+| `cache.ts` | the on-disk cache tree (§4.17) — keys, readiness, listing, pruning |
+| `cached.ts` | `analyzeCached` — the cache in front of `analyzeMix` |
 
 - Features: `rms`, `peak`, `onset`, `beat`, `centroid`, `flux`, and `stereoWidth` when a stereo
   decode is available. **All on one 0..1 scale** (sine-equivalent dBFS against the floor), so a
@@ -157,10 +159,9 @@ Outputs go to `out/` (gitignored). `--only` rewrites report.md with the other ch
   `centroid`, `flux` and `stereoWidth` now resolve through the same path as bands; the evaluator
   needed no changes. Verified: golden frames byte-identical and `spike:determinism` still
   `5f0ade89…`, so adding the features changed no existing render.
-- Not yet: **the on-disk cache directory** (`analysis/<audioHash>/<settingsHash>/`, data-formats
-  §4.1) — the container format exists but nothing writes a keyed cache tree yet; it belongs with
-  the app's cache root (M33). Also: stems analysis, sections, workers, quantisation and
-  beat-synced LFO rates (which now have a grid to use).
+- The on-disk cache tree landed separately — see §4.17.
+- Not yet: stems analysis, sections, workers, quantisation and beat-synced LFO rates (which now
+  have a grid to use).
 
 ### 4.5 Export (`src/export/`)
 `ffmpeg-args.ts` (settings, D40 defaults, gpu-nv12/swscale, colour tags via `setparams`, bit-exact), `pump.ts`
@@ -529,6 +530,58 @@ Not yet: the render loop itself, audio element wiring, and the on-screen indicat
 
 ---
 
+### 4.17 Analysis cache tree — M4, M33, data-formats §4
+`src/analysis/cache.ts` + `src/analysis/cached.ts`, 23 tests in `tests/analysis/cache.test.ts`.
+Closes the gap §4.4 left open: the container format existed, nothing wrote a keyed tree.
+
+```
+<root>/analysis/<audioHash>/<settingsHash>/
+  meta.json      versions, key inputs, per-source readiness and sizes
+  mix.bin        the container from container.ts — one file per source
+  beatgrid.json  the grid *and the onset times*
+```
+
+- **`audioHash` is SHA-256 of the decoded PCM, not of the file**, so re-encoding the same audio
+  into another container still hits the cache (data-formats §4.3).
+- **`settingsHash` covers everything that changes the numbers**: spectrum settings, onset
+  sensitivity, bpm override, stem model — and `ANALYSIS_VERSION`, the one that is easy to forget
+  and whose absence keeps a fixed detector serving the old results out of cache. Band definitions
+  contribute their *edges, not their names*: renaming a band keeps the cache, moving it does not.
+  `meta.json` stores the readable key inputs next to the hash, so a cache that missed can be
+  diffed rather than guessed at.
+- **Readiness is per source** (`ready | pending | failed`, with the failure message). The mix
+  finishes in seconds and stems take minutes, so a half-populated entry is the normal state; a
+  pending source reads as *absent*, never as a track of zeros that looks like silence.
+- `writeSource` merges into the existing entry, so stems can land one at a time; `createdAt`
+  survives, `updatedAt` moves.
+- A corrupt or foreign-version entry is a **miss, not an error** — the cache is rebuildable, so
+  re-analysing quietly is the right answer. Writes are atomic (temp + rename, as `project-io.ts`).
+- `list()` / `totalBytes()` / `prune(maxBytes)` / `clear()` are the data and the actions behind
+  M33's cache panel. Pruning evicts least-recently-updated first and returns what it removed.
+- **Onsets live in `beatgrid.json`.** They are not a track, so the container has nowhere to put
+  them — and without this a cache hit silently loses the timeline's snap targets (ui-spec §3).
+  Caught by a test, not by inspection.
+- `analyzeCached(pcm, cache, options)` is the entry point: hit → read, miss → compute, write,
+  return. `force: true` recomputes without changing the key. **A cache that cannot be written
+  still analyses** — a full or read-only disk costs speed, never correctness.
+
+Wired into `npm run render`: it analyses through the cache at `<repo>/cache/` and prints
+`Analysis: cache hit (<hash>…)` or `computed and cached`. `--no-cache` re-analyses, which is the
+first thing to try if a render looks like it is reacting to the wrong numbers.
+`runExportSpike` gained an optional `analysis` input so the caller can supply one; the spikes pass
+nothing and are byte-for-byte unaffected.
+
+**Unverified on this machine:** the CLI wiring was written on the non-NVIDIA laptop, so
+`npm run render` itself has not been executed since. Typecheck, lint and 375 tests pass. On the
+RTX machine, run it twice on the same audio and confirm the second says `cache hit` — and that
+`npm run golden` is still green, since the analysis path feeding the engine changed shape.
+
+Not yet: stem sources in the tree (nothing produces them yet), `peaks/`, `derived/`,
+`sections.json`, and the app's own cache root — the CLI uses `<repo>/cache/`, the app will want
+its user-data directory (M33).
+
+---
+
 ---
 
 ## 9. Next: P3 — Studio (PROJECT.md §10)
@@ -552,3 +605,8 @@ Suggested order (each a commit, STATUS updated each time):
 
 Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
 offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
+
+**Work that does not need a GPU**, for a session on a machine without one: more effect modules
+toward M12's ten (two exist), the waveform peak pyramid the timeline needs (ui-spec §3), masks
+and group compositing in `toRenderProject` (§7), presets (M25), and `sections.json` for the
+auto-director.

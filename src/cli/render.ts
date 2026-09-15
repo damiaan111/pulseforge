@@ -16,12 +16,15 @@
 //   --size WxH                   explicit canvas size, overriding the project's
 //   --codec h264|hevc            default h264
 //   --audio <file>               override the document's audio path
+//   --no-cache                   re-analyse instead of reading the analysis cache
 //   --seconds N                  render only the first N seconds
 //   --quiet                      only errors and the final line
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { AnalysisCache } from '../analysis/cache.ts';
+import { analyzeCached } from '../analysis/cached.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { frameCount } from '../engine/core/time.ts';
@@ -48,9 +51,13 @@ export interface Options {
   readonly size: { width: number; height: number } | undefined;
   readonly codec: 'h264' | 'hevc';
   readonly audioOverride: string | undefined;
+  readonly noCache: boolean;
   readonly seconds: number | undefined;
   readonly quiet: boolean;
 }
+
+/** Flags that stand alone. Everything else consumes the next token as its value. */
+const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache']);
 
 export function parseArgs(argv: readonly string[]): Options {
   const positional: string[] = [];
@@ -61,8 +68,8 @@ export function parseArgs(argv: readonly string[]): Options {
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
-    if (arg === '--quiet') {
-      flags.set('quiet', 'true');
+    if (BOOLEAN_FLAGS.has(arg)) {
+      flags.set(arg.replace(/^--?/, ''), 'true');
     } else if (isFlag(arg)) {
       const value = argv[i + 1];
       if (value === undefined || isFlag(value)) throw new CliError(`${arg} needs a value`);
@@ -111,6 +118,7 @@ export function parseArgs(argv: readonly string[]): Options {
     audioOverride: flags.get('audio'),
     seconds,
     quiet: flags.has('quiet'),
+    noCache: flags.has('no-cache'),
   };
 }
 
@@ -163,6 +171,15 @@ export async function render(argv: readonly string[]): Promise<void> {
   say(`Decoding ${audioPath}`);
   const decoded = await decodeMono48k(FFMPEG_EXE, audioPath);
 
+  // Analysis goes through the on-disk cache (data-formats §4): the same audio and settings are
+  // analysed once, ever. `--no-cache` recomputes, which is the first thing to try if a render
+  // looks like it is reacting to the wrong numbers.
+  const cache = new AnalysisCache({ root: join(ROOT, 'cache') });
+  const analysed = await analyzeCached(decoded.pcm, cache, { force: options.noCache });
+  say(analysed.fromCache
+    ? `Analysis: cache hit (${analysed.audioHash.slice(0, 12)}…)`
+    : `Analysis: computed and cached (${analysed.audioHash.slice(0, 12)}…)`);
+
   const canvas = options.size ?? (options.aspect !== undefined
     ? canvasForAspect(options.aspect, document.canvas)
     : { width: document.canvas.width, height: document.canvas.height });
@@ -194,6 +211,7 @@ export async function render(argv: readonly string[]): Promise<void> {
     name: 'cli',
     project: { ...project, durationTicks },
     analysisPcm: decoded.pcm,
+    analysis: { analysis: analysed.analysis, beatGrid: analysed.beatGrid },
     audioPath,
     audioLabel: audioPath,
     audioPlacement: {

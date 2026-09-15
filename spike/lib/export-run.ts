@@ -6,6 +6,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeAnalysis } from '../../src/analysis/container.ts';
 import { analyzeMix } from '../../src/analysis/analyze.ts';
+import type { AnalysisSet, BeatGrid } from '../../src/engine/core/analysis.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import type { RenderReport } from '../../src/export/report.ts';
@@ -20,8 +21,13 @@ export interface ExportRunOptions {
   readonly workDir: string;
   readonly name: string;
   readonly project: RenderProject;
-  /** Mono 48 kHz analysis input. */
+  /** Mono 48 kHz analysis input. Ignored when `analysis` is supplied. */
   readonly analysisPcm: Float32Array;
+  /**
+   * Precomputed analysis, so a caller that already has it — from the on-disk cache, say — does
+   * not analyse the same audio again. Absent means compute it here, which is what the spikes do.
+   */
+  readonly analysis?: { readonly analysis: AnalysisSet; readonly beatGrid: BeatGrid | undefined } | undefined;
   /** The audio file muxed into the export. */
   readonly audioPath: string;
   readonly audioLabel: string;
@@ -71,7 +77,7 @@ export class ExportRunError extends Error {
 export async function runExportSpike(options: ExportRunOptions): Promise<ExportRunSummary> {
   await mkdir(options.workDir, { recursive: true });
   const analysisFile = join(options.workDir, `${options.name}.analysis.bin`);
-  const analysed = analyzeMix(options.analysisPcm);
+  const analysed = options.analysis ?? analyzeMix(options.analysisPcm);
   await writeFile(analysisFile, encodeAnalysis(analysed.analysis.sources.get('mix')!, { source: 'mix', beatGrid: analysed.beatGrid }));
 
   const runs: ExportRun[] = [];
