@@ -1039,3 +1039,55 @@ Checked and *not* needed: the modulation `derived/` envelope cache. `compileModu
 precomputes envelopes across the whole track and caches them in memory (§4.10), so the
 determinism requirement in modulation-spec §5 is met; an on-disk copy would only save startup
 time.
+
+---
+
+### 4.28 The visualizer library, first batch (P4 step 1) — M11, module-spec §6
+
+M11 wants ten visualizers; there was one (`bars`) plus a test pattern. This adds four, all
+written and **visually verified on the RTX machine**, and one shared helper.
+
+`src/engine/modules/analysis-texture.ts` is the helper every spectrum-reading module now uses:
+
+- It uploads the current frame's spectrum as an **R32F texture** and reads it back with
+  `texelFetch`, never a filtered sample. Float texture *filtering* is not core WebGL2 — it needs
+  `OES_texture_float_linear` — so a module that sampled with `texture()` would work on some
+  drivers and return black on others. Interpolation between bins is done in GLSL instead.
+- `SPECTRUM_GLSL` ships `pf_bin` / `pf_spectrum`, so a module gets a `0..1` position → magnitude
+  function without restating the bin arithmetic.
+- `FeatureUniforms` and `fillColour` cover the other two things every module needs.
+
+The four new modules:
+
+| Module | Reads | Note |
+|---|---|---|
+| `core.visualizer.radial` | spectrum | bars on a circle; mirrored so it is symmetrical |
+| `core.visualizer.curve` | spectrum | a smooth line, optional fill and mirror. Distance to the line is computed from the local slope, so steep sections do not thin out |
+| `core.visualizer.orb` | rms/peak/onset/beat | the quiet one — level, not detail, so it can sit under a spectrum layer |
+| `core.visualizer.spectrogram` | spectrum over time | heat map or ridges |
+
+**The spectrogram is the interesting one.** A live visualiser can only scroll a spectrogram by
+keeping a history buffer, which is state, which breaks seeking (module-spec §7 rule 3). Here the
+analysis is precomputed and random-access in time, so each of the 128 columns just reads the
+spectrum at `t - age`. No history, no state, and scrubbing backwards shows exactly what playing
+forwards showed.
+
+Schema and inspector gained `visibleWhen` (module-spec §3.1): a control shown only when another
+parameter has a given value — the spectrogram's ridge settings appear only in ridge style. A
+hidden parameter **keeps its value and is still resolved**, so toggling a mode away and back does
+not silently reset what it held. The inspector also honours `advanced`, behind a disclosure.
+
+`engine.ts` gained `present(width, height)`, which letterboxes the output framebuffer into the
+drawing buffer with `blitFramebuffer` — the studio was scaling by canvas CSS size, which is not
+the same thing once the aspect differs.
+
+`tests/golden/modules-gpu.test.ts` asserts, for every visualizer in the catalogue: the shader
+compiles, the draw lights more than 0.5% of the canvas (a black layer from a silently failed
+compile would pass a "it rendered" test but not this one), and two renders of the same frame are
+byte-identical.
+
+Verified: `npm run check` **538 tests pass**; `npm run golden` **15/15 byte-identical**;
+`spike:determinism` still `5f0ade89…`. A contact sheet of all five visualizers was rendered and
+inspected before committing — each one draws what its name says.
+
+Still short of M11's ten: six more visualizers, and M12's effect list is at two of ten.

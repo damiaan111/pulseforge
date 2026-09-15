@@ -18,14 +18,32 @@ import {
 } from '../../project/commands.ts';
 import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket } from '../../project/document.ts';
 import { useStudio } from '../store.ts';
+import { useState } from 'react';
 
 const MANIFESTS = new Map(BUILTIN_MODULES.map((m) => [m.manifest.id, m.manifest]));
+
+/** module-spec §3.1: show this control only when another parameter has a given value. */
+function isVisible(spec: ParamSpec, values: Readonly<Record<string, unknown>>): boolean {
+  const condition = spec.visibleWhen;
+  if (condition === undefined) return true;
+  const other = values[condition.param];
+  const effective = other === undefined
+    ? MANIFEST_DEFAULTS.get(condition.param)
+    : other;
+  return effective === condition.equals;
+}
+
+/** Defaults by key, so a condition still resolves before anything has been edited. */
+const MANIFEST_DEFAULTS = new Map<string, unknown>(
+  BUILTIN_MODULES.flatMap((m) => m.manifest.params.map((p) => [p.key, p.default] as const)),
+);
 
 export function Inspector(): React.JSX.Element {
   const document = useStudio((s) => s.document);
   const selectedId = useStudio((s) => s.selectedLayerId);
   const editTarget = useStudio((s) => s.editTarget);
   const run = useStudio((s) => s.run);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const layer = selectedId === null ? undefined : findLayer(document, selectedId);
 
@@ -141,7 +159,10 @@ export function Inspector(): React.JSX.Element {
           <div key={group}>
             <h2>{group}</h2>
             {specs
-              .filter((spec) => spec.advanced !== true)
+              // `visibleWhen` hides a control without touching its value: toggling a mode away
+              // and back must not silently reset what it held (module-spec §13).
+              .filter((spec) => isVisible(spec, layer.kind === 'module' ? layer.params : {}))
+              .filter((spec) => spec.advanced !== true || showAdvanced)
               .map((spec) => (
                 <ParamControl
                   key={spec.key}
@@ -152,6 +173,11 @@ export function Inspector(): React.JSX.Element {
                   onReset={editTarget === 'base' ? undefined : () => run(clearParamOverride(layer.id, spec.key, editTarget as AspectBucket))}
                 />
               ))}
+            {specs.some((spec) => spec.advanced === true) && (
+              <button type="button" className="wide" onClick={() => setShowAdvanced(!showAdvanced)}>
+                {showAdvanced ? 'Hide advanced' : 'Show advanced'}
+              </button>
+            )}
           </div>
         ))
       )}

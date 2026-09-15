@@ -26,6 +26,11 @@ interface ParamCommon {
   readonly description?: string;
   readonly modulatable?: boolean;
   readonly aspectOverridable?: boolean;
+  /**
+   * Conditional display (module-spec §3.1, §13). A hidden parameter **keeps its value and is
+   * still resolved** — toggling a mode away and back must not silently reset what it held.
+   */
+  readonly visibleWhen?: { readonly param: string; readonly equals: string | number | boolean };
   /** Hidden behind the inspector's "show advanced" disclosure (module-spec §13). */
   readonly advanced?: boolean;
 }

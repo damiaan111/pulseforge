@@ -24,12 +24,21 @@ import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
+import { curveModule } from './modules/spectrum-curve.ts';
+import { orbModule } from './modules/orb.ts';
+import { radialModule } from './modules/radial.ts';
+import { spectrogramModule } from './modules/spectrogram.ts';
 import { bloomModule } from './modules/bloom.ts';
 import { vignetteModule } from './modules/vignette.ts';
 import { flashModule } from './modules/flash.ts';
 import { testPatternModule } from './modules/test-pattern.ts';
 
-export const BUILTIN_MODULES: readonly ModuleDefinition[] = [barsModule, bloomModule, vignetteModule, testPatternModule, flashModule];
+export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
+  // Visualizers (M11), then effects (M12), then the test modules the validator uses.
+  barsModule, radialModule, curveModule, orbModule, spectrogramModule,
+  bloomModule, vignetteModule,
+  testPatternModule, flashModule,
+];
 
 /** Recorded in render reports. Bump when rendering output changes. */
 export const ENGINE_VERSION = '0.1.0-p0';
