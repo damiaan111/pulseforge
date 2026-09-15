@@ -700,7 +700,7 @@ dynamic acoustic playing. `librosa`/`madmom` refinement is S16 if that becomes a
 
 ---
 
-### 4.22 Code audit — five bugs found and fixed
+### 4.22 Code audit (`d527f8e`) — five bugs found and fixed
 A deliberate pass over all 15.5 k lines looking for defects rather than confirming correctness.
 Each was **reproduced by a failing test first**, then fixed; the tests stayed as regressions.
 
