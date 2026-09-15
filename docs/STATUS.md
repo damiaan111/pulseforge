@@ -584,7 +584,7 @@ directory (M33).
 ---
 
 ### 4.18 Waveform peaks — ui-spec §3, data-formats §4.1 `peaks/`
-`src/analysis/peaks.ts`, 15 tests in `tests/analysis/peaks.test.ts`, plus 3 through the cache.
+`src/analysis/peaks.ts` (`5d07050`), 15 tests in `tests/analysis/peaks.test.ts`, plus 3 through the cache.
 Built for P3 step 5's timeline, which cannot scan 14 M samples on every repaint.
 
 - A **pyramid**: level 0 is 256 samples per bucket (~5.3 ms at 48 kHz), each level above halves
