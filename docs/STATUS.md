@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅ (§4.28–§4.39); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅ (§4.28–§4.40); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -45,7 +45,8 @@ P4 steps:
 | — | Code and UI audit (§4.36) | ✅ | `96520b9` |
 | 9 | Asset library (M40): status, relink, find-in-folder, collect files, relative paths, library folder | ✅ | `daaea3b` |
 | 10 | Text layer (M16, M32): deterministic rasterisation, per-word metrics, styling, animation, bundled fonts | ✅ | `5472289` |
-| 11 | Layer groups (M38): real group compositing, group/ungroup in the studio | ✅ | (this commit) |
+| 11 | Layer groups (M38): real group compositing, group/ungroup in the studio | ✅ | `1c9efa7` |
+| 12 | Logo layer (M15): sized image with aspect kept, tint and reactive pulse | ✅ | (this commit) |
 
 P3 steps:
 
@@ -1331,7 +1332,7 @@ suggested order:
 2. ✅ **Background source layer** (M14) — §4.35.
 3. ✅ **Asset library** (M40) — §4.37. Fonts join it with the text layer; video with M39.
 4. ✅ **Text layer** (M16, M32) — §4.38.
-5. **Logo layer** (M15) — an image layer with reactive pulse, cheap once 2–3 exist.
+5. ✅ **Logo layer** (M15) — §4.40.
 6. ✅ **Group compositing** (M38) — §4.39.
 7. **Video layers** (M39): frame cache at project fps.
 8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
@@ -1634,3 +1635,23 @@ cap; `tests/project/commands.test.ts` covers group/ungroup, nesting and the diff
 refusal; `npm run golden` **15/15 identical**; `--smoke` **12/12** with a new `grouping` check.
 
 Not included: dragging layers into a group in the list (use Group/Ungroup for now), and masks (S7).
+
+
+---
+
+### 4.40 Logo layer (P4 step 12) — M15
+
+`core.source.logo`: an image drawn at a chosen width with its aspect kept, positioned by the layer
+transform like any other layer, with opacity, a tint (0 → the image, 1 → a flat silhouette in the
+tint colour, palette-linkable) and a **pulse** that grows it with the audio.
+
+The pulse reads the analysis directly — beat, onsets, level or peak, per stem — rather than
+requiring a modulation binding, because "make it breathe with the kick" is the thing people
+actually want from a logo, and it still comes from the same precomputed analysis, so it stays
+deterministic. It scales about the image's own centre, so a logo pinned to a corner grows in place.
+A missing image draws a red outline and warns; it is never silently blank.
+
+Verified here: `npm run check` **670 tests**, including `tests/golden/logo-gpu.test.ts` — drawn size
+and aspect (0.5 of a 200 px reference with a 2:1 image is 100×50), tint, pulse (varies over frames
+with `pulse: 1`, identical across frames with `pulse: 0`, and stays between its resting size and
+1.5×), and the missing-image placeholder; `npm run golden` 15/15 identical.

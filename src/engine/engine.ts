@@ -28,6 +28,7 @@ import { backgroundModule } from './modules/background.ts';
 import type { DecodedImage } from './core/image.ts';
 import type { TextRasterizer } from './core/text.ts';
 import { textModule } from './modules/text.ts';
+import { logoModule } from './modules/logo.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
@@ -55,7 +56,7 @@ import { testPatternModule } from './modules/test-pattern.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Sources (M14), text (M16), visualizers (M11), then effects (M12), then the test modules the validator uses.
-  backgroundModule, textModule,
+  backgroundModule, textModule, logoModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
