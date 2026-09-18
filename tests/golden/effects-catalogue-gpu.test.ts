@@ -42,10 +42,19 @@ const VISIBLE_SETTINGS: Readonly<Record<string, Readonly<Record<string, unknown>
   // Rotation aims the mirrored wedge; bars draw along the bottom of the frame.
   'core.effect.kaleidoscope': { segments: 5, zoom: 0.6, rotation: -90 },
   'core.effect.glitch': { amount: 1, density: 1, displace: 0.3 },
+  // Focused just in front of the camera, so the whole scene behind it is thrown out of focus.
+  'core.effect.dof': { focus: 2, range: 0, amount: 1 },
 };
 
+const NEEDS_DEPTH = new Set(BUILTIN_MODULES.filter((m) => m.manifest.capabilities.needsDepth === true).map((m) => m.manifest.id));
+
+/** Depth effects run only on 3D scene layers (D18), so they get a scene to act on. */
+function hostFor(effectId: string | null): string {
+  return effectId !== null && NEEDS_DEPTH.has(effectId) ? 'core.scene3d.city' : 'core.visualizer.bars';
+}
+
 /** A layer with enough structure that any of these effects has something to act on. */
-function projectFor(effectId: string | null): RenderProject {
+function projectFor(effectId: string | null, host = hostFor(effectId)): RenderProject {
   return {
     schemaVersion: 0,
     seed: 4242,
@@ -54,7 +63,7 @@ function projectFor(effectId: string | null): RenderProject {
     audio: { leadInTicks: 0, clipInTicks: 0 },
     layers: [{
       id: 'v',
-      module: 'core.visualizer.bars',
+      module: host,
       enabled: true,
       opacity: 1,
       blend: 'normal',
@@ -67,12 +76,15 @@ function projectFor(effectId: string | null): RenderProject {
 }
 
 describe.skipIf(!available)('every effect renders on the GPU', () => {
-  let plain: RenderedFrame;
+  /** The host layer with no effect, per host module. */
+  const plain = new Map<string, RenderedFrame>();
 
   beforeAll(async () => {
     await bundleElectron();
-    const run = await renderFrames({ name: 'fx-plain', project: projectFor(null), frames: [40] });
-    plain = run.frames[0] as RenderedFrame;
+    for (const host of new Set(EFFECTS.map(hostFor))) {
+      const run = await renderFrames({ name: `fx-plain-${host.replace(/\W+/g, '-')}`, project: projectFor(null, host), frames: [40] });
+      plain.set(host, run.frames[0] as RenderedFrame);
+    }
   }, 300_000);
 
   it('has the effects the catalogue claims', () => {
@@ -89,8 +101,8 @@ describe.skipIf(!available)('every effect renders on the GPU', () => {
     const name = effectId.replace(/\W+/g, '-');
     const run = await renderFrames({ name: `fx-${name}`, project: projectFor(effectId), frames: [40] });
     const frame = run.frames[0] as RenderedFrame;
-    expect(run.warnings.filter((w) => w.includes('no input texture'))).toEqual([]);
-    expect(frame.sha256).not.toEqual(plain.sha256);
+    expect(run.warnings.filter((w) => w.includes('no input texture') || w.includes('is not applied'))).toEqual([]);
+    expect(frame.sha256).not.toEqual(plain.get(hostFor(effectId))?.sha256);
     // Not just *different*: an effect that blanked the frame would also differ.
     expect(litFraction(frame)).toBeGreaterThan(0.002);
   }, 180_000);

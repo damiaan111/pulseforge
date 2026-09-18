@@ -9,6 +9,7 @@
 // `source` and returns a target the caller must release exactly once. With no passes it hands
 // `source` straight back, so the caller's release is correct either way.
 
+import type { LayerDepth } from '../core/module.ts';
 import type { RenderTarget, TargetPool } from './targets.ts';
 
 export interface EffectPass {
@@ -16,9 +17,9 @@ export interface EffectPass {
   /**
    * Draws into `output`, which is already bound and cleared, reading `input`. `output` is
    * passed explicitly so a multi-pass effect can bind its own scratch framebuffers and still
-   * find its way back.
+   * find its way back. `depth` is the layer's depth when it has one (a 3D scene layer).
    */
-  readonly draw: (input: RenderTarget, output: RenderTarget) => void;
+  readonly draw: (input: RenderTarget, output: RenderTarget, depth: LayerDepth | null) => void;
 }
 
 export function runEffectChain(
@@ -26,6 +27,7 @@ export function runEffectChain(
   pool: TargetPool,
   source: RenderTarget,
   passes: readonly EffectPass[],
+  depth: LayerDepth | null = null,
 ): RenderTarget {
   let current = source;
   for (const pass of passes) {
@@ -37,7 +39,7 @@ export function runEffectChain(
     gl.disable(gl.BLEND);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    pass.draw(current, target);
+    pass.draw(current, target, depth);
     pool.release(current);
     current = target;
   }

@@ -13,8 +13,8 @@
 > waveform peaks, section detection, presets and their store, the render queue, the supervised
 > ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
 >
-> **P3 is complete; P4 — Library is well along** (2026-09-18: steps 1–14 done, see §1). Remaining
-> for P4: Three.js scene layers (M37) and the preset browser (S8) — §4.33.
+> **P3 is complete; P4 — Library is nearly done** (2026-09-18: steps 1–15 done, see §1). Remaining
+> for P4: the preset browser (S8) — §4.33.
 
 ---
 
@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅ (§4.28–§4.42); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅ (§4.28–§4.43); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -48,7 +48,8 @@ P4 steps:
 | 11 | Layer groups (M38): real group compositing, group/ungroup in the studio | ✅ | `1c9efa7` |
 | 12 | Logo layer (M15): sized image with aspect kept, tint and reactive pulse | ✅ | `1a42b07` |
 | 13 | Video layers (M39): deterministic frame cache, engine video store, export + preview | ✅ | `c81752b` |
-| 14 | `modules/` drop-in folder (M35): declarative shader modules, hot reload, authoring guide, `npm run modules:check` | ✅ | (this commit) |
+| 14 | `modules/` drop-in folder (M35): declarative shader modules, hot reload, authoring guide, `npm run modules:check` | ✅ | `64d1b36` |
+| 15 | Three.js scene layers (M37): shared-context host, camera rig, shape/terrain/city scenes, depth → depth of field | ✅ | (this commit) |
 
 P3 steps:
 
@@ -114,15 +115,16 @@ STATUS.md updated and commit after each step."*
 
 | Command | What it does | Time |
 |---|---|---|
-| `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
-| `npm run check` | typecheck + lint + 519 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~15 s |
+| `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
+| `npm run check` | typecheck + lint + 720 tests in 58 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
 | `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
-| `npm run golden` | re-render the golden set and compare with the committed references; `--update`, `--only <name>` | ~40 s |
+| `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
+| `npm run modules:check` | conformance test for drop-in modules in `modules/` (params, compile, determinism, reflow) → `out/modules-check.json`; `-- <dir>` for another folder | ~15 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
 | `npm run spike:export` | real export ×2 with comparison + timings; `--4k`, `--seconds`, `--codec h264\|hevc`, `--conversion gpu-nv12\|swscale`, `--readback sync\|async`, `--depth`, `--no-hash`, `--runs`, `--audio` | ~1 min |
 
@@ -477,6 +479,14 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   increased the lag rather than cancelling it.
 - Envelope `mode: linear` is specified only as "symmetric smoothing"; implemented as a single
   time constant of `(attack + release) / 2`, so switching modes does not jump.
+- **M37 (§4.43):** one Three.js `WebGLRenderer` per GL context, shared and reference-counted;
+  scenes render to their own 4× MSAA RGBA16F target with a float depth texture and are copied into
+  the layer target. Three's colour management and tone mapping are off (linear in, linear out —
+  the engine tone-maps once). Depth effects are gated by a new `capabilities.needsDepth` and
+  refused (reported) on any layer that is not `scene3d`; the studio does not offer them there.
+  The 3D field of view applies to the frame's **short side**, so 9:16 shows the same subject.
+  `three` is pinned to an exact version: an upgrade can change pixels, and the host reads one
+  Three internal (`properties.get(texture).__webglTexture`).
 
 ---
 
@@ -507,6 +517,9 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   sandboxed and loads only our bundle, so this is not reachable today. M35 kept it that way: drop-in
   modules are JSON + GLSL and no JS from `modules/` runs (§4.42). If JS modules are ever allowed,
   these should accept only paths the user picked or the project references.
+- **Three.js internals:** `scene3d/host.ts` reads `renderer.properties.get(texture).__webglTexture`
+  to copy a scene and hand on its depth. Re-check on any Three upgrade (the scene3d GPU tests and
+  the `scene3d` golden entry fail loudly if it breaks).
 - A quit while a render is running cancels the render first, *then* the window asks about unsaved
   changes; answering Cancel keeps the app open with the render already cancelled.
 
@@ -1338,7 +1351,7 @@ suggested order:
 5. ✅ **Logo layer** (M15) — §4.40.
 6. ✅ **Group compositing** (M38) — §4.39.
 7. ✅ **Video layers** (M39) — §4.41.
-8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
+8. ✅ **Three.js scene layers** (M37) — §4.43.
 9. ✅ **`modules/` drop-in folder + authoring guide** (M35) — §4.42.
 10. **Preset browser UI** (S8): save-preset button, browser, thumbnails.
 
@@ -1768,3 +1781,82 @@ notes it has nothing to react to — then undoes).
 
 **Not done:** JS modules (deliberately — see above); drop-ins in the preset browser (S8); the
 module's `version` is recorded but projects do not yet warn when a drop-in they use has changed.
+
+### 4.43 Three.js scene layers (P4 step 15) — M37, compositor-spec §7, module-spec §1
+
+The `scene3d` module kind, three scenes, a camera rig and a depth-of-field effect. From the
+compositor's side a 3D layer is an ordinary layer: transform, opacity, blend, effects, groups and
+per-aspect overrides all apply unchanged.
+
+**Host** — `src/engine/modules/scene3d/host.ts`. The three rules from compositor-spec §7, each
+enforced here:
+- *One context.* A single `WebGLRenderer` is built over the engine's own WebGL2 context (never its
+  own canvas or context), shared by every scene layer on that context, reference-counted.
+- *State hygiene.* Every scene render is `resetState()` → render → `resetState()`, then the engine's
+  framebuffer, viewport and state are rebound explicitly. Proven by a GPU test: an opaque 2D layer
+  over a scene is byte-identical to that layer alone, and a scene over a 2D layer leaves the 2D
+  layer's uncovered pixels untouched.
+- *No clock.* Scenes are posed from `ctx.time` and the analysis every frame, from scratch; no
+  `Clock`, no animation loop, no `EffectComposer` — post-processing is the engine's effect chain.
+Each layer renders into its own RGBA16F target (4× MSAA, float depth texture), copied into the
+layer's target. Three's shader failures are captured (`debug.onShaderError`) and reported as an
+engine note naming the scene — never a silent black layer.
+
+**Scene contract** — `scene-module.ts`: `scene3dModule(manifest, build)`; a scene supplies a Three
+`Scene` and `update(frame)` that poses it from `{ctx, params, t, source, spectrum, features, level}`.
+Shared parts: `reactivityParams` (stem + driving feature), `SpectrumTexture` (bins × rows float
+texture, read with `texelFetch`), `SCENE_SPECTRUM_GLSL` (`pf_spectrumRow`, `pf_spectrumAt`, the same
+interpolation as the 2D modules' `pf_spectrum`), `linearColour`.
+
+**Camera rig** — `camera.ts`: parameters under "Camera" (move orbit/dolly/static/handheld,
+distance, height, look-at height, field of view, speed, start angle, roll, shake, beat kick), all
+modulatable. `cameraPose(params, t, kick, prng, aspect)` is pure and closed-form; handheld drift is
+seeded cosine-interpolated noise from the project PRNG. The field of view applies to the short side.
+
+**Scenes** (all `gpuCost: high`, category `3d`):
+- `core.scene3d.shapes` — **Reactive shape**: sphere / torus / knot displaced along its normals by the
+  spectrum on the GPU (bands chosen from position so the UV seams do not crack), pulse, spin, tilt,
+  palette-linked colour and rim light, glow, metalness/roughness, faceted or smooth, wireframe.
+- `core.scene3d.terrain` — **Terrain**: a 120×80-unit plane; across is the spectrum (mirrored or
+  not), along is the last 128 moments. Rows are sampled from the analysis on a fixed time grid and
+  the surface slides by the elapsed fraction of a row, so it scrolls smoothly yet every frame is a
+  pure function of its time. Flow away (new sound in front) or toward (rushing in from the horizon),
+  valley, neon grid, height-graded colour, fade to transparent at the horizon.
+- `core.scene3d.city` — **Bar city**: up to 48×48 instanced towers in one draw call; layouts
+  downtown (bass in the middle), history (bands × time, scrolling like the terrain), scatter (seeded
+  bands); seeded variety, per-tower colour by level, glow, horizon fade.
+
+**Depth → depth of field** — `ModuleInstance.depth()` hands the scene's depth texture (with near,
+far and fov) to the layer's effect chain (`LayerDepth`, `RenderContext.depth`, `EffectPass.draw`'s
+third argument). `core.effect.dof` declares `needsDepth`: a 48-tap golden-angle gather whose circle
+of confusion comes from linearised depth, with the "background may not blur over a sharper
+foreground" rule; focus distance, sharp range, blur (a fraction of the reference size). On any
+non-scene layer — or in the global chain — the engine refuses it with a note, and the studio's
+effect picker does not offer it.
+
+**Studio** — the three scenes appear under Add layer (`scene3d` added to the rail's layer kinds);
+the inspector generates their controls from their schemas like any module.
+
+**Measured** (CLI, 1080p60, 10 s, RTX 3060): shape + bloom **193 fps**, terrain + bloom **177 fps**,
+city + depth of field **155 fps** — all verified MP4s. 3D is well inside real time at 1080p.
+
+Verified here: `npm run check` **720 tests** — `tests/engine/camera-rig.test.ts` (orbit, static,
+dolly cycle, kick, short-side field of view, seeded handheld drift, smooth noise) and
+`tests/golden/scene3d-gpu.test.ts` (shape draws and is identical in any frame order; similar framing
+at 9:16; terrain and city at 16:9 and 9:16, deterministic; the city's history layout slides rather
+than jumps; depth of field blurs by depth — focused on the city it is sharper than focused in front
+of it — and is refused on a 2D layer with the frame left untouched; state hygiene both ways). The
+effects catalogue test now hosts depth effects on a scene layer. `npm run golden` **21/21**, with a
+new `scene3d` entry (terrain + depth of field, torus + bloom, at 16:9 and 9:16). `--smoke`
+**15/15** with a new `sceneLayer` check (adds a Reactive shape in the live preview; no scene shader
+error, no broken module, no canvas error), which was confirmed to fail when the shader is broken on
+purpose.
+
+Also fixed on the way: `npm run golden -- --update --only X` rewrote the manifest with X's records
+alone, silently dropping every other entry's references; it now keeps them.
+
+**Not done:** the point cloud and tunnel-flight scenes PROJECT.md §8 also lists (terrain flowing
+toward the camera covers the flight look); shadows; per-quality MSAA (preview and final both use
+4×); the auto-director's budget does not yet drop scene layers at 4K (compositor-spec §7.4 — the
+auto-director is P7). Scene draw order relies on Three's sort, which is deterministic for a given
+scene but not a documented contract.

@@ -201,7 +201,7 @@ export function Inspector(): React.JSX.Element {
         })
       )}
 
-      <EffectChain layerId={layer.id} effects={layer.effects} />
+      <EffectChain layerId={layer.id} effects={layer.effects} hasDepth={manifest?.kind === 'scene3d'} />
     </aside>
   );
 }
@@ -217,11 +217,13 @@ export function Inspector(): React.JSX.Element {
  * Bypass is separate from remove for the same reason it is in every other tool: comparing with
  * and without is how an effect gets dialled in, and deleting loses the settings.
  */
-function EffectChain(props: { layerId: string; effects: readonly EffectSpec[] }): React.JSX.Element {
-  const { layerId, effects } = props;
+function EffectChain(props: { layerId: string; effects: readonly EffectSpec[]; hasDepth: boolean }): React.JSX.Element {
+  const { layerId, effects, hasDepth } = props;
   const run = useStudio((s) => s.run);
   const { all, manifests: MANIFESTS } = useModules();
-  const EFFECTS = all.filter((m) => m.manifest.kind === 'effect');
+  // Depth effects are offered only where there is depth — 3D scene layers (D18). The engine
+  // refuses them elsewhere too; not offering them keeps that from being a surprise.
+  const EFFECTS = all.filter((m) => m.manifest.kind === 'effect' && (hasDepth || m.manifest.capabilities.needsDepth !== true));
   const [openId, setOpenId] = useState<string | null>(null);
   const [picking, setPicking] = useState('');
 

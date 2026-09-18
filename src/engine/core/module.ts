@@ -41,6 +41,12 @@ export interface ModuleManifest {
      * bounds instead, which is a later optimisation.
      */
     readonly expandsBounds?: boolean;
+    /**
+     * The effect reads its layer's depth (compositor-spec §7.3) — depth of field. Only 3D scene
+     * layers have depth (D18), so on any other layer the effect is refused and reported rather
+     * than run on a depth buffer that does not exist.
+     */
+    readonly needsDepth?: boolean;
   };
   readonly paramsSchemaVersion: number;
   readonly params: readonly ParamSpec[];
@@ -80,6 +86,12 @@ export interface RenderContext {
    */
   readonly input: RenderTarget | null;
   /**
+   * The layer's depth, for effects on a 3D scene layer (compositor-spec §7.3). Null for every
+   * other kind, and for effects on layers that have no depth — which a `needsDepth` effect never
+   * sees, because the engine refuses it there.
+   */
+  readonly depth: LayerDepth | null;
+  /**
    * The target the host has already bound and cleared for this module's result. A single-pass
    * module can ignore it and just draw; a multi-pass one binds other framebuffers along the
    * way and must come back to this one for its final pass.
@@ -115,10 +127,28 @@ export interface RenderContext {
   readonly font: (assetId: string) => { readonly hash: string | null; readonly name: string; readonly missing?: string };
 }
 
+/**
+ * A 3D layer's depth buffer (compositor-spec §7.3): standard GL window depth in 0..1, with the
+ * camera's clip range so a consumer can turn it back into distance, and the vertical field of
+ * view so a lens model can size its blur. Same orientation and size as the layer's colour.
+ */
+export interface LayerDepth {
+  readonly texture: WebGLTexture;
+  readonly near: number;
+  readonly far: number;
+  /** Vertical field of view in degrees. */
+  readonly fov: number;
+}
+
 /** A module instance draws into the currently bound framebuffer: linear light, premultiplied alpha. */
 export interface ModuleInstance {
   resize(width: number, height: number): void;
   render(ctx: RenderContext, params: ParamValues): void;
+  /**
+   * Depth for the frame just rendered — 3D scene modules only (`scene3d`). Valid until this
+   * instance renders again, which is long enough for the layer's effect chain to read it.
+   */
+  depth?(): LayerDepth | null;
   dispose(): void;
 }
 

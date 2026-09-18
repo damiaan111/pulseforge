@@ -848,6 +848,31 @@ app.whenReady().then(async () => {
         await new Promise((done) => setTimeout(done, 80));
       }
 
+      // 3D scene layers (M37) in the live preview: Three.js on the preview's own context. A shader
+      // Three could not build is reported as "<scene name>: …" in the engine notes, and a thrown
+      // render shows as a canvas error; neither may appear. (Pixels are checked on the export path
+      // by tests/golden/scene3d-gpu.)
+      let sceneLayer = false;
+      const sceneButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Reactive shape');
+      if (sceneButton !== undefined) {
+        sceneButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 1000));
+        let noteText = '';
+        const notesButton = document.querySelector('#app .canvas-notes');
+        if (notesButton !== null) {
+          notesButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await new Promise((done) => setTimeout(done, 50));
+          const toast = document.querySelector('#app .toast');
+          noteText = toast?.textContent ?? '';
+          toast?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+        sceneLayer = !noteText.includes('Reactive shape:') && !noteText.includes('broken')
+          && document.querySelector('#app .canvas-error') === null
+          && [...document.querySelectorAll('#app .layer-row .meta')].some((m) => m.textContent === 'core.scene3d.shapes');
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+      }
+
       // Video (M39), the studio half: the main process extracts a clip's preview proxy and hands
       // stills back over the bridge. (The GPU half — frames on screen — is tests/golden/video-gpu.)
       let videoBridge = false;
@@ -910,6 +935,7 @@ app.whenReady().then(async () => {
         textLayer,
         grouping,
         dropInModule,
+        sceneLayer,
         videoBridge,
         libraryToAsset,
         exportDialog,

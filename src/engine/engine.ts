@@ -55,14 +55,20 @@ import { kaleidoscopeModule } from './modules/kaleidoscope.ts';
 import { glitchModule } from './modules/glitch.ts';
 import { flashModule } from './modules/flash.ts';
 import { testPatternModule } from './modules/test-pattern.ts';
+import { shapesModule } from './modules/scene3d/shapes.ts';
+import { terrainModule } from './modules/scene3d/terrain.ts';
+import { cityModule } from './modules/scene3d/city.ts';
+import { dofModule } from './modules/dof.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
-  // Sources (M14), text (M16), visualizers (M11), then effects (M12), then the test modules the validator uses.
+  // Sources (M14), text (M16), visualizers (M11), 3D scenes (M37), then effects (M12), then the test modules the validator uses.
   backgroundModule, textModule, logoModule, videoModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
+  // 3D scenes (M37).
+  shapesModule, terrainModule, cityModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
-  grainModule, pixelateModule, scanlinesModule, kaleidoscopeModule, glitchModule,
+  grainModule, pixelateModule, scanlinesModule, kaleidoscopeModule, glitchModule, dofModule,
   testPatternModule, flashModule,
 ];
 
@@ -342,6 +348,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         owner: string,
         canvas: ReturnType<typeof canvasFor>,
         layerTime: { inSeconds: number; outSeconds: number | null },
+        hasDepth = false,
       ): EffectPass[] => {
         const passes: EffectPass[] = [];
         for (const spec of specs) {
@@ -355,6 +362,11 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
             warnings.push(`${owner}: module "${spec.module}" is a ${definition.manifest.kind}, not an effect; it is not applied`);
             continue;
           }
+          if (definition.manifest.capabilities.needsDepth === true && !hasDepth) {
+            // Depth exists only on 3D scene layers (D18). Refused and said, never run on nothing.
+            warnings.push(`${owner}: effect "${definition.manifest.name}" needs depth, which only 3D scene layers have; it is not applied`);
+            continue;
+          }
           const resolved = resolveParams(definition.manifest.params, spec.params, modulationFor(`${pathPrefix}${spec.id}.params.`));
           if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
           const instance = instanceFor(spec.id, definition);
@@ -364,7 +376,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           }
           passes.push({
             id: spec.id,
-            draw: (input, target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input, outputTarget: target }, resolved.values),
+            draw: (input, target, depth) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input, depth, outputTarget: target }, resolved.values),
           });
         }
         return passes;
@@ -438,8 +450,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
 
           built.push({
             ...common,
-            draw: (target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, outputTarget: target }, resolved.values),
-            effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime),
+            draw: (target) => {
+              instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, depth: null, outputTarget: target }, resolved.values);
+              return instance.depth?.() ?? null;
+            },
+            effects: buildEffects(
+              layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime,
+              definition.manifest.kind === 'scene3d',
+            ),
           });
         }
         return built;

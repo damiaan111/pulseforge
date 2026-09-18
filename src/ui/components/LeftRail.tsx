@@ -13,7 +13,7 @@ import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
 import { useModules } from '../modules.ts';
 
-const LAYER_KINDS = ['source', 'text', 'visualizer'] as const;
+const LAYER_KINDS = ['source', 'text', 'visualizer', 'scene3d'] as const;
 
 export function LeftRail(): React.JSX.Element {
   const document = useStudio((s) => s.document);

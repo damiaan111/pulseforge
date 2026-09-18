@@ -15,6 +15,7 @@
 
 import { COLOR_GLSL, type RGBA } from '../core/color.ts';
 import { IDENTITY_MAT3, type Mat3 } from '../core/layout.ts';
+import type { LayerDepth } from '../core/module.ts';
 import type { BlendMode } from '../core/project.ts';
 import { HASH_GLSL } from '../core/prng.ts';
 import { runEffectChain, type EffectPass } from './effects.ts';
@@ -36,8 +37,11 @@ export interface OutputOptions {
 export interface CompositeLayer {
   readonly opacity: number;
   readonly blend: BlendMode;
-  /** Draws into `target`, which is bound, cleared and transparent RGBA16F. */
-  readonly draw: (target: RenderTarget) => void;
+  /**
+   * Draws into `target`, which is bound, cleared and transparent RGBA16F. A 3D scene layer
+   * returns its depth, which its effect chain then reads (compositor-spec §7.3).
+   */
+  readonly draw: (target: RenderTarget) => LayerDepth | null | void;
   /** This layer's effect chain, bottom of the list first (module-spec §8). */
   readonly effects?: readonly EffectPass[];
   /**
@@ -215,12 +219,12 @@ export class Compositor {
       // Modules draw premultiplied "over" by default; they may change blend state themselves.
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      layer.draw(target);
+      const depth = layer.draw(target) ?? null;
 
       // Effects run on the layer alone, before its transform and blend (compositor-spec §1).
       // runEffectChain consumes `target` and hands back one to release.
       if (layer.effects !== undefined && layer.effects.length > 0) {
-        target = runEffectChain(gl, this.pool, target, layer.effects);
+        target = runEffectChain(gl, this.pool, target, layer.effects, depth);
       }
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, into.framebuffer);

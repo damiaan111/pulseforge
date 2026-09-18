@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "id": "01M2T70JXVNHEHE2YZAKBS6QYR",
+  "name": "Golden: 3D scenes",
+  "createdAt": "2026-09-18T12:14:13.430Z",
+  "modifiedAt": "2026-09-18T12:14:13.430Z",
+  "appVersion": "",
+  "seed": 0,
+  "canvas": {
+    "width": 640,
+    "height": 360,
+    "fps": {
+      "num": 60,
+      "den": 1
+    },
+    "background": "#000000"
+  },
+  "audio": {
+    "path": "",
+    "hash": "",
+    "durationTicks": 0,
+    "leadInTicks": 0,
+    "leadOutTicks": 0,
+    "clipInTicks": 0,
+    "clipOutTicks": null,
+    "fadeInTicks": 0,
+    "fadeOutTicks": 0,
+    "gain": 1,
+    "stemsEnabled": false
+  },
+  "analysisSettings": {
+    "fftSize": 2048,
+    "onsetSensitivity": 0.5,
+    "bpmOverride": null,
+    "stemModel": "htdemucs",
+    "bands": [
+      {
+        "id": "sub",
+        "label": "Sub",
+        "minHz": 20,
+        "maxHz": 60,
+        "gain": 1
+      },
+      {
+        "id": "bass",
+        "label": "Bass",
+        "minHz": 60,
+        "maxHz": 250,
+        "gain": 1
+      },
+      {
+        "id": "lowMid",
+        "label": "Low mid",
+        "minHz": 250,
+        "maxHz": 500,
+        "gain": 1
+      },
+      {
+        "id": "mid",
+        "label": "Mid",
+        "minHz": 500,
+        "maxHz": 2000,
+        "gain": 1
+      },
+      {
+        "id": "highMid",
+        "label": "High mid",
+        "minHz": 2000,
+        "maxHz": 4000,
+        "gain": 1
+      },
+      {
+        "id": "presence",
+        "label": "Presence",
+        "minHz": 4000,
+        "maxHz": 6000,
+        "gain": 1
+      },
+      {
+        "id": "brilliance",
+        "label": "Brilliance",
+        "minHz": 6000,
+        "maxHz": 20000,
+        "gain": 1
+      }
+    ]
+  },
+  "palette": {
+    "colors": [],
+    "roles": {}
+  },
+  "layers": [
+    {
+      "id": "01M2T70JXVB0Q2MZNK8P8JVD30",
+      "kind": "module",
+      "name": "terrain",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "timeRange": {
+        "inTicks": 0,
+        "outTicks": null
+      },
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min"
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "maskLayerId": null,
+      "module": "core.scene3d.terrain",
+      "paramsSchemaVersion": 1,
+      "params": {
+        "direction": "toward"
+      },
+      "effects": [
+        {
+          "id": "01M2T70JXV8GGV730B1R0MAZYD",
+          "module": "core.effect.dof",
+          "name": "",
+          "enabled": true,
+          "paramsSchemaVersion": 1,
+          "params": {
+            "focus": 16,
+            "range": 4,
+            "amount": 0.6
+          }
+        }
+      ],
+      "modulations": [],
+      "aspectOverrides": {}
+    },
+    {
+      "id": "01M2T70JXV6SDQJVHTAWH2FFQQ",
+      "kind": "module",
+      "name": "shape",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "timeRange": {
+        "inTicks": 0,
+        "outTicks": null
+      },
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min"
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "maskLayerId": null,
+      "module": "core.scene3d.shapes",
+      "paramsSchemaVersion": 1,
+      "params": {
+        "shape": "torus",
+        "distance": 7,
+        "height": 2.5,
+        "lookHeight": 1.5
+      },
+      "effects": [
+        {
+          "id": "01M2T70JXVDVRD96GFPY0Y1Y9E",
+          "module": "core.effect.bloom",
+          "name": "",
+          "enabled": true,
+          "paramsSchemaVersion": 1,
+          "params": {}
+        }
+      ],
+      "modulations": [],
+      "aspectOverrides": {}
+    }
+  ],
+  "globalEffects": [],
+  "globalModulations": []
+}

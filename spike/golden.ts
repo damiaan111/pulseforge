@@ -214,7 +214,11 @@ async function main(): Promise<void> {
   }
 
   if (update) {
-    const manifest: Manifest = { engineVersion: ENGINE_VERSION, generatedOn: new Date().toISOString(), records };
+    // With --only, the entries that were not re-rendered keep their references: rewriting the
+    // manifest from this run alone would silently drop every other entry's.
+    const rendered = new Set(records.map((r) => r.key));
+    const kept = only === undefined ? [] : (previous?.records ?? []).filter((r) => !rendered.has(r.key));
+    const manifest: Manifest = { engineVersion: ENGINE_VERSION, generatedOn: new Date().toISOString(), records: [...kept, ...records] };
     await writeFile(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
   }
 

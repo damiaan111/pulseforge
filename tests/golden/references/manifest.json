@@ -1,6 +1,6 @@
 {
   "engineVersion": "0.1.0-p0",
-  "generatedOn": "2026-09-14T21:12:55.543Z",
+  "generatedOn": "2026-09-18T12:14:30.715Z",
   "records": [
     {
       "key": "neon-bars-16x9-00000",
@@ -105,6 +105,48 @@
       "width": 360,
       "height": 640,
       "sha256": "c9d06b5b4929af88f34c22be8678883a19b83ae7ef24ab9544bc210c19829c2c",
+      "notes": []
+    },
+    {
+      "key": "scene3d-16x9-00000",
+      "width": 640,
+      "height": 360,
+      "sha256": "0e6bee3fe28790fdf2a61d6bf1342b330178e8657f600eb354fc6340586c08b7",
+      "notes": []
+    },
+    {
+      "key": "scene3d-16x9-00045",
+      "width": 640,
+      "height": 360,
+      "sha256": "aae0689cfbe16202548732508266eaa1b6ea160f851e357edb6d1d9b8f233854",
+      "notes": []
+    },
+    {
+      "key": "scene3d-16x9-00090",
+      "width": 640,
+      "height": 360,
+      "sha256": "87934cf9df9a72a0cf3e599bc201c680e536bc495953c1ee7312fd63ce45e599",
+      "notes": []
+    },
+    {
+      "key": "scene3d-9x16-00000",
+      "width": 360,
+      "height": 640,
+      "sha256": "6cf007f02e122677d6db2f4f730f93ca49b82036a92639ef30ad28685ed96c80",
+      "notes": []
+    },
+    {
+      "key": "scene3d-9x16-00045",
+      "width": 360,
+      "height": 640,
+      "sha256": "b3e453558b97697a6d890b9315208fa84c42ebc204f748d9a50e9e959806cb4d",
+      "notes": []
+    },
+    {
+      "key": "scene3d-9x16-00090",
+      "width": 360,
+      "height": 640,
+      "sha256": "49d6a76b2f85da30d407597cd09d8d3fbea68570f66ba208ae20f84d869e0568",
       "notes": []
     }
   ]
