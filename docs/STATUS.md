@@ -1,20 +1,75 @@
 # Build status — handoff document
 
-> **Read this first in any new session.** It records what exists, what does not, how it works,
-> how to verify it, and what to do next. Update it at the end of every step, in the same commit.
-> Last updated: 2026-09-15 — **P0, P2 and P3 complete**. The studio runs: open a project, import
-> audio, edit layers through a schema-generated inspector, scrub a timeline, undo, switch aspect,
-> save. The laptop sessions' work is verified here (§9), which found and fixed a serve-mode
-> deadlock (§4.24). The engine renders headlessly at 16:9 / 9:16 / 1:1,
-> golden frames are green, and `npm run render` produces an MP4 from a project file.
+> **Read this first in any new session.** It records what exists, how it works, how it was
+> verified, what is known to be missing, and what to do next. Update it at the end of every step,
+> in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
+> with its state and what is left, and the recommended order of the remaining work.
 >
-> Also built, ahead of the milestone that needs them, because they are pure logic and a
-> non-NVIDIA machine can do them (§4.16–§4.26): the preview clock, the on-disk analysis cache,
-> waveform peaks, section detection, presets and their store, the render queue, the supervised
-> ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
+> **Last updated: 2026-09-18.** P0, P2, P3 and **P4 are complete**; P1 is partly done (core and
+> stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
+> modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
+> Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
+> any aspect. Last full verification: `npm run check` 813 tests, `npm run golden` 21/21 identical,
+> `--smoke` 18/18.
 >
-> **P3 and P4 are complete** (2026-09-18: P4 steps 1–16, see §1). Next: the documentation pass the
-> owner asked for, then P5 — Export polish, P6 — Lyrics, P7 — Auto-director (§4.33, PROJECT.md §10).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): no UI to create or edit
+> modulation bindings yet (the engine and evaluator are done — M13); stems are separated but not
+> wired into analysis or the studio (M5); no trim/fade, solo/lock or time-range editing in the UI
+> (M29, M9); lyrics (P6) and the auto-director (P7) are not started beyond analysis and
+> classification; operability (autosave M1, cache management M33, logs M34, settings M36).
+
+**Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
+§5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
+
+| §4 | Area |
+|---|---|
+| | **Foundation, engine, spike (P0–P2)** |
+| 4.1 | Tooling |
+| 4.2 | Provisioning (`setup/`) |
+| 4.3 | Engine (`src/engine/`) |
+| 4.4 | Analysis (`src/analysis/`) — M4, P3 step 3 |
+| 4.5 | Export (`src/export/`) |
+| 4.6 | ML sidecar |
+| 4.7 | Project document (`src/project/`) — P2 step 1 |
+| 4.8 | Layout & aspect (P2 step 2) |
+| 4.9 | Spike and validation harness (`spike/`) |
+| 4.10 | Modulation & value resolution (P2 step 3) |
+| 4.11 | Effect chain (P2 step 4) |
+| 4.12 | Golden frames (P2 step 5) — `npm run golden` |
+| 4.13 | Headless render CLI (P2 step 6) — `npm run render` |
+| | **Studio (P3, plus logic built ahead of time)** |
+| 4.14 | App shell (`src/shell/`, `src/ui/`) — P3 step 1 |
+| 4.15 | Commands and undo (P3 step 2) — M8, ui-spec §10 |
+| 4.16 | Preview clock (P3 step 4) — M31, PROJECT.md §8.12, export-spec §3 |
+| 4.17 | Analysis cache tree — M4, M33, data-formats §4 |
+| 4.18 | Waveform peaks — ui-spec §3, data-formats §4.1 `peaks/` |
+| 4.19 | Presets (M25, module-spec §10, data-formats §3) |
+| 4.20 | Two group bugs in `toRenderProject` — fixed |
+| 4.21 | Section detection — PROJECT.md §8.1, auto-director-spec §2 |
+| 4.22 | Code audit (`d527f8e`) — five bugs found and fixed |
+| 4.23 | Render queue and progress (M24, export-spec §12–13) |
+| 4.24 | Supervised ML sidecar (M27, PROJECT.md §3) |
+| 4.25 | Preset store on disk (M25, S8's data layer) |
+| 4.26 | Auto-director classification (M21, auto-director-spec §2–3) |
+| 4.27 | The React studio (P3 step 5) — ui-spec |
+| | **Library (P4)** |
+| 4.28 | The visualizer library, first batch (P4 step 1) — M11, module-spec §6 |
+| 4.29 | The visualizer library, second batch (P4 step 2) — M11 complete |
+| 4.30 | The effect library (P4 step 3) — M12 complete |
+| 4.31 | The effect chain in the studio (P4 step 4) — M12's other half |
+| 4.32 | The palette (P4 step 5) — M17, compositor-spec §9 |
+| 4.33 | One document → video pipeline (P4 step 6) |
+| 4.34 | Render queue in the studio (P4 step 7) — M24, ui-spec §7 |
+| 4.35 | Background layer and image assets (P4 step 8) — M14, data-formats §1.2 |
+| 4.36 | Code and UI audit (2026-09-15, owner request) |
+| 4.37 | Asset library (P4 step 9) — M40, D6, data-formats §1.2, ui-spec §5 |
+| 4.38 | Text layer (P4 step 10) — M16, M32, PROJECT.md §8.13, §8.7 |
+| 4.39 | Layer groups (P4 step 11) — M38, compositor-spec §1 |
+| 4.40 | Logo layer (P4 step 12) — M15 |
+| 4.41 | Video layers (P4 step 13) — M39, M14, D4, compositor-spec §8 |
+| 4.42 | The `modules/` drop-in folder (P4 step 14) — M35, module-spec §11, PROJECT.md §8.17 |
+| 4.43 | Three.js scene layers (P4 step 15) — M37, compositor-spec §7, module-spec §1 |
+| 4.44 | Preset browser (P4 step 16) — S8, M25, ui-spec §5, module-spec §10, D16, D45 |
 
 ---
 
@@ -28,7 +83,10 @@
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
-| P5 … P8 | ⬜ not started |
+| P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
+| P6 — Lyrics | ⬜ not started (text rasteriser with per-word metrics, M32, is ready for it) |
+| P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
+| P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
 P4 steps:
 
@@ -50,7 +108,7 @@ P4 steps:
 | 13 | Video layers (M39): deterministic frame cache, engine video store, export + preview | ✅ | `c81752b` |
 | 14 | `modules/` drop-in folder (M35): declarative shader modules, hot reload, authoring guide, `npm run modules:check` | ✅ | `64d1b36` |
 | 15 | Three.js scene layers (M37): shared-context host, camera rig, shape/terrain/city scenes, depth → depth of field | ✅ | `c2561d0` |
-| 16 | Preset browser (S8): browser panel, animated thumbnails, save dialog, partial apply, 14 built-in presets | ✅ | (this commit) |
+| 16 | Preset browser (S8): browser panel, animated thumbnails, save dialog, partial apply, 14 built-in presets | ✅ | `c980c7c` |
 
 P3 steps:
 
@@ -84,9 +142,9 @@ P0 steps:
 | 4 | Export pipe: readback, GPU NV12, NVENC, audio mux, verify, report | ✅ | `56cf79a` |
 | 5 | `npm run validate` + Python sidecar + test modules | ✅ 8/8 pass | `38d5362` |
 
-**Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md and docs/STATUS.md,
-run `npm run check` and `npm run golden`, then continue with the next open item in §4.33. Keep
-STATUS.md updated and commit after each step."*
+**Starting a new session:** open Claude Code in `D:\pulseforge` and say: *"Read CLAUDE.md, docs/STATUS.md
+and docs/ROADMAP.md, run `npm run check` and `npm run golden`, then continue with the next item in
+ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step."*
 
 ---
 
@@ -218,6 +276,8 @@ checks), `encoder-probe.ts`, `report.ts`, `job.ts` (`runExport`, optional `dithe
   progress from Demucs' callback, timings, peak VRAM, per-stem RMS, optional stem output files).
 - `src/ml/sidecar.ts`: `runSidecar` (spawn, parse, progress callbacks, `SidecarError` with stderr tail), `parseSidecarLine`.
 - Not yet: long-lived process, cancellation, supervisor/restart, GPU job queue (M27/M28), WhisperX.
+  *Since: the supervisor, cancellation and restart landed in §4.24; the GPU job queue (M28) and
+  WhisperX are still open.*
 
 ### 4.7 Project document (`src/project/`) — P2 step 1
 | File | Contents |
@@ -235,7 +295,8 @@ Engine side: `LayerSpec.timeRange` (optional) and `layerIsLive`; `renderFrame` s
 their range, using the frame's start tick.
 
 Not yet: undo/commands, presets, asset library, lyrics/automation/export-preset slots (reserved,
-round-tripped untouched).
+round-tripped untouched). *Since: undo §4.15, presets §4.19/§4.44, asset library §4.37; the
+lyrics and automation slots are still reserved only.*
 
 ### 4.8 Layout & aspect (P2 step 2)
 - `src/engine/core/layout.ts`: `ANCHORS`, `SCALE_REFERENCES` (the single definition — `src/project/`
@@ -262,6 +323,11 @@ round-tripped untouched).
 Verified on the GPU by `tests/golden/layout-gpu.test.ts` (Electron + the new `frames` spike mode,
 `spike/lib/frames-run.ts`): orientation, centre-anchored scale, top-left anchor, and no edge
 smearing, checked against the test pattern's known patch positions. Skipped where Electron is absent.
+
+### 4.9 Spike and validation harness (`spike/`)
+- `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
+- `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
+- `validate.ts` + `validate/`: `context.ts`, `media.ts` (FFmpeg decode helpers), `projects.ts` (pattern, click, heavy projects; click track), `checks-render.ts` (2 determinism, 3 readback, 4 colour), `checks-system.ts` (1 environment, 5 encoders, 6 throughput, 7 stems, 8 sync).
 
 ### 4.10 Modulation & value resolution (P2 step 3)
 `src/engine/core/modulation.ts` — the full signal chain of modulation-spec §4, with the
@@ -392,158 +458,6 @@ process startup, H.264 and HEVC 10-bit, both passing ffprobe verification.
 `src/shell/` once P3 builds it; the CLI should then use the shell's, and `spike/` should go back
 to being only a measurement harness.
 
-### 4.9 Spike and validation harness (`spike/`)
-- `harness.ts` (bundle + run Electron), `electron/{main,renderer,protocol}.ts` (determinism and export modes; export config carries the whole `RenderProject`).
-- `lib/determinism-run.ts` (`runDeterminismSpike`), `lib/export-run.ts` (`runExportSpike`).
-- `validate.ts` + `validate/`: `context.ts`, `media.ts` (FFmpeg decode helpers), `projects.ts` (pattern, click, heavy projects; click track), `checks-render.ts` (2 determinism, 3 readback, 4 colour), `checks-system.ts` (1 environment, 5 encoders, 6 throughput, 7 stems, 8 sync).
-
----
-
-### 4.27 The React studio (P3 step 5) — ui-spec
-`src/ui/` — React 19 + Zustand. Layout per ui-spec §1: top bar, left rail, centre canvas, right
-inspector, bottom transport and timeline.
-
-| File | Contents |
-|---|---|
-| `main.tsx` | mount, and the `pulseforgeReady` flag anything driving the window waits on |
-| `store.ts` | Zustand state; the `History` instance is the source of truth for the document |
-| `preview/host.ts` | the WebGL2 canvas, engine, `PreviewClock` and audio element, in their own loop |
-| `components/*.tsx` | TopBar, LeftRail, CanvasPane, Inspector, TransportBar, Timeline |
-
-- **The preview loop is outside React** (ui-spec §13). It owns its rAF loop and pushes a summary
-  in at 10 Hz; re-rendering a React tree per frame is the standard way these tools get sluggish.
-- **The engine can now draw on screen.** `Engine.present()` blits the output target to the
-  default framebuffer, **letterboxed** — a preview that quietly changes the frame's shape is
-  worse than black bars, because every composition decision is then made against the wrong
-  picture. Export still reads the same target back, so preview and export start from one frame.
-- **A `needsRedraw` flag, and why it is not an optimisation.** The clock only yields a frame when
-  time has moved, which is right for playback and wrong for editing: a paused editor showed a
-  black canvas, and dragging a slider changed nothing. Any change to the document, analysis or
-  scale forces one redraw; idle with nothing changed still costs nothing.
-- **The inspector is generated from module schemas** (M10, module-spec §13) — float, int, bool,
-  enum, colour and stem controls come from the declarations, grouped and ordered by them. No
-  markup is written per module, which is the whole reason the fortieth effect costs one file.
-- **Aspect editing is unmissable** (D44): switching aspect sets the edit target, the stage gets
-  an accent border, a banner says which override is being written, and every overridden
-  parameter shows a badge with reset-to-base.
-- **Analysis is computed in the main process** through the same FFmpeg decode and on-disk cache
-  the exporter uses, then handed over as the binary container. The preview therefore reacts to
-  exactly the numbers the export will, rather than to Chromium's own decoder. Playback is
-  separate and may use the browser decoder, because the clock reads positions, not samples.
-- Audio reaches the sandboxed renderer as bytes over IPC and becomes a Blob URL; `file://` media
-  would fight the CSP and the renderer has no filesystem to point at.
-- Timeline is canvas-drawn (ui-spec §3): waveform from the peak pyramid, beat grid with
-  downbeats emphasised and skipped below 3 px spacing, section bands, layer blocks, playhead.
-  Click the wave to scrub, click a row to select.
-
-**Verified here:** `npm run dev -- --smoke` passes all five checks, and the screenshot shows the
-test pattern rendering correctly — 24 patches, right orientation, letterboxed — with undo/redo
-state correct. Golden frames still 15/15 identical, so nothing the studio added moved a pixel.
-
-**Two smoke-check bugs found and fixed along the way**, both the same shape as the one in P3
-step 2: the check was passing without testing anything. It matched CSS classes the React rewrite
-had renamed, and then matched the undo button by its *label* ("↶ Hide layer", not "Undo …"). It
-now uses a `data-action` hook and waits for React to commit before reading the DOM — React
-renders asynchronously, so the tree right after a dispatched click is still the old one.
-
-**Not yet, and deliberately named rather than implied:** no on-canvas transform handles, no
-timeline drag or zoom, no modulation matrix panel, no preset browser, no export dialog (the
-queue exists in `src/export/queue.ts` but nothing wires it to the UI), no keyframes, no lyrics
-panel, no Auto panel. The library is still one visualizer and two effects, so the inspector has
-little to show; that is P4's job, not a gap in the generation.
-
----
-
-## 5. Measured results
-
-The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:
-
-- **Determinism:** engine frames, export raw frames (NV12 and 10-bit) and bit-exact MP4 bytes are identical across processes.
-- **Readback:** sync beats async PBO through ANGLE; GPU NV12 is fastest (1080p 197 fps, 4K 58 fps on the bars project).
-- **Throughput (six-layer bars, 60 s):** H.264 1080p60 209 fps, 4K60 56 fps (NVENC-bound); HEVC 10-bit 98 / 27 fps.
-- **NVENC p5:** 1080p H.264 199 / HEVC ~275 fps; 4K H.264 61 / HEVC ~92 fps. AV1 unavailable (Ampere).
-- **Colour:** GPU NV12, swscale and HEVC 10-bit all within 1.2 code values of expected; black luma 16 / 64; all four tags present.
-- **Stems:** `htdemucs` 4-min track in 8.6 s (28× realtime), 0.54 GB peak allocated; Python start + model load ~4 s.
-- **Sync:** flash on the expected frame for 18/18 clicks; video−audio 6.67 ms (designed sub-frame rounding at a 1.01 s phase). Analysis sees clicks 5.8 ms early (centred FFT window).
-
----
-
-## 6. Decisions made during implementation
-
-- **D48** tone shoulder, knee 0.9 (owner). **D49** sRGB OETF, tagged BT.709 (owner).
-- **D39 resolved** → GPU NV12 for 8-bit 4:2:0; swscale for 10-bit/4:4:4. **D50** sync readback default.
-- **D40** CQ values unchanged pending real-footage quality checks; HEVC is faster than H.264 at 4K.
-- uv has no download command → pip fills the wheelhouse. torch on `cu130` (driver R580+).
-- FFmpeg 8 needs `setparams` to keep colour tags on filtered frames.
-- **D51** (owner, 2026-09-14) settles the look-ahead sign: positive means "looks ahead", default
-  **+30 ms**, sampling `source(t + lookAheadMs)`. D23's "−30 ms" describes the lag being
-  compensated, not the stored field — read literally against modulation-spec §4 it would have
-  increased the lag rather than cancelling it.
-- Envelope `mode: linear` is specified only as "symmetric smoothing"; implemented as a single
-  time constant of `(attack + release) / 2`, so switching modes does not jump.
-- **M37 (§4.43):** one Three.js `WebGLRenderer` per GL context, shared and reference-counted;
-  scenes render to their own 4× MSAA RGBA16F target with a float depth texture and are copied into
-  the layer target. Three's colour management and tone mapping are off (linear in, linear out —
-  the engine tone-maps once). Depth effects are gated by a new `capabilities.needsDepth` and
-  refused (reported) on any layer that is not `scene3d`; the studio does not offer them there.
-  The 3D field of view applies to the frame's **short side**, so 9:16 shows the same subject.
-  `three` is pinned to an exact version: an upgrade can change pixels, and the host reads one
-  Three internal (`properties.get(texture).__webglTexture`).
-
----
-
-## 7. Known gaps, debts and open questions
-
-- **Tone shoulder touches fully saturated colours** (#ffffff → luma 232 instead of 235; pure primaries ~250/255).
-  Owner kept D48 knowing the knee; flag again if palette-exact output becomes a requirement.
-- `htdemucs_ft` not provisioned or measured (manifest entry needed: it is a bag of 4 models, each weight file pinned).
-- HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
-  (16-bit samples packed like NV12) would likely close the gap.
-- Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7). Blend
-  modes beyond normal/add/screen fall back with a note. Group compositing (M38) landed in §4.39.
-- Two effects exist (bloom, vignette) against M12's target of ten.
-- Presets: the store (§4.19, §4.25) and the browser (§4.44) are done. A preset that uses an image,
-  font or video stores the project's asset **id**, not the file; applied to another project the
-  asset is missing and the layer says so (D6's "referenced" is not yet cross-project).
-- Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
-  single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
-  §7 sketches the shape, it does not pin field names.
-- One visual module plus two test modules. No effects, masks, groups, text, palette roles, aspect overrides, modulation.
-- `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
-- Export: the queue landed (§4.23); still no disk-space precheck, thumbnails, motion blur, SSAA or audio stream-copy.
-- Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
-- The supervised sidecar landed (§4.24); nothing calls it yet, and its Python half is unverified on a GPU machine.
-- **Flaky under load:** once, a full `npm run check` straight after a smoke run took 190 s and one GPU
-  test failed with "Electron exited without writing a result" (`effects-gpu`, bloom). Two reruns of
-  the suite and three of that file passed. Suspect too many concurrent Electron GPU children; if it
-  recurs, cap vitest workers for `tests/golden/`.
-- **IPC reads any path the renderer names** (`readAudio`, `loadImage`, `readProject`). The renderer is
-  sandboxed and loads only our bundle, so this is not reachable today. M35 kept it that way: drop-in
-  modules are JSON + GLSL and no JS from `modules/` runs (§4.42). If JS modules are ever allowed,
-  these should accept only paths the user picked or the project references.
-- **Three.js internals:** `scene3d/host.ts` reads `renderer.properties.get(texture).__webglTexture`
-  to copy a scene and hand on its depth. Re-check on any Three upgrade (the scene3d GPU tests and
-  the `scene3d` golden entry fail loudly if it breaks).
-- A quit while a render is running cancels the render first, *then* the window asks about unsaved
-  changes; answering Cancel keeps the app open with the render already cancelled.
-
----
-
-## 8. P2 — Engine: done (PROJECT.md §10)
-
-Goal: *"Engine renders a multi-layer project from a hand-written JSON file, headlessly, correctly at
-16:9 / 9:16 / 1:1. Golden-frame tests green. The engine/shell import boundary is lint-enforced."*
-**All four clauses hold.**
-
-1. ✅ **Project document v1** (`src/project/`) — §4.7
-2. ✅ **Layout & aspect system** — §4.8
-3. ✅ **Param resolution + modulation evaluator** — §4.10
-4. ✅ **Effect chain contract + bloom and vignette** — §4.11
-5. ✅ **Golden frames** — §4.12
-6. ✅ **Headless render CLI** — §4.13
-
----
-
 ### 4.14 App shell (`src/shell/`, `src/ui/`) — P3 step 1
 | File | Contents |
 |---|---|
@@ -574,6 +488,7 @@ Also here: `pulseforge song.pvproj` opens a project from the command line (the f
 path), and `FFPROBE_EXE` moved to `setup/lib/paths.ts` so the vendored tools have one definition.
 
 Not yet: undo/commands, autosave and crash recovery, the React studio, menus and shortcuts.
+*Since: undo §4.15, the studio and its shortcuts §4.27; autosave and crash recovery (M1) are still open.*
 
 ### 4.15 Commands and undo (P3 step 2) — M8, ui-spec §10
 - `src/project/history.ts` — **the document is immutable, so history is a list of documents, not
@@ -647,8 +562,7 @@ one where the other belongs is the risk PROJECT.md §10 flags, and it is exactly
 draft of these tests got wrong.
 
 Not yet: the render loop itself, audio element wiring, and the on-screen indicator — all P3 step 5.
-
----
+*Since: all three landed with the studio, §4.27.*
 
 ### 4.17 Analysis cache tree — M4, M33, data-formats §4
 `src/analysis/cache.ts` + `src/analysis/cached.ts` (`f5325f1`), 23 tests in `tests/analysis/cache.test.ts`.
@@ -701,8 +615,6 @@ Not yet: stem sources in the tree (nothing produces them yet), `derived/`, and
 the app's own cache root — the CLI uses `<repo>/cache/`, the app will want its user-data
 directory (M33).
 
----
-
 ### 4.18 Waveform peaks — ui-spec §3, data-formats §4.1 `peaks/`
 `src/analysis/peaks.ts` (`5d07050`), 15 tests in `tests/analysis/peaks.test.ts`, plus 3 through the cache.
 Built for P3 step 5's timeline, which cannot scan 14 M samples on every repaint.
@@ -725,8 +637,7 @@ Built for P3 step 5's timeline, which cannot scan 14 M samples on every repaint.
   the entry still counts as a hit.
 
 Not yet: per-stem peaks (the timeline's expandable stem rows, ui-spec §3), and drawing them.
-
----
+*Since: the timeline draws the mix's peaks (§4.27); per-stem rows wait for stems (M5).*
 
 ### 4.19 Presets (M25, module-spec §10, data-formats §3)
 `src/project/presets.ts` (`a773cb3`), 20 tests in `tests/project/presets.test.ts`. Pure: the module defaults
@@ -765,9 +676,7 @@ part of it, which is what makes "try this look on this track" one action. Assert
 because a preset that silently retimed a project is the kind of surprise no undo fully repairs.
 
 Not yet: wiring into the UI (a Save Preset button, the browser and thumbnails — S8) and a preset
-folder on disk.
-
----
+folder on disk. *Since: the folder is §4.25, the UI §4.44.*
 
 ### 4.20 Two group bugs in `toRenderProject` — fixed
 Found while looking at what group compositing would need. Both were pure-logic faults in
@@ -783,8 +692,6 @@ flattening, both had a clearly correct answer, and both are now covered by tests
 
 Golden frames are unaffected: neither golden project uses a group or a solo (checked, not
 assumed). The change is still worth re-running `npm run golden` against on the RTX machine.
-
----
 
 ### 4.21 Section detection — PROJECT.md §8.1, auto-director-spec §2
 `src/analysis/sections.ts` (`c3b53ed`), 12 tests in `tests/analysis/sections.test.ts`. Written now because
@@ -815,8 +722,6 @@ the arranger leans on it (auto-director-spec §6) and because it is pure DSP —
 
 Known weakness, as specified (D28): good on electronic and beat-driven material, weaker on
 dynamic acoustic playing. `librosa`/`madmom` refinement is S16 if that becomes a problem.
-
----
 
 ### 4.22 Code audit (`d527f8e`) — five bugs found and fixed
 A deliberate pass over all 15.5 k lines looking for defects rather than confirming correctness.
@@ -866,8 +771,6 @@ verification; and every `.sort()` call (all on strings, where lexicographic is c
 objects per layer per frame, and `PreviewClock.stats` filters two arrays per read. Both are
 cheap enough at current scale and are the kind of thing to fix against a profile, not a hunch.
 
----
-
 ### 4.23 Render queue and progress (M24, export-spec §12–13)
 `src/export/queue.ts` + `src/export/progress.ts`, 21 tests in `tests/export/queue.test.ts` (`987986a`).
 GPU-free by construction: the queue owns *what* runs and in what order and is handed a
@@ -906,9 +809,7 @@ the window silently became the whole render — reporting 50 fps where the true 
 
 Not yet wired: nothing constructs a `RenderQueue` yet — the CLI still renders one job inline.
 Connecting it needs the job runner to call `runExport`, which is GPU work and belongs with the
-export UI (ui-spec §7).
-
----
+export UI (ui-spec §7). *Since: wired — §4.33 (shared render pipeline) and §4.34 (studio queue).*
 
 ### 4.24 Supervised ML sidecar (M27, PROJECT.md §3)
 `src/ml/protocol.ts`, `src/ml/supervisor.ts`, `python/pulseforge_ml/serve.py`, 19 tests in
@@ -977,8 +878,6 @@ The refactor to watch is `cmd_separate` → `_separate(args, context)`: one-shot
 None` and emits exactly as before, served mode passes a context that reports progress and raises
 `Cancelled` at the checkpoint.
 
----
-
 ### 4.25 Preset store on disk (M25, S8's data layer)
 `src/project/preset-store.ts`, 20 tests in `tests/project/preset-store.test.ts` (`ca6d8ca`).
 
@@ -1004,8 +903,7 @@ a binary store makes all four awkward for no gain at a few hundred kilobytes.
   lesson as §4.22.
 
 Not yet: the browser UI itself, animated thumbnails, and nothing ships a `builtin/` folder yet.
-
----
+*Since: all three — §4.44.*
 
 ### 4.26 Auto-director classification (M21, auto-director-spec §2–3)
 `src/director/digest.ts`, 17 tests in `tests/director/digest.test.ts` (`fb08f45`). The director's first two
@@ -1037,63 +935,62 @@ Next for P7, in order: the template format and affinity scoring (§4), slot reso
 then modulation calibration (§5.2) — which can reuse `autoRange` from `compileModulation`, since
 the spec says the director and the modulation UI must share that code.
 
----
+### 4.27 The React studio (P3 step 5) — ui-spec
+`src/ui/` — React 19 + Zustand. Layout per ui-spec §1: top bar, left rail, centre canvas, right
+inspector, bottom transport and timeline.
 
----
+| File | Contents |
+|---|---|
+| `main.tsx` | mount, and the `pulseforgeReady` flag anything driving the window waits on |
+| `store.ts` | Zustand state; the `History` instance is the source of truth for the document |
+| `preview/host.ts` | the WebGL2 canvas, engine, `PreviewClock` and audio element, in their own loop |
+| `components/*.tsx` | TopBar, LeftRail, CanvasPane, Inspector, TransportBar, Timeline |
 
-## 9. P3 — Studio: done (PROJECT.md §10)
+- **The preview loop is outside React** (ui-spec §13). It owns its rAF loop and pushes a summary
+  in at 10 Hz; re-rendering a React tree per frame is the standard way these tools get sluggish.
+- **The engine can now draw on screen.** `Engine.present()` blits the output target to the
+  default framebuffer, **letterboxed** — a preview that quietly changes the frame's shape is
+  worse than black bars, because every composition decision is then made against the wrong
+  picture. Export still reads the same target back, so preview and export start from one frame.
+- **A `needsRedraw` flag, and why it is not an optimisation.** The clock only yields a frame when
+  time has moved, which is right for playback and wrong for editing: a paused editor showed a
+  black canvas, and dragging a slider changed nothing. Any change to the document, analysis or
+  scale forces one redraw; idle with nothing changed still costs nothing.
+- **The inspector is generated from module schemas** (M10, module-spec §13) — float, int, bool,
+  enum, colour and stem controls come from the declarations, grouped and ordered by them. No
+  markup is written per module, which is the whole reason the fortieth effect costs one file.
+- **Aspect editing is unmissable** (D44): switching aspect sets the edit target, the stage gets
+  an accent border, a banner says which override is being written, and every overridden
+  parameter shows a badge with reset-to-base.
+- **Analysis is computed in the main process** through the same FFmpeg decode and on-disk cache
+  the exporter uses, then handed over as the binary container. The preview therefore reacts to
+  exactly the numbers the export will, rather than to Chromium's own decoder. Playback is
+  separate and may use the browser decoder, because the clock reads positions, not samples.
+- Audio reaches the sandboxed renderer as bytes over IPC and becomes a Blob URL; `file://` media
+  would fight the CSP and the renderer has no filesystem to point at.
+- Timeline is canvas-drawn (ui-spec §3): waveform from the peak pyramid, beat grid with
+  downbeats emphasised and skipped below 3 px spacing, section bands, layer blocks, playhead.
+  Click the wave to scrub, click a row to select.
 
-> **Verified on the RTX machine, 2026-09-15.** All five items below have now run here.
-> 1. ✅ `npm run check` — 527 tests pass (the laptop's note said 519; the count had drifted).
-> 2. ✅ `npm run golden` — **15/15 byte-identical**. The cache, sections and beat-time changes
->    moved no pixel, as predicted.
-> 3. ✅ `npm run render` twice on the same audio — second run reports `Analysis: cache hit`, and
->    the two MP4s are **byte-identical**, so the cache round-trip does not perturb the analysis.
-> 4. ✅ `npm run validate -- --only 7` — stems pass: htdemucs 8.6 s, 27.9× realtime, 0.54 GB peak,
->    22 progress events. The `cmd_separate` → `_separate(args, context)` refactor is sound.
-> 5. ✅ Serve mode, after fixing a **deadlock that made it unusable** — see §4.24.
+**Verified here:** `npm run dev -- --smoke` passes all five checks, and the screenshot shows the
+test pattern rendering correctly — 24 patches, right orientation, letterboxed — with undo/redo
+state correct. Golden frames still 15/15 identical, so nothing the studio added moved a pixel.
 
-Goal: *"Load audio, trim/fade, add/edit layers, live preview on the audio master clock, timeline,
-undo/redo, aspect switcher, save/load."* The Shimga-style UI (ui-spec.md).
+**Two smoke-check bugs found and fixed along the way**, both the same shape as the one in P3
+step 2: the check was passing without testing anything. It matched CSS classes the React rewrite
+had renamed, and then matched the undo button by its *label* ("↶ Hide layer", not "Undo …"). It
+now uses a `data-action` hook and waits for React to commit before reading the DOM — React
+renders asynchronously, so the tree right after a dispatched click is still the old one.
 
-The engine is ready for it: the studio's job is to build `ProjectDocument`s and call
-`toRenderProject` + `renderFrame`, which is exactly what `npm run render` and `npm run golden`
-already do headlessly.
+*Since this step: the preset browser (§4.44), the export dialog and queue (§4.34), and the full module
+library (§4.28–§4.43) have landed. Still open: transform handles, timeline drag/zoom, the modulation
+matrix and binding UI, keyframes, lyrics and Auto panels — see ROADMAP.md.*
 
-Suggested order (each a commit, STATUS updated each time):
-
-1. ✅ **App shell** — see §4.14.
-2. ✅ **Command/undo stack** — see §4.15.
-3. ✅ **Analysis pipeline** — see §4.4. The on-disk cache tree is still outstanding.
-4. ✅ **Preview clock** — see §4.16.
-5. ✅ **React studio** — see §4.27.
-
-Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
-offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
-
-**Work that does not need a GPU** is now largely done — §4.16 through §4.26 were all built on a
-non-NVIDIA laptop. What is left there is thin and mostly blocked on the engine rather than on
-effort:
-
-- **Auto-director templates** (auto-director-spec §4–5). Pure logic, but the templates pick from
-  the module library, and that library is one visualizer and two effects. Writing affinity
-  scoring and slot resolution now means writing them against almost nothing to choose from; the
-  slot mechanism only earns its keep once there are modules to fill it.
-- **Per-stem peaks** — a few lines, but nothing produces stems yet.
-- **Unicode and font fallback** (S17) — there is no text engine to extend.
-- **More effect modules** (M12 wants ten, two exist). The shaders can be *written* here but only
-  *seen* on the RTX machine, and an unverified shader is worse than none.
-
-Everything else that matters now needs the GPU: P3 step 5 (the React studio), masks and group
-compositing, wiring the render queue to `runExport`, wiring the supervised sidecar to the GPU job
-queue, and verifying the items listed below.
-
-Checked and *not* needed: the modulation `derived/` envelope cache. `compileModulation` already
-precomputes envelopes across the whole track and caches them in memory (§4.10), so the
-determinism requirement in modulation-spec §5 is met; an on-disk copy would only save startup
-time.
-
----
+**Not yet, and deliberately named rather than implied:** no on-canvas transform handles, no
+timeline drag or zoom, no modulation matrix panel, no preset browser, no export dialog (the
+queue exists in `src/export/queue.ts` but nothing wires it to the UI), no keyframes, no lyrics
+panel, no Auto panel. The library is still one visualizer and two effects, so the inspector has
+little to show; that is P4's job, not a gap in the generation.
 
 ### 4.28 The visualizer library, first batch (P4 step 1) — M11, module-spec §6
 
@@ -1145,8 +1042,6 @@ inspected before committing — each one draws what its name says.
 
 Still short of M11's ten: six more visualizers, and M12's effect list is at two of ten.
 
----
-
 ### 4.29 The visualizer library, second batch (P4 step 2) — M11 complete
 
 Five more, which takes the catalogue to **ten visualizers** and closes M11. The test in
@@ -1196,8 +1091,6 @@ Verified: `npm run check` **548 tests pass**; `npm run golden` **15/15 byte-iden
 
 **M11 is done. M12 (ten effects) is at two:** bloom and vignette.
 
----
-
 ### 4.30 The effect library (P4 step 3) — M12 complete
 
 Eight more effects, taking the catalogue to **ten** and closing M12.
@@ -1245,8 +1138,6 @@ byte-identical**; a ten-effect contact sheet was rendered over a bars layer and 
 existed in `src/project/commands.ts` since P3 step 2, but **the studio has no UI for them**. Ten
 effects that can only be reached by editing a `.pvproj` by hand is a hollow milestone.
 
----
-
 ### 4.31 The effect chain in the studio (P4 step 4) — M12's other half
 
 `addEffect` / `removeEffect` / `moveEffect` / `setEffectEnabled` / `setEffectParam` had existed
@@ -1278,8 +1169,6 @@ that silently did nothing would not read as success.
 Verified: `npm run check` **570 tests pass**; `npm run golden` **15/15 byte-identical**; `--smoke`
 reports seven checks green, and the screenshot shows a bars layer, a populated inspector, an
 Effects section and "Remove effect" sitting on the undo stack.
-
----
 
 ### 4.32 The palette (P4 step 5) — M17, compositor-spec §9
 
@@ -1317,8 +1206,6 @@ shows the palette panel and the literal/role dropdown on the fill colour.
 
 Not done here, and still open from compositor-spec §9: palettes saveable independently of
 projects, and import from an image (that one belongs with the auto-director's §5.3 extraction).
-
----
 
 ### 4.33 One document → video pipeline (P4 step 6)
 
@@ -1361,8 +1248,6 @@ suggested order:
 
 **P4 is complete.**
 
----
-
 ### 4.34 Render queue in the studio (P4 step 7) — M24, ui-spec §7
 
 - `src/export/export-presets.ts`: YouTube 1080p / 4K, Shorts, Square (H.264), Master HEVC 10-bit
@@ -1391,8 +1276,6 @@ and badges so that state stays unmissable. Timeline waveform neutral; selected l
 Verified here: 588 tests; a Node-side run cancelled a 4K job mid-render (cancelled, no file) and
 completed a square job (done, report) with no leftover processes; `--smoke` passes nine checks
 including `exportDialog` and a real `queuedRender` from inside the app.
-
----
 
 ### 4.35 Background layer and image assets (P4 step 8) — M14, data-formats §1.2
 
@@ -1455,8 +1338,6 @@ gradient, stretch orientation, contain bars, missing checkerboard, drift determi
 `--smoke` **10/10** including new `imageControl` (picker appears in image mode; the image bridge
 answers) and `queuedRender`.
 
----
-
 ### 4.36 Code and UI audit (2026-09-15, owner request)
 
 Method: read the studio store, preview host/clock, timeline, dialogs, History, render queue and the
@@ -1503,8 +1384,6 @@ labels have no timestamps (cosmetic); IPC path trust and quit ordering (§7).
 
 Verified here: `npm run check` **619 tests** (twice); `npm run golden` 15/15 identical; `--smoke` with
 the UI tour 9/9 and screenshots re-reviewed after the fixes.
-
----
 
 ### 4.37 Asset library (P4 step 9) — M40, D6, data-formats §1.2, ui-spec §5
 
@@ -1564,9 +1443,6 @@ Verified here: `npm run check` **636 tests** (new: `tests/project/asset-paths.te
 `tests/project/asset-library.test.ts`, `tests/assets/library-files.test.ts`); `--smoke` 10/10
 including `libraryToAsset`; collect + CLI render of the collected copy.
 
-
----
-
 ### 4.38 Text layer (P4 step 10) — M16, M32, PROJECT.md §8.13, §8.7
 
 **Rasterisation** — `TextRasterizer` is an *interface* in `src/engine/core/text.ts`; the engine never
@@ -1625,9 +1501,6 @@ boundary is where that lands); per-line and per-role overrides, background-plate
 keyframed text (S1) belong with the lyrics work (P6); no font picker browsing the system font
 folder yet — you choose a file.
 
-
----
-
 ### 4.39 Layer groups (P4 step 11) — M38, compositor-spec §1
 
 A group is now a real thing in the engine, not a flattening step. Its children composite into the
@@ -1659,9 +1532,6 @@ refusal; `npm run golden` **15/15 identical**; `--smoke` **12/12** with a new `g
 
 Not included: dragging layers into a group in the list (use Group/Ungroup for now), and masks (S7).
 
-
----
-
 ### 4.40 Logo layer (P4 step 12) — M15
 
 `core.source.logo`: an image drawn at a chosen width with its aspect kept, positioned by the layer
@@ -1678,9 +1548,6 @@ Verified here: `npm run check` **670 tests**, including `tests/golden/logo-gpu.t
 and aspect (0.5 of a 200 px reference with a 2:1 image is 100×50), tint, pulse (varies over frames
 with `pulse: 1`, identical across frames with `pulse: 0`, and stays between its resting size and
 1.5×), and the missing-image placeholder; `npm run golden` 15/15 identical.
-
-
----
 
 ### 4.41 Video layers (P4 step 13) — M39, M14, D4, compositor-spec §8
 
@@ -1941,3 +1808,181 @@ starting presets inside manifests (D16's other half — built-ins live in `prese
 presets that bring their assets across projects (see §7); drag-and-drop of presets onto layers; a
 rename action in the browser (the store has `rename`); thumbnails for video layers show the
 missing-clip checkerboard, because the stills engine has no video frames.
+
+---
+
+## 5. Measured results
+
+The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:
+
+- **Determinism:** engine frames, export raw frames (NV12 and 10-bit) and bit-exact MP4 bytes are identical across processes.
+- **Readback:** sync beats async PBO through ANGLE; GPU NV12 is fastest (1080p 197 fps, 4K 58 fps on the bars project).
+- **Throughput (six-layer bars, 60 s):** H.264 1080p60 209 fps, 4K60 56 fps (NVENC-bound); HEVC 10-bit 98 / 27 fps.
+- **NVENC p5:** 1080p H.264 199 / HEVC ~275 fps; 4K H.264 61 / HEVC ~92 fps. AV1 unavailable (Ampere).
+- **Colour:** GPU NV12, swscale and HEVC 10-bit all within 1.2 code values of expected; black luma 16 / 64; all four tags present.
+- **Stems:** `htdemucs` 4-min track in 8.6 s (28× realtime), 0.54 GB peak allocated; Python start + model load ~4 s.
+- **3D scenes (M37, CLI, 1080p60, one scene layer + one effect):** shape + bloom 193 fps, terrain + bloom
+  177 fps, bar city + depth of field 155 fps (§4.43).
+- **Sync:** flash on the expected frame for 18/18 clicks; video−audio 6.67 ms (designed sub-frame rounding at a 1.01 s phase). Analysis sees clicks 5.8 ms early (centred FFT window).
+
+---
+
+## 6. Decisions made during implementation
+
+- **D48** tone shoulder, knee 0.9 (owner). **D49** sRGB OETF, tagged BT.709 (owner).
+- **D39 resolved** → GPU NV12 for 8-bit 4:2:0; swscale for 10-bit/4:4:4. **D50** sync readback default.
+- **D40** CQ values unchanged pending real-footage quality checks; HEVC is faster than H.264 at 4K.
+- uv has no download command → pip fills the wheelhouse. torch on `cu130` (driver R580+).
+- FFmpeg 8 needs `setparams` to keep colour tags on filtered frames.
+- **D51** (owner, 2026-09-14) settles the look-ahead sign: positive means "looks ahead", default
+  **+30 ms**, sampling `source(t + lookAheadMs)`. D23's "−30 ms" describes the lag being
+  compensated, not the stored field — read literally against modulation-spec §4 it would have
+  increased the lag rather than cancelling it.
+- Envelope `mode: linear` is specified only as "symmetric smoothing"; implemented as a single
+  time constant of `(attack + release) / 2`, so switching modes does not jump.
+- **M37 (§4.43):** one Three.js `WebGLRenderer` per GL context, shared and reference-counted;
+  scenes render to their own 4× MSAA RGBA16F target with a float depth texture and are copied into
+  the layer target. Three's colour management and tone mapping are off (linear in, linear out —
+  the engine tone-maps once). Depth effects are gated by a new `capabilities.needsDepth` and
+  refused (reported) on any layer that is not `scene3d`; the studio does not offer them there.
+  The 3D field of view applies to the frame's **short side**, so 9:16 shows the same subject.
+  `three` is pinned to an exact version: an upgrade can change pixels, and the host reads one
+  Three internal (`properties.get(texture).__webglTexture`).
+
+---
+
+## 7. Known gaps, debts and open questions
+
+- **Tone shoulder touches fully saturated colours** (#ffffff → luma 232 instead of 235; pure primaries ~250/255).
+  Owner kept D48 knowing the knee; flag again if palette-exact output becomes a requirement.
+- `htdemucs_ft` not provisioned or measured (manifest entry needed: it is a bag of 4 models, each weight file pinned).
+- HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
+  (16-bit samples packed like NV12) would likely close the gap.
+- Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7), and the
+  **`multiply` and `overlay` blend modes** — the inspector offers them (they are in the document's
+  `BLEND_MODES`) but the compositor implements normal/add/screen only, so they render as normal with
+  a note. Either implement them (M7) or stop offering them. Group compositing (M38) landed in §4.39.
+- **No UI for modulation bindings** (M13): the evaluator is complete, but nothing in the studio calls
+  `addModulation`; bindings arrive only through presets and project files. Top of ROADMAP.md §3.
+- Presets: the store (§4.19, §4.25) and the browser (§4.44) are done. A preset that uses an image,
+  font or video stores the project's asset **id**, not the file; applied to another project the
+  asset is missing and the layer says so (D6's "referenced" is not yet cross-project).
+- Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
+  single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
+  §7 sketches the shape, it does not pin field names.
+- `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
+- Export: the queue landed (§4.23); still no disk-space precheck, thumbnails, motion blur, SSAA or audio stream-copy.
+- Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
+- The supervised sidecar landed (§4.24) and its serve mode was verified on this machine (§9); nothing in
+  the studio calls it yet — that arrives with stems (M5) and the GPU job queue (M28).
+- **Flaky under load:** once, a full `npm run check` straight after a smoke run took 190 s and one GPU
+  test failed with "Electron exited without writing a result" (`effects-gpu`, bloom). Two reruns of
+  the suite and three of that file passed. Suspect too many concurrent Electron GPU children; if it
+  recurs, cap vitest workers for `tests/golden/`.
+- **IPC reads any path the renderer names** (`readAudio`, `loadImage`, `readProject`). The renderer is
+  sandboxed and loads only our bundle, so this is not reachable today. M35 kept it that way: drop-in
+  modules are JSON + GLSL and no JS from `modules/` runs (§4.42). If JS modules are ever allowed,
+  these should accept only paths the user picked or the project references.
+- **Three.js internals:** `scene3d/host.ts` reads `renderer.properties.get(texture).__webglTexture`
+  to copy a scene and hand on its depth. Re-check on any Three upgrade (the scene3d GPU tests and
+  the `scene3d` golden entry fail loudly if it breaks).
+- A quit while a render is running cancels the render first, *then* the window asks about unsaved
+  changes; answering Cancel keeps the app open with the render already cancelled.
+
+---
+
+## 8. P2 — Engine: done (PROJECT.md §10)
+
+Goal: *"Engine renders a multi-layer project from a hand-written JSON file, headlessly, correctly at
+16:9 / 9:16 / 1:1. Golden-frame tests green. The engine/shell import boundary is lint-enforced."*
+**All four clauses hold.**
+
+1. ✅ **Project document v1** (`src/project/`) — §4.7
+2. ✅ **Layout & aspect system** — §4.8
+3. ✅ **Param resolution + modulation evaluator** — §4.10
+4. ✅ **Effect chain contract + bloom and vignette** — §4.11
+5. ✅ **Golden frames** — §4.12
+6. ✅ **Headless render CLI** — §4.13
+
+---
+
+## 9. P3 — Studio: done (PROJECT.md §10)
+
+> **Verified on the RTX machine, 2026-09-15.** All five items below have now run here.
+> 1. ✅ `npm run check` — 527 tests pass (the laptop's note said 519; the count had drifted).
+> 2. ✅ `npm run golden` — **15/15 byte-identical**. The cache, sections and beat-time changes
+>    moved no pixel, as predicted.
+> 3. ✅ `npm run render` twice on the same audio — second run reports `Analysis: cache hit`, and
+>    the two MP4s are **byte-identical**, so the cache round-trip does not perturb the analysis.
+> 4. ✅ `npm run validate -- --only 7` — stems pass: htdemucs 8.6 s, 27.9× realtime, 0.54 GB peak,
+>    22 progress events. The `cmd_separate` → `_separate(args, context)` refactor is sound.
+> 5. ✅ Serve mode, after fixing a **deadlock that made it unusable** — see §4.24.
+
+Goal: *"Load audio, trim/fade, add/edit layers, live preview on the audio master clock, timeline,
+undo/redo, aspect switcher, save/load."* The Shimga-style UI (ui-spec.md).
+
+The engine is ready for it: the studio's job is to build `ProjectDocument`s and call
+`toRenderProject` + `renderFrame`, which is exactly what `npm run render` and `npm run golden`
+already do headlessly.
+
+Suggested order (each a commit, STATUS updated each time):
+
+1. ✅ **App shell** — see §4.14.
+2. ✅ **Command/undo stack** — see §4.15.
+3. ✅ **Analysis pipeline** — see §4.4. The on-disk cache tree is still outstanding.
+4. ✅ **Preview clock** — see §4.16.
+5. ✅ **React studio** — see §4.27.
+
+Also outstanding from earlier phases: P1's lyrics/extras tiers, `htdemucs_ft` and the
+offline-rebuild CI job; the GPU P010 path for HEVC 10-bit (§7).
+
+*The rest of this section is the plan as it stood on 2026-09-15, kept for the record; it has since
+been overtaken by P4 (§10).*
+
+**Work that does not need a GPU** is now largely done — §4.16 through §4.26 were all built on a
+non-NVIDIA laptop. What is left there is thin and mostly blocked on the engine rather than on
+effort:
+
+- **Auto-director templates** (auto-director-spec §4–5). Pure logic, but the templates pick from
+  the module library, and that library is one visualizer and two effects. Writing affinity
+  scoring and slot resolution now means writing them against almost nothing to choose from; the
+  slot mechanism only earns its keep once there are modules to fill it.
+- **Per-stem peaks** — a few lines, but nothing produces stems yet.
+- **Unicode and font fallback** (S17) — there is no text engine to extend.
+- **More effect modules** (M12 wants ten, two exist). The shaders can be *written* here but only
+  *seen* on the RTX machine, and an unverified shader is worse than none.
+
+Everything else that matters now needs the GPU: P3 step 5 (the React studio), masks and group
+compositing, wiring the render queue to `runExport`, wiring the supervised sidecar to the GPU job
+queue, and verifying the items listed below.
+
+Checked and *not* needed: the modulation `derived/` envelope cache. `compileModulation` already
+precomputes envelopes across the whole track and caches them in memory (§4.10), so the
+determinism requirement in modulation-spec §5 is met; an on-disk copy would only save startup
+time.
+
+---
+
+## 10. P4 — Library: done (PROJECT.md §10)
+
+Goal: *"10+ visualizers, 10+ effects, backgrounds (incl. video frame cache, M39), text, logo,
+palette system, layer groups (M38), Three.js scene layers (M37), preset save/load, asset library
+(M40), `modules/` drop-in folder + authoring guide."* **Every clause holds** (steps 1–16, §1):
+
+| Clause | Where |
+|---|---|
+| 10+ visualizers (M11) — 10, plus 3 sources, text and 3 scenes | §4.28, §4.29 |
+| 10+ effects (M12) — 10, plus depth of field | §4.30, §4.31, §4.43 |
+| Backgrounds incl. video (M14, M39) | §4.35, §4.41 |
+| Text (M16, M32) and logo (M15) | §4.38, §4.40 |
+| Palette (M17) | §4.32 |
+| Layer groups (M38) | §4.39 |
+| Three.js scene layers (M37) | §4.43 |
+| Preset save/load (M25) and browser (S8) | §4.19, §4.25, §4.44 |
+| Asset library (M40) | §4.37 |
+| `modules/` + authoring guide (M35) | §4.42, `docs/module-authoring.md` |
+
+Two audits ran during the phase (§4.36 and the checks built into each step); the smoke check grew
+from 8 to 18 end-to-end checks of the real studio, each confirmed to fail when its feature breaks.
+
+What comes next is in `docs/ROADMAP.md` §3.

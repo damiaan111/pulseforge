@@ -10,6 +10,7 @@ WebGL2, with a Python ML sidecar (Demucs, WhisperX) and FFmpeg/NVENC export.
 | Order | Document | What it gives you |
 |---|---|---|
 | 0 | `docs/STATUS.md` | **Where the build is right now**: what is done, what is not, how to run and verify it, known issues, next step. Update it at the end of every step |
+| 0 | `docs/ROADMAP.md` | **Every requirement (M1–M40, S1–S19) with its state and what is left**, the order of the remaining work (§3), and deviations from the specs awaiting the owner (§4). Update it with STATUS |
 | 1 | `PROJECT.md` | Vision, locked decisions, hardware envelope, architecture, all 40 must-haves, milestones, risks |
 | 2 | `docs/decisions.md` | **Authoritative.** 50 resolved decisions. Where a spec's "open questions" disagrees, this wins |
 | 3 | `docs/coverage-audit.md` | Map of which document specifies what |
@@ -41,9 +42,9 @@ on Ampere. Probe capabilities and hide unsupported options rather than failing a
 
 ## Current phase
 
-See `docs/STATUS.md` for the live state. P0 (`START-HERE.md`) builds the spike and the validation
-script — no UI, no app shell beyond what the spike needs — to replace the estimates in
-`PROJECT.md` §4 with measured numbers.
+See `docs/STATUS.md` for the live state and `docs/ROADMAP.md` §3 for what comes next. P0, P2, P3 and
+P4 are complete (2026-09-18); the next item is the modulation binding UI (M13). `START-HERE.md`
+describes P0, which is done.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept
 detailed enough that a fresh session can take over mid-project. Commit at the end of each step.

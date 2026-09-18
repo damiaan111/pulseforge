@@ -55,9 +55,10 @@ bed.
 
 ## Screenshots
 
-Nothing to show yet, the studio interface is the part still being built. Once it is there, drop
-the images into `docs/images/` and uncomment the block below along with the one at the top of this
-file.
+None committed yet. The studio works now, so these just need taking: drop the images into
+`docs/images/` and uncomment the block below along with the one at the top of this file.
+(`npm run dev -- --smoke` with `PULSEFORGE_UI_TOUR=1` writes rough captures to `out/ui-tour/`, but
+they show the smoke check's test project, not a real one.)
 
 Four worth taking, and what each one should show:
 
@@ -166,6 +167,8 @@ Some things you can pass it:
 |---|---|
 | `npm run check` | Typecheck, lint and run the test suite |
 | `npm run golden` | Re-render the reference frames and check nothing moved |
+| `npm run modules:check` | Check the modules in `modules/`: they compile, render the same twice, and fit every aspect |
+| `npm run presets:builtin` | Rebuild the presets that ship with the app |
 | `npm run validate` | The full hardware validation run, writes a report to `out/validate/` |
 | `npm run build` | Bundle the app without launching it |
 
@@ -222,6 +225,7 @@ Measured on the RTX 3060 with a six layer project:
 | 1080p60, H.264 | 209 fps, so roughly three and a half times faster than realtime |
 | 4K60, H.264 | 56 fps |
 | 4K60, HEVC 10-bit | 27 fps |
+| 1080p60 with a 3D scene and depth of field | 155 fps |
 | Splitting a four minute track into stems | 8.6 seconds |
 
 ## Where things live
@@ -247,19 +251,25 @@ git and fix one wrong value in a text editor if you ever need to.
 
 Being straight about this, since the repo is public to anyone I share it with.
 
-**Working:** the rendering engine, the project format with undo, the modulation system, the audio
-analysis with beat detection and section detection, stem separation, the export pipeline with
-NVENC, the render queue, presets, and a command line that renders a project to an MP4 without
-opening anything.
+**Working:** the studio. Import a track, build a look from ten visualizers, ten effects plus depth
+of field, backgrounds (colour, gradient, image or video), text, logos, groups and three 3D scenes
+(a reactive shape, a synthwave terrain, a city of bars), reskin it with the palette, browse and save
+presets with animated thumbnails, preview it against the audio, and queue NVENC renders in any
+aspect. Underneath: the deterministic engine, the project format with undo, the modulation
+evaluator, audio analysis with beats and sections, stem separation, drop-in shader modules, and a
+command line that renders a project without opening anything.
 
-**Being built:** the studio interface. The engine underneath it is finished and tested, so this is
-the part that turns a working renderer into something you can actually sit down and use.
+**The gaps that matter most:** there is no screen yet for wiring audio to parameters — the system
+that does it is finished, but bindings can only arrive through presets or the project file. Stems
+separate fine but are not yet wired into the studio. Clip trimming and fades, solo and lock have
+no controls yet.
 
-**Still to come:** lyrics and karaoke, the auto director's templates, and a much larger library of
-effects. Two effects exist against a target of ten.
+**Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me, autosave,
+and the settings and cache screens.
 
-`docs/STATUS.md` has the honest version of all of this, down to what has been verified on real
-hardware and what has not.
+`docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
+will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real
+hardware and how.
 
 ## The documentation
 
@@ -269,6 +279,8 @@ The design was written before the code, and it is all in the repo.
 |---|---|
 | `PROJECT.md` | The whole plan. What it is, what it needs, what it will never do. |
 | `docs/STATUS.md` | Where the build actually is. Read this first if you are picking it up. |
+| `docs/ROADMAP.md` | Every requirement, done or not, and what gets built next. |
+| `docs/module-authoring.md` | How to write your own visualizer or effect for `modules/`. |
 | `docs/decisions.md` | Every decision that got made, and why. |
 | `docs/module-spec.md` | How a visualizer or effect is put together. |
 | `docs/modulation-spec.md` | How audio drives parameters. |
@@ -284,7 +296,8 @@ The design was written before the code, and it is all in the repo.
 This is a personal project. I am building it for my own use, on my own hardware, and it is shaped
 around that. It is not trying to be a product and there is no support.
 
-If you do end up poking at it, `docs/module-spec.md` explains how to write your own visualizer or
-effect. Anything you drop into `modules/` gets picked up when the app starts, and the settings
-panel builds itself from what your module says it has, so you do not have to write any interface
-code to go with it.
+If you do end up poking at it, `docs/module-authoring.md` explains how to write your own visualizer
+or effect: a small JSON file and a shader. Anything you drop into `modules/` gets picked up while
+the app is running, and the settings panel builds itself from what your module says it has, so you
+do not have to write any interface code to go with it. `modules/example-pulse-rings/` is a worked
+example and `modules/_template/` a starting point.
