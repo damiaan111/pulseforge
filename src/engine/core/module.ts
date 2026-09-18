@@ -12,6 +12,7 @@ import type { AnalysisSet } from './analysis.ts';
 import type { ImageTexture } from './image.ts';
 import type { ParamSpec, ParamValues } from './params.ts';
 import type { TextRasterizer } from './text.ts';
+import type { VideoTexture } from './video.ts';
 import type { Prng } from './prng.ts';
 import type { RenderTarget, TargetPool } from '../render/targets.ts';
 import type { Rational } from './time.ts';
@@ -93,6 +94,12 @@ export interface RenderContext {
    * must then say so through `warn` and draw something visibly wrong, never nothing.
    */
   readonly image: (assetId: string) => ImageTexture | undefined;
+  /**
+   * The current frame of a video asset (M39). Undefined when the clip has no extracted frames yet
+   * — a missing file, or a frame cache still building — which the module must report and draw
+   * something visibly wrong for, never nothing.
+   */
+  readonly video: (assetId: string) => VideoTexture | undefined;
   /**
    * The layer's time range in timeline seconds, for entry and exit animations. `out` is null when
    * the layer runs to the end. Effects see their layer's range; the global chain sees 0 → null.

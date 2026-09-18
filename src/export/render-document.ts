@@ -18,6 +18,9 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { loadImageAssets } from '../assets/load-images.ts';
 import { defaultFontFile, loadFontAssets } from '../assets/fonts.ts';
+import { resolveAssetPath } from '../assets/load-images.ts';
+import { extractSequence, sequenceDir } from '../assets/video-cache.ts';
+import { videoFramesNeeded } from '../engine/modules/video.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
@@ -26,7 +29,7 @@ import { loadDocument } from '../project/load.ts';
 import { timelineDurationTicks, toRenderProject, type SnapshotNote } from '../project/snapshot.ts';
 import type { DocumentIssue } from '../project/parse.ts';
 import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
-import type { ImageFile } from '../../spike/electron/protocol.ts';
+import type { ImageFile, VideoSequenceFile } from '../../spike/electron/protocol.ts';
 import { bundleElectron } from '../../spike/harness.ts';
 import { runExportSpike } from '../../spike/lib/export-run.ts';
 import type { RenderReport } from './report.ts';
@@ -76,6 +79,11 @@ export interface RenderDocumentOptions {
   /** Scratch: the analysis blob, the encoder's temporary files, the result JSON. */
   readonly workDir: string;
   readonly cacheRoot: string;
+  /**
+   * Where video clips are extracted (M39). Separate because a frame cache runs to gigabytes and
+   * belongs on a drive with room; defaults to `cacheRoot`.
+   */
+  readonly videoCacheRoot?: string | undefined;
   /** Distinguishes concurrent callers' scratch files. */
   readonly name: string;
   readonly noCache?: boolean | undefined;
@@ -177,7 +185,39 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   // Fonts cross as files (the child reads them); the bundled default is always registered, so a text
   // layer with no font chosen — or a missing one — still renders, and says which.
   const fontAssets = loadFontAssets(document, options.projectPath);
-  const problems = [...loaded.problems, ...fontAssets.problems];
+  // Video clips are extracted to the frame cache at this render's fps and width (M39). A clip that
+  // cannot be found or read is a problem, not a failure: its layer draws the missing-clip
+  // checkerboard and the render says why, exactly as the preview does.
+  const videoProblems: { assetId: string; detail: string }[] = [];
+  const videos: VideoSequenceFile[] = [];
+  for (const asset of document.assets) {
+    if (asset.kind !== 'video') continue;
+    const path = resolveAssetPath(asset.path, options.projectPath);
+    if (path === undefined || !existsSync(path)) {
+      videoProblems.push({ assetId: asset.id, detail: `video "${asset.name}" is missing${path === undefined ? '' : `: ${path}`}` });
+      continue;
+    }
+    try {
+      say(`Extracting video frames: ${asset.name}`);
+      const sequence = await extractSequence({
+        ffmpegExe: FFMPEG_EXE,
+        ffprobeExe: FFPROBE_EXE,
+        root: options.videoCacheRoot ?? options.cacheRoot,
+        path,
+        videoHash: asset.hash,
+        fps,
+        width: canvas.width,
+        // Enough for the whole timeline at the fastest speed a layer may use; a loop wraps.
+        maxFrames: videoFramesNeeded(project, asset.id, frames),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      });
+      videos.push({ hash: asset.hash, dir: sequenceDir(options.videoCacheRoot ?? options.cacheRoot, asset.hash, fps, canvas.width), frameCount: sequence.frameCount });
+    } catch (error) {
+      if (options.signal?.aborted === true) throw error;
+      videoProblems.push({ assetId: asset.id, detail: (error as Error).message });
+    }
+  }
+  const problems = [...loaded.problems, ...fontAssets.problems, ...videoProblems];
   const allNotes: SnapshotNote[] = [
     ...notes,
     ...problems.map((problem) => ({ path: `assets.${problem.assetId}`, detail: problem.detail })),
@@ -216,6 +256,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     durationTicks,
     images,
     text: { default: defaultFontFile(), fonts: fontAssets.fonts },
+    videos,
     settings: defaultEncodeSettings(options.codec),
     outputPath: options.outputPath,
     // Sync readback: measured faster than the PBO ring through ANGLE (D50).

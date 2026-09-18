@@ -24,6 +24,8 @@ export interface RenderServiceOptions {
   readonly workRoot: string;
   /** The analysis cache root, the same one the studio's preview analysis uses, so a render is a cache hit. */
   readonly cacheRoot: string;
+  /** Where video clips are extracted; on a drive with room (M39). */
+  readonly videoCacheRoot?: string;
   readonly onChange?: (jobs: readonly RenderJob[]) => void;
   /** How often a running job checks for cancellation. */
   readonly cancelPollMs?: number;
@@ -83,6 +85,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           outputPath: job.outputPath,
           workDir: join(options.workRoot, job.id),
           cacheRoot: options.cacheRoot,
+          videoCacheRoot: options.videoCacheRoot,
           name: 'job',
           signal: controller.signal,
           onProgress: (progress) => {

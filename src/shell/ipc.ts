@@ -30,6 +30,11 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  videoImport: 'pf:video:import',
+  videoPrepare: 'pf:video:prepare',
+  videoFrame: 'pf:video:frame',
+  /** Main → renderer: frames extracted so far for a clip being prepared. */
+  videoProgress: 'pf:video:progress',
   fontImport: 'pf:font:import',
   fontLoad: 'pf:font:load',
   fontDefault: 'pf:font:default',
@@ -129,6 +134,31 @@ export interface FontBytes {
 
 export type FontLoadResult =
   | { readonly status: 'ok'; readonly font: FontBytes }
+  | { readonly status: 'missing'; readonly path: string }
+  | { readonly status: 'error'; readonly path: string; readonly message: string };
+
+/** A video file chosen for import: identified and measured, not yet extracted (M39). */
+export interface VideoFile {
+  readonly path: string;
+  /** SHA-256 of the file's bytes: the asset hash and the frame-cache key. */
+  readonly hash: string;
+  readonly size: number;
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds: number;
+}
+
+/** A clip's preview proxy, extracted and ready to read frames from. */
+export interface VideoPrepared {
+  readonly hash: string;
+  readonly frameCount: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export type VideoPrepareResult =
+  | { readonly status: 'ok'; readonly sequence: VideoPrepared }
   | { readonly status: 'missing'; readonly path: string }
   | { readonly status: 'error'; readonly path: string; readonly message: string };
 
@@ -232,6 +262,16 @@ export interface PulseforgeApi {
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
   analyzeAudio(path: string): Promise<AnalysisPayload>;
+  /** Shows an open dialog for a video and identifies it. Extraction is `prepareVideo`. */
+  importVideo(): Promise<VideoFile | null>;
+  /**
+   * Extracts (or reuses) the preview proxy of a clip at the project's fps. Slow the first time;
+   * progress arrives through `onVideoProgress`.
+   */
+  prepareVideo(request: { path: string; projectPath: string | null; hash: string; fps: { num: number; den: number }; maxFrames: number }): Promise<VideoPrepareResult>;
+  /** One still of a prepared proxy, as JPEG bytes. */
+  videoFrame(hash: string, fps: { num: number; den: number }, sourceFrame: number): Promise<Uint8Array>;
+  onVideoProgress(listener: (hash: string, frames: number) => void): () => void;
   /** Shows an open dialog for a font file (starting in the bundled fonts). Null when cancelled. */
   importFont(): Promise<FontBytes | null>;
   /** Reads a font the project references; the path may be relative to `projectPath`. */

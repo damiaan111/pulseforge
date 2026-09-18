@@ -444,7 +444,7 @@ function ColorControl(props: {
  */
 function AssetControl(props: {
   label: string;
-  accept: 'image' | 'font';
+  accept: 'image' | 'font' | 'video';
   assetId: string;
   badge: React.ReactNode;
   assign?: (value: unknown) => Command;
@@ -454,6 +454,7 @@ function AssetControl(props: {
   const statuses = useStudio((s) => s.assetStatus);
   const importImage = useStudio((s) => s.importImage);
   const importFont = useStudio((s) => s.importFont);
+  const importVideo = useStudio((s) => s.importVideo);
   const run = useStudio((s) => s.run);
   const asset = assetId === '' ? undefined : assets.find((a) => a.id === assetId);
   const status = asset === undefined ? undefined : statuses[asset.id];
@@ -462,7 +463,7 @@ function AssetControl(props: {
 
   async function choose(): Promise<void> {
     if (assign === undefined) return;
-    const imported = accept === 'font' ? await importFont() : await importImage();
+    const imported = accept === 'font' ? await importFont() : accept === 'video' ? await importVideo() : await importImage();
     if (imported === null) return;
     const existing = findAssetByHash(useStudio.getState().document, imported.hash);
     run(existing === undefined
@@ -477,7 +478,7 @@ function AssetControl(props: {
         <span className="asset-name" title={asset?.path ?? ''}>
           {assetId === '' ? (accept === 'font' ? 'Inter (bundled)' : 'none') : asset === undefined ? 'unknown asset' : asset.name}
         </span>
-        <button type="button" data-action={accept === 'font' ? 'choose-font' : 'choose-image'} disabled={assign === undefined} onClick={() => void choose()}>
+        <button type="button" data-action={`choose-${accept}`} disabled={assign === undefined} onClick={() => void choose()}>
           Choose…
         </button>
         {assetId !== '' && assign !== undefined && (

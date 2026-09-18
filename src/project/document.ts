@@ -336,7 +336,7 @@ export const DEFAULT_LOOK_AHEAD_MS = 30;
 // Assets (M40 — the first slice: images for backgrounds)
 // ---------------------------------------------------------------------------
 
-export const ASSET_KINDS = ['image', 'font'] as const;
+export const ASSET_KINDS = ['image', 'font', 'video'] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /**

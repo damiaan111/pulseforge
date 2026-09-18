@@ -36,6 +36,10 @@ export function App(): React.JSX.Element {
     };
   }, [setRenders]);
 
+  // Video extraction progress, pushed from the main process while a clip's proxy is built (M39).
+  const reportVideoProgress = useStudio((s) => s.reportVideoProgress);
+  useEffect(() => window.pulseforge.onVideoProgress(reportVideoProgress), [reportVideoProgress]);
+
   // The bundled typeface, once: text layers need it before they can draw anything (§8.13).
   useEffect(() => {
     void loadDefaultFont();

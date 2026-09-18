@@ -9,6 +9,12 @@
 // No GL, Node or Electron types here — the pump is unit-tested with fakes.
 
 export interface PumpSource {
+  /**
+   * Awaited before `renderFrame`, for inputs the host must fetch rather than compute — a video
+   * layer's frame comes off disk and is decoded (M39). Rendering stays synchronous and
+   * deterministic; only the fetching is asynchronous.
+   */
+  prepareFrame?(frameIndex: number): Promise<void>;
   renderFrame(frameIndex: number): void;
   readback: {
     readonly depth: number;
@@ -174,6 +180,7 @@ export async function pumpFrames(options: PumpOptions): Promise<PumpStats> {
     while (!readback.hasFreeSlot()) await collectOldestBlocking();
 
     const renderStart = now();
+    if (source.prepareFrame !== undefined) await source.prepareFrame(frameIndex);
     source.renderFrame(frameIndex);
     readback.submit();
     stats.renderMs += now() - renderStart;

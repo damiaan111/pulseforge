@@ -29,6 +29,8 @@ import type { DecodedImage } from './core/image.ts';
 import type { TextRasterizer } from './core/text.ts';
 import { textModule } from './modules/text.ts';
 import { logoModule } from './modules/logo.ts';
+import { videoModule } from './modules/video.ts';
+import { VideoStore, type VideoFrameSource } from './render/videos.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
@@ -56,7 +58,7 @@ import { testPatternModule } from './modules/test-pattern.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Sources (M14), text (M16), visualizers (M11), then effects (M12), then the test modules the validator uses.
-  backgroundModule, textModule, logoModule,
+  backgroundModule, textModule, logoModule, videoModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
@@ -144,6 +146,14 @@ export interface Engine {
    */
   setImage(hash: string, image: DecodedImage): void;
   hasImage(hash: string): boolean;
+  /**
+   * Video (M39). The host extracts a clip to stills at the project's fps and then, before each
+   * render, pushes in the frame that frame needs — `videoSourceFrame` says which. `setVideoSequence`
+   * declares how long the sequence is, which is what lets the module loop and clamp.
+   */
+  setVideoSequence(hash: string, frameCount: number): void;
+  setVideoFrame(hash: string, frameIndex: number, source: VideoFrameSource): void;
+  hasVideo(hash: string): boolean;
   dispose(): void;
 }
 
@@ -171,6 +181,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const registry = new Map((options.modules ?? BUILTIN_MODULES).map((m) => [m.manifest.id, m]));
   const pool = new TargetPool(gl);
   const images = new ImageStore(gl);
+  const videos = new VideoStore(gl);
   const compositor = new Compositor(gl, pool);
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
   let output: RenderTarget | undefined;
@@ -258,6 +269,10 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         image: (assetId: string) => {
           const ref = project.assets?.[assetId];
           return ref === undefined || ref.kind !== 'image' ? undefined : images.texture(ref.hash);
+        },
+        video: (assetId: string) => {
+          const ref = project.assets?.[assetId];
+          return ref === undefined || ref.kind !== 'video' ? undefined : videos.get(ref.hash);
         },
         text: options.text,
         font: (assetId: string) => {
@@ -507,10 +522,21 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
 
     hasImage: (hash) => images.has(hash),
 
+    setVideoSequence(hash, frameCount) {
+      videos.setSequence(hash, frameCount);
+    },
+
+    setVideoFrame(hash, frameIndex, source) {
+      videos.setFrame(hash, frameIndex, source);
+    },
+
+    hasVideo: (hash) => videos.has(hash),
+
     dispose() {
       for (const { instance } of instances.values()) instance.dispose();
       instances.clear();
       images.dispose();
+      videos.dispose();
       nv12?.dispose();
       compositor.dispose();
       pool.dispose();

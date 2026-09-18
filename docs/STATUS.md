@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅ (§4.28–§4.40); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅ (§4.28–§4.41); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -46,7 +46,8 @@ P4 steps:
 | 9 | Asset library (M40): status, relink, find-in-folder, collect files, relative paths, library folder | ✅ | `daaea3b` |
 | 10 | Text layer (M16, M32): deterministic rasterisation, per-word metrics, styling, animation, bundled fonts | ✅ | `5472289` |
 | 11 | Layer groups (M38): real group compositing, group/ungroup in the studio | ✅ | `1c9efa7` |
-| 12 | Logo layer (M15): sized image with aspect kept, tint and reactive pulse | ✅ | (this commit) |
+| 12 | Logo layer (M15): sized image with aspect kept, tint and reactive pulse | ✅ | `1a42b07` |
+| 13 | Video layers (M39): deterministic frame cache, engine video store, export + preview | ✅ | (this commit) |
 
 P3 steps:
 
@@ -1334,7 +1335,7 @@ suggested order:
 4. ✅ **Text layer** (M16, M32) — §4.38.
 5. ✅ **Logo layer** (M15) — §4.40.
 6. ✅ **Group compositing** (M38) — §4.39.
-7. **Video layers** (M39): frame cache at project fps.
+7. ✅ **Video layers** (M39) — §4.41.
 8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
 9. **Preset browser UI** (S8) and **`modules/` drop-in folder + authoring guide** (M35).
 
@@ -1655,3 +1656,59 @@ Verified here: `npm run check` **670 tests**, including `tests/golden/logo-gpu.t
 and aspect (0.5 of a 200 px reference with a 2:1 image is 100×50), tint, pulse (varies over frames
 with `pulse: 1`, identical across frames with `pulse: 0`, and stays between its resting size and
 1.5×), and the missing-image placeholder; `npm run golden` 15/15 identical.
+
+
+---
+
+### 4.41 Video layers (P4 step 13) — M39, M14, D4, compositor-spec §8
+
+Decode is decoupled from render entirely, as the spec requires. A clip is **extracted once** to
+still frames at the project's fps; rendering frame n draws cached frame `map(n)`. Nothing ever seeks
+or plays a `<video>`, so a scrubbed frame is the frame that exports.
+
+**Frame cache** — `src/assets/video-cache.ts`: `<root>/video/<hash>/<fpsNum>-<fpsDen>-<width>/`
+holding `frame-NNNNNN.jpg` (q2) and an `index.json` written **last and atomically**, so a folder is
+a hit only once complete; a corrupt or incomplete index is a miss and is re-extracted. Resumable,
+idempotent, `maxFrames`-capped (a long clip under a short video is not decoded whole), abortable,
+never upscaled (sizes round *down* to even — a test caught rounding up past an odd source width).
+Keyed by content hash, so relinks and renames reuse it. Lives on the repo's drive (`ROOT/cache`,
+shared by the CLI, the queue and the studio) — a frame cache runs to gigabytes and C: is nearly full.
+The vendored FFmpeg is LGPL (no libx264); tests generate clips with the built-in `mpeg4` encoder.
+
+**Engine** — `core/video.ts`: `videoSourceFrame(timing)`, a pure integer mapping from timeline
+frame to sequence frame (layer in-point, trim, speed with `floor`, loop or hold), shared by the host
+that fetches and the module that draws so they cannot disagree. `render/videos.ts`: one texture per
+clip, re-uploaded in place (`SRGB8_ALPHA8`, linear on sample), accepting decoded bytes or an
+`ImageBitmap`. `Engine.setVideoSequence / setVideoFrame / hasVideo`, `RenderContext.video(assetId)`.
+
+**Module** `core.source.video`: clip (asset, `accept: 'video'`), fit cover/contain/stretch, bars
+colour, dim (modulatable); speed, loop, start-at — **not** modulatable, because the host must know
+which frame to fetch before the frame renders. A missing clip draws the checkerboard and warns; if
+the host is behind, the module says which frame it is showing rather than pretending.
+
+**Feeding frames** — `src/video/frame-feeder.ts`, host-agnostic (`readFrame` injected):
+`videoRequests(project, frame)` walks groups and de-duplicates; the feeder decodes with
+`createImageBitmap`, keeps a small cache, and uploads. **Export awaits** it — `PumpSource.prepareFrame`
+and `ExportRequest.prepareFrame / onEngine` are new, rendering stays synchronous. **The preview never
+fakes a frame**: if the clip's frame is not on the GPU yet it skips the tick (a dropped frame, which
+the preview may do) and redraws when it lands, prefetching ahead while playing.
+
+**Pipeline** — `renderDocument` extracts each video asset at the render's own fps and width before
+the Electron child starts (problems become notes, not failures). The studio extracts a 640-px
+**proxy** over IPC (`pf:video:import|prepare|frame`, progress pushed on `pf:video:progress`, one
+extraction per clip+fps at a time), re-extracting when the fps changes or the timeline grows past a
+capped proxy. Video assets get relink, find-in-folder, collect-files and the asset panel for free.
+
+Verified here: `npm run check` **694 tests** — `tests/assets/video-cache.test.ts` (real FFmpeg:
+probe, extraction count, reuse, corrupt/incomplete index, `maxFrames`, missing file, sizing),
+`tests/engine/video-frames.test.ts` (mapping, trim, speed, loop/hold, request de-duplication), and
+`tests/golden/video-gpu.test.ts`, which renders a red→green→blue clip and reads the colour back:
+right second on screen, identical out of order, starts at the layer's in-point, trim, 2× speed,
+loop and hold, missing-clip checkerboard. `npm run golden` 15/15; `--smoke` **13/13** with a new
+`videoBridge` check (proxy extracted and a JPEG still read back over IPC). A CLI render of a video
+background at half speed + bars + title shows the clip's own burned-in timecode reading 00:00:01.000
+at 2.0 s — the exact source frame.
+
+**Not done:** cache size in a settings screen and pruning (M33, with the cache-management step);
+the smoke does not drive the video import dialog (it cannot), so the studio import → preview path is
+covered by the IPC check plus the GPU tests rather than one click-through.

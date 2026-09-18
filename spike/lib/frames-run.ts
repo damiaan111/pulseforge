@@ -16,7 +16,7 @@ import type { DecodedImage } from '../../src/engine/core/image.ts';
 import { existsSync } from 'node:fs';
 import { defaultFontFile } from '../../src/assets/fonts.ts';
 import { DEFAULT_FONT_FILE } from '../../setup/lib/paths.ts';
-import type { FontFileRef, FramesConfig, ImageFile, SpikeFramesResult } from '../electron/protocol.ts';
+import type { FontFileRef, FramesConfig, ImageFile, SpikeFramesResult, VideoSequenceFile } from '../electron/protocol.ts';
 import { SPIKE_OUT, runElectron } from '../harness.ts';
 import { synthesizeTestTrack } from '../test-signal.ts';
 
@@ -33,6 +33,8 @@ export interface FramesOptions {
   readonly images?: ReadonlyMap<string, DecodedImage>;
   /** Font files by content hash, beyond the bundled default (which is always registered when present). */
   readonly fonts?: readonly FontFileRef[];
+  /** Extracted video sequences, for layers that reference video assets (M39). */
+  readonly videos?: readonly VideoSequenceFile[];
 }
 
 /** One rendered frame, top-down RGBA8 (the engine's export orientation). */
@@ -94,6 +96,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     project: options.project,
     ...(images.length > 0 ? { images } : {}),
     ...(existsSync(DEFAULT_FONT_FILE) ? { text: { default: defaultFontFile(), fonts: [...(options.fonts ?? [])] } } : {}),
+    ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
     frames: [...options.frames],
     dither: options.dither ?? false,
   };

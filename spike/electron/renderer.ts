@@ -18,8 +18,10 @@ import { decodeAnalysis } from '../../src/analysis/container.ts';
 import { spikeProject } from '../project.ts';
 import { runExport } from '../../src/export/job.ts';
 import { CanvasTextRasterizer } from '../../src/text/canvas-rasterizer.ts';
+import { VideoFrameFeeder } from '../../src/video/frame-feeder.ts';
+import { framePath } from '../../src/assets/video-cache.ts';
 import type {
-  DeterminismConfig, ExportConfig, FontsConfig, FramesConfig, ImageFile, PassResult, SpikeConfig, SpikeExportResult,
+  DeterminismConfig, ExportConfig, FontsConfig, FramesConfig, ImageFile, PassResult, VideoSequenceFile, SpikeConfig, SpikeExportResult,
   SpikeFramesResult, SpikeRenderResult,
 } from './protocol.ts';
 
@@ -59,6 +61,23 @@ async function loadText(config: FontsConfig | undefined): Promise<CanvasTextRast
   await text.setDefaultFont(config.default.hash, readFileSync(config.default.file));
   for (const font of config.fonts) await text.addFont(font.hash, readFileSync(font.file));
   return text;
+}
+
+/**
+ * A feeder that reads stills straight from the frame cache on disk. This renderer has Node, so
+ * there is no IPC in the way: the export's only constraint is that the right frame is uploaded
+ * before the frame is drawn, which `prepareFrame` guarantees by awaiting.
+ */
+function videoFeeder(engine: Engine, sequences: readonly VideoSequenceFile[] | undefined): VideoFrameFeeder | undefined {
+  if (sequences === undefined || sequences.length === 0) return undefined;
+  const dirs = new Map(sequences.map((s) => [s.hash, s.dir]));
+  const feeder = new VideoFrameFeeder(engine, async (hash, sourceFrame) => {
+    const dir = dirs.get(hash);
+    if (dir === undefined) throw new Error(`no extracted sequence for video ${hash.slice(0, 12)}`);
+    return new Uint8Array(readFileSync(framePath(dir, sourceFrame)));
+  });
+  feeder.setSequences(sequences.map((s) => ({ hash: s.hash, frameCount: s.frameCount })));
+  return feeder;
 }
 
 function newEngine(dither = true, text?: CanvasTextRasterizer): Engine {
@@ -166,6 +185,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
     mkdirSync(config.rawDir, { recursive: true });
     const engine = newEngine(config.dither, await loadText(config.text));
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
+    const feeder = videoFeeder(engine, config.videos);
     const pixels = new Uint8Array(width * height * 4);
     const warnings = new Set<string>();
     const paramIssues = new Set<string>();
@@ -173,6 +193,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
     const frameHashes: string[] = [];
 
     for (const frameIndex of config.frames) {
+      if (feeder !== undefined) await feeder.ensure(config.project, frameIndex);
       const report = engine.renderFrame(config.project, analysis, frameIndex);
       engine.readOutputSync(pixels);
       for (const w of report.warnings) warnings.add(w);
@@ -212,8 +233,17 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.scratchDir, { recursive: true });
     let lastProgress = 0;
+    // The engine the export builds is not ours, so the feeder is attached through `prepareFrame`
+    // once `runExport` has made it (below); videos need the engine to register their sequences.
+    let feeder: VideoFrameFeeder | undefined;
     const result = await runExport({
       gl: createContext(),
+      onEngine: (engine) => {
+        feeder = videoFeeder(engine, config.videos);
+      },
+      prepareFrame: async (frameIndex) => {
+        if (feeder !== undefined) await feeder.ensure(config.project, frameIndex);
+      },
       project: config.project,
       analysis,
       dither: config.dither,

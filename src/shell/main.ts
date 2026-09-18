@@ -23,7 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
@@ -35,13 +35,17 @@ import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
-  type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type WantedAsset,
+  type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
+  type VideoPrepareResult, type WantedAsset,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
 import { collectProject } from '../assets/collect-files.ts';
 import { findFilesInFolder } from '../assets/find-in-folder.ts';
 import { addToLibrary, listLibrary } from '../assets/library.ts';
+import {
+  PROXY_WIDTH, VIDEO_EXTENSIONS, extractSequence, framePath, hashVideoFile, probeVideo, sequenceDir,
+} from '../assets/video-cache.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
@@ -348,6 +352,74 @@ function registerHandlers(): void {
     return { path, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
   };
 
+  // Video (M39): extracted under the repo's drive, like the CLI's cache — a frame cache runs to
+  // gigabytes and C: is nearly full on the build machine (STATUS §2). The studio and the CLI share
+  // it, so a clip previewed here is already extracted when the queue renders it at the same size.
+  const videoCacheRoot = join(ROOT, 'cache');
+  const preparing = new Map<string, Promise<VideoPrepareResult>>();
+
+  ipcMain.handle(IPC.videoImport, async (): Promise<VideoFile | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose a video',
+      properties: ['openFile'],
+      filters: [{ name: 'Video', extensions: [...VIDEO_EXTENSIONS] }, { name: 'All files', extensions: ['*'] }],
+    });
+    const path = result.canceled ? undefined : result.filePaths[0];
+    if (path === undefined) return null;
+    try {
+      const info = await probeVideo(FFPROBE_EXE, path);
+      const { size } = await stat(path);
+      return { path, hash: await hashVideoFile(path), size, name: basename(path), width: info.width, height: info.height, durationSeconds: info.durationSeconds };
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
+  ipcMain.handle(IPC.videoPrepare, async (event, request: unknown): Promise<VideoPrepareResult> => {
+    const r = request as { path?: unknown; projectPath?: unknown; hash?: unknown; fps?: { num?: unknown; den?: unknown }; maxFrames?: unknown };
+    if (typeof r.path !== 'string' || typeof r.hash !== 'string' || typeof r.fps?.num !== 'number' || typeof r.fps.den !== 'number') {
+      throw new Error('prepareVideo needs a path, a hash and an fps');
+    }
+    const path = resolveAssetPath(r.path, typeof r.projectPath === 'string' ? r.projectPath : null);
+    if (path === undefined || !existsSync(path)) return { status: 'missing', path: path ?? r.path };
+    const fps = { num: r.fps.num, den: r.fps.den };
+    const key = `${r.hash}:${fps.num}/${fps.den}`;
+    // One extraction per clip and fps at a time: opening a project and adding the clip to a second
+    // layer must not start two FFmpeg runs writing into the same folder.
+    const existing = preparing.get(key);
+    if (existing !== undefined) return existing;
+    const hash = r.hash;
+    const job = extractSequence({
+      ffmpegExe: FFMPEG_EXE,
+      ffprobeExe: FFPROBE_EXE,
+      root: videoCacheRoot,
+      path,
+      videoHash: hash,
+      fps,
+      width: PROXY_WIDTH,
+      ...(typeof r.maxFrames === 'number' && r.maxFrames > 0 ? { maxFrames: Math.ceil(r.maxFrames) } : {}),
+      onProgress: (frames) => {
+        if (!event.sender.isDestroyed()) event.sender.send(IPC.videoProgress, hash, frames);
+      },
+    }).then(
+      (sequence): VideoPrepareResult => ({ status: 'ok', sequence: { hash, frameCount: sequence.frameCount, width: sequence.width, height: sequence.height } }),
+      (error: unknown): VideoPrepareResult => ({ status: 'error', path, message: describe(error).message }),
+    ).finally(() => preparing.delete(key));
+    preparing.set(key, job);
+    return job;
+  });
+
+  ipcMain.handle(IPC.videoFrame, async (_event, hash: unknown, fps: unknown, sourceFrame: unknown): Promise<Uint8Array> => {
+    const f = fps as { num?: unknown; den?: unknown };
+    if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash) || typeof f?.num !== 'number' || typeof f.den !== 'number'
+      || typeof sourceFrame !== 'number' || !Number.isInteger(sourceFrame) || sourceFrame < 0) {
+      throw new Error('videoFrame needs a clip hash, an fps and a frame number');
+    }
+    // Only ever inside the frame cache: the hash is validated hex, so it cannot climb out of it.
+    const dir = sequenceDir(videoCacheRoot, hash, { num: f.num, den: f.den }, PROXY_WIDTH);
+    return new Uint8Array(await readFile(framePath(dir, sourceFrame)));
+  });
+
   const readFont = async (path: string): Promise<FontBytes> => {
     const bytes = new Uint8Array(await readFile(path));
     return { path, hash: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, name: basename(path), bytes };
@@ -535,6 +607,14 @@ app.whenReady().then(async () => {
       spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'smptebars=s=320x180', '-frames:v', '1', image], { windowsHide: true });
     }
     process.env['PULSEFORGE_LIBRARY'] = library;
+
+    // A two-second clip for the video bridge check, generated with the vendored FFmpeg's own
+    // encoder (the LGPL build has no libx264).
+    const clip = join(ROOT, 'out', 'smoke-clip.mp4');
+    if (!existsSync(clip) && existsSync(FFMPEG_EXE)) {
+      spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30:duration=2', '-c:v', 'mpeg4', '-q:v', '4', clip], { windowsHide: true });
+    }
+    if (existsSync(clip)) process.env['PULSEFORGE_SMOKE_CLIP'] = JSON.stringify({ path: clip, hash: await hashVideoFile(clip) });
   }
 
   // The queue's state and scratch live on the repo's drive, not in the profile: scratch holds a
@@ -548,6 +628,7 @@ app.whenReady().then(async () => {
       root: join(ROOT, 'out', 'studio-render', 'queue'),
       workRoot: join(ROOT, 'out', 'studio-render', 'work'),
       cacheRoot: analysisCacheRoot(),
+      videoCacheRoot: join(ROOT, 'cache'),
       onChange: (jobs) => {
         for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.renderChanged, jobs);
       },
@@ -705,6 +786,21 @@ app.whenReady().then(async () => {
         await new Promise((done) => setTimeout(done, 80));
       }
 
+      // Video (M39), the studio half: the main process extracts a clip's preview proxy and hands
+      // stills back over the bridge. (The GPU half — frames on screen — is tests/golden/video-gpu.)
+      let videoBridge = false;
+      const smokeClip = ${JSON.stringify(process.env['PULSEFORGE_SMOKE_CLIP'] ?? null)};
+      if (smokeClip !== null) {
+        const clip = JSON.parse(smokeClip);
+        const fps = { num: 30, den: 1 };
+        const prepared = await window.pulseforge.prepareVideo({ path: clip.path, projectPath: null, hash: clip.hash, fps, maxFrames: 30 });
+        if (prepared.status === 'ok') {
+          const bytes = await window.pulseforge.videoFrame(clip.hash, fps, 10);
+          // A JPEG starts FF D8.
+          videoBridge = prepared.sequence.frameCount === 30 && bytes.length > 100 && bytes[0] === 0xff && bytes[1] === 0xd8;
+        }
+      }
+
       // The asset library (M40), end to end: the smoke library holds one generated image; clicking
       // it must add a background layer, record the asset, and load it (status "ok" in the Assets
       // panel means the main process decoded it through FFmpeg and the preview has the pixels).
@@ -751,6 +847,7 @@ app.whenReady().then(async () => {
         imageControl,
         textLayer,
         grouping,
+        videoBridge,
         libraryToAsset,
         exportDialog,
       };

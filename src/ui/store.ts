@@ -23,6 +23,9 @@ import {
   addAsset, addLayer, findAssetByHash, relinkAsset, sequence, type EditTarget,
 } from '../project/commands.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
+import { timelineDurationTicks, toRenderProject } from '../project/snapshot.ts';
+import { frameCount } from '../engine/core/time.ts';
+import { videoFramesNeeded } from '../engine/modules/video.ts';
 import type { AssetRef, ProjectDocument } from '../project/document.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
 import { newId } from '../project/ids.ts';
@@ -107,6 +110,15 @@ export interface StudioState {
   importImage(): Promise<AssetRef | null>;
   /** Picks a font file, keeping its bytes; the caller records the asset in the document. */
   importFont(): Promise<AssetRef | null>;
+  /** Picks a video; the caller records the asset, and its preview proxy extracts in the background. */
+  importVideo(): Promise<AssetRef | null>;
+  /**
+   * Prepared preview proxies by clip hash (M39). `capped` means extraction stopped at what the
+   * timeline needed, so a longer timeline must extract again; `fps` is what it was extracted at.
+   */
+  videos: ReadonlyMap<string, VideoProxy>;
+  /** Progress from the main process while a clip extracts. */
+  reportVideoProgress(hash: string, frames: number): void;
   /** Picks a replacement file for one asset and relinks it (asks first if the content differs). */
   relink(assetId: string): Promise<void>;
   /** Asks for a folder and relinks every missing asset found in it, by content. */
@@ -172,6 +184,23 @@ export interface AssetStatus {
   readonly hash: string;
 }
 
+export interface VideoProxy {
+  readonly frameCount: number;
+  readonly fps: string;
+  readonly capped: boolean;
+}
+
+const fpsKey = (fps: { num: number; den: number }) => `${fps.num}/${fps.den}`;
+
+/** The preview proxy a clip needs for the document as it is now: its fps, and how many frames. */
+function proxyNeeds(document: ProjectDocument, assetId: string): { fps: string; maxFrames: number } {
+  const { project } = toRenderProject(document);
+  const timeline = frameCount(timelineDurationTicks(document), document.canvas.fps);
+  // With no audio yet the timeline is empty; a minute's worth keeps the preview useful meanwhile.
+  const frames = Math.max(timeline, Math.round((60 * document.canvas.fps.num) / document.canvas.fps.den));
+  return { fps: fpsKey(document.canvas.fps), maxFrames: videoFramesNeeded(project, assetId, frames) };
+}
+
 function imageOf(bytes: ImageBytes): DecodedImage {
   return { width: bytes.width, height: bytes.height, pixels: bytes.pixels };
 }
@@ -225,14 +254,46 @@ export const useStudio = create<StudioState>((set, get) => ({
     for (const asset of document.assets) {
       // Another project was opened meanwhile: stop, rather than attach this one's problems to it.
       if (history.current.id !== document.id) return;
-      if (asset.kind !== 'image' && asset.kind !== 'font') continue;
+      if (asset.kind !== 'image' && asset.kind !== 'font' && asset.kind !== 'video') continue;
       const setStatus = (state: AssetStatus['state'], detail: string) =>
         set({ assetStatus: { ...get().assetStatus, [asset.id]: { state, detail, path: asset.path, hash: asset.hash } } });
       const known = get().assetStatus[asset.id];
       const fresh = known !== undefined && known.path === asset.path && known.hash === asset.hash;
       const failed = known?.state === 'missing' || known?.state === 'error';
-      if (fresh && !(recheck && failed)) continue;
-      setStatus('loading', asset.path);
+      // A video is also stale when the project's fps changed, or the timeline grew past a proxy
+      // that was cut to the old length.
+      const proxy = asset.kind === 'video' ? get().videos.get(asset.hash) : undefined;
+      const needs = asset.kind === 'video' ? proxyNeeds(document, asset.id) : undefined;
+      const videoStale = needs !== undefined && known?.state === 'ok'
+        && (proxy === undefined || proxy.fps !== needs.fps || (proxy.capped && needs.maxFrames > proxy.frameCount));
+      if (fresh && !(recheck && failed) && !videoStale) continue;
+      setStatus('loading', asset.kind === 'video' ? 'Extracting preview frames…' : asset.path);
+
+      if (asset.kind === 'video' && needs !== undefined) {
+        try {
+          const result = await window.pulseforge.prepareVideo({
+            path: asset.path, projectPath, hash: asset.hash, fps: document.canvas.fps, maxFrames: needs.maxFrames,
+          });
+          if (history.current.id !== document.id) return;
+          if (result.status === 'missing') {
+            setStatus('missing', `Not found: ${result.path}`);
+          } else if (result.status === 'error') {
+            setStatus('error', result.message);
+          } else {
+            set({
+              videos: new Map(get().videos).set(asset.hash, {
+                frameCount: result.sequence.frameCount,
+                fps: needs.fps,
+                capped: result.sequence.frameCount >= needs.maxFrames,
+              }),
+            });
+            setStatus('ok', `${result.sequence.frameCount} frames at ${needs.fps} fps`);
+          }
+        } catch (error) {
+          setStatus('error', error instanceof Error ? error.message : String(error));
+        }
+        continue;
+      }
       try {
         const result = asset.kind === 'image'
           ? await window.pulseforge.loadImage(asset.path, projectPath)
@@ -293,6 +354,33 @@ export const useStudio = create<StudioState>((set, get) => ({
     }
   },
 
+  videos: new Map(),
+
+  reportVideoProgress(hash, frames) {
+    const statuses = get().assetStatus;
+    const updated: Record<string, AssetStatus> = { ...statuses };
+    let changed = false;
+    for (const [id, status] of Object.entries(statuses)) {
+      if (status.hash !== hash || status.state !== 'loading') continue;
+      updated[id] = { ...status, detail: `Extracting preview frames… ${frames}` };
+      changed = true;
+    }
+    if (changed) set({ assetStatus: updated });
+  },
+
+  async importVideo() {
+    try {
+      const video = await window.pulseforge.importVideo();
+      if (video === null) return null;
+      // Extraction starts once the asset is in the document: loadAssets runs after the command.
+      const asset: AssetRef = { id: newId(), kind: 'video', path: video.path, hash: video.hash, size: video.size, name: video.name, extra: {} };
+      return asset;
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Importing the video'), kind: 'bad' } });
+      return null;
+    }
+  },
+
   async loadDefaultFont() {
     if (get().defaultFont !== null) return;
     try {
@@ -307,7 +395,11 @@ export const useStudio = create<StudioState>((set, get) => ({
     const asset = history.current.assets.find((a) => a.id === assetId);
     if (asset === undefined) return;
     try {
-      const picked = asset.kind === 'font' ? await window.pulseforge.importFont() : await window.pulseforge.importImage();
+      const picked = asset.kind === 'font'
+        ? await window.pulseforge.importFont()
+        : asset.kind === 'video'
+          ? await window.pulseforge.importVideo()
+          : await window.pulseforge.importImage();
       if (picked === null) return;
       // A different file is allowed — a re-export is often the point — but never silently
       // (data-formats §1.2): the look of every layer using it changes.
@@ -316,8 +408,11 @@ export const useStudio = create<StudioState>((set, get) => ({
         return;
       }
       if ('pixels' in picked) set({ images: new Map(get().images).set(picked.hash, imageOf(picked)) });
-      else set({ fonts: new Map(get().fonts).set(picked.hash, picked.bytes) });
-      set({ assetStatus: { ...get().assetStatus, [assetId]: { state: 'ok', detail: picked.path, path: picked.path, hash: picked.hash } } });
+      else if ('bytes' in picked) set({ fonts: new Map(get().fonts).set(picked.hash, picked.bytes) });
+      // A relinked video has no proxy yet: leave its status for loadAssets, which extracts it.
+      if (!('durationSeconds' in picked)) {
+        set({ assetStatus: { ...get().assetStatus, [assetId]: { state: 'ok', detail: picked.path, path: picked.path, hash: picked.hash } } });
+      }
       get().run(relinkAsset(assetId, { path: picked.path, hash: picked.hash, size: picked.size, name: picked.name }));
     } catch (error) {
       set({ toast: { text: describeError(error, 'Relinking'), kind: 'bad' } });
@@ -444,7 +539,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       history.run(command);
       if (options?.seal !== false) history.seal();
       set((state) => ({ ...fromHistory(), version: state.version + 1 }));
-      if (history.current.assets !== before) void get().loadAssets();
+      // Assets changed, or — for videos — the fps, the timeline or a clip's speed may have, any of
+      // which can make a preview proxy stale. loadAssets returns at once when nothing is.
+      if (history.current.assets !== before || history.current.assets.some((a) => a.kind === 'video')) void get().loadAssets();
     } catch (error) {
       // A command that cannot apply is a bug in the caller, but the user still needs a sentence
       // rather than a silently ignored click.
@@ -503,6 +600,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       toast: null,
       images: new Map(),
       fonts: new Map(),
+      videos: new Map(),
       assetStatus: {},
       // A new project has no audio; keeping the old track made "New" still react to the last song.
       audio: null,
@@ -542,7 +640,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       if (previous !== null) URL.revokeObjectURL(previous.url);
       set({ audio: null, analysis: null, peaks: null, sections: [], analysisState: 'idle', analysisMessage: null });
     }
-    set({ images: new Map(), fonts: new Map(), assetStatus: {} });
+    set({ images: new Map(), fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
   },
 

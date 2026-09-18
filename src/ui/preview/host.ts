@@ -15,6 +15,7 @@ import { analysisFrameCount } from '../../analysis/spectrum.ts';
 import type { AnalysisSet } from '../../engine/core/analysis.ts';
 import type { DecodedImage } from '../../engine/core/image.ts';
 import { CanvasTextRasterizer } from '../../text/canvas-rasterizer.ts';
+import { VideoFrameFeeder } from '../../video/frame-feeder.ts';
 import type { RenderProject } from '../../engine/core/project.ts';
 import { frameCount, frameTimeSeconds, secondsToTicks, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
@@ -57,6 +58,14 @@ export class PreviewHost {
    */
   private readonly text = new CanvasTextRasterizer();
   private readonly registeredFonts = new Set<string>();
+  /**
+   * Video frames (M39), read from the preview proxy over IPC. Created with the engine. A frame the
+   * feeder has not uploaded yet is never faked: the loop holds the previous picture and redraws
+   * when it arrives, so the preview shows late frames but never wrong ones.
+   */
+  private feeder: VideoFrameFeeder | null = null;
+  private videoSequences: readonly { hash: string; frameCount: number }[] = [];
+  private fetching: Promise<void> | null = null;
 
   private running = false;
   private rafHandle = 0;
@@ -95,6 +104,9 @@ export class PreviewHost {
       this.callbacks.onError(explain(error));
       return;
     }
+    this.feeder = new VideoFrameFeeder(this.engine, (hash, sourceFrame) =>
+      window.pulseforge.videoFrame(hash, this.document?.canvas.fps ?? { num: 60, den: 1 }, sourceFrame));
+    this.feeder.setSequences(this.videoSequences);
     this.running = true;
     this.uploadImages();
     this.loop();
@@ -104,6 +116,8 @@ export class PreviewHost {
     this.running = false;
     if (this.rafHandle !== 0) cancelAnimationFrame(this.rafHandle);
     this.rafHandle = 0;
+    this.feeder?.dispose();
+    this.feeder = null;
     this.engine?.dispose();
     this.engine = null;
     this.gl = null;
@@ -183,6 +197,13 @@ export class PreviewHost {
     };
     if (defaultFont !== null) void register(defaultFont.hash, defaultFont.bytes, true);
     for (const [hash, bytes] of fonts) void register(hash, bytes, false);
+  }
+
+  /** The prepared proxies: which clips have frames, and how many. */
+  setVideos(sequences: readonly { hash: string; frameCount: number }[]): void {
+    this.videoSequences = sequences;
+    this.feeder?.setSequences(sequences);
+    this.needsRedraw = true;
   }
 
   setScale(scale: number): void {
@@ -270,6 +291,23 @@ export class PreviewHost {
     const frameIndex = tick.frame !== null
       ? tick.frame.frameIndex
       : Math.min(lastFrame, Math.max(0, Math.floor((secondsToTicks(clock.timelineSeconds) * fps.num) / (TICKS_PER_SECOND * fps.den))));
+
+    // A clip's frame must be on the GPU before the frame that needs it is drawn. If it is not,
+    // fetch it and skip this tick — during playback that is a dropped frame, which the preview is
+    // allowed; drawing the wrong video frame is not.
+    const feeder = this.feeder;
+    if ((tick.frame !== null || this.needsRedraw) && feeder !== null && !feeder.ready(project, frameIndex)) {
+      if (this.fetching === null) {
+        this.fetching = feeder.ensure(project, frameIndex)
+          .catch((error: unknown) => this.callbacks.onError(`A video frame could not be read: ${error instanceof Error ? error.message : String(error)}`))
+          .finally(() => {
+            this.fetching = null;
+            this.needsRedraw = true;
+          });
+        if (clock.transport === 'playing') feeder.prefetch(project, frameIndex + 1, 12);
+      }
+      return;
+    }
 
     if (tick.frame !== null || this.needsRedraw) {
       this.needsRedraw = false;

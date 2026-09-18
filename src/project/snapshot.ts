@@ -208,7 +208,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
     // Files are not the engine's business: it gets id → hash, and the host registers the pixels.
     ...(document.assets.length > 0
-      ? { assets: Object.fromEntries(document.assets.filter((a) => a.kind === 'image' || a.kind === 'font').map((a) => [a.id, { kind: a.kind, hash: a.hash, name: a.name }])) }
+      ? { assets: Object.fromEntries(document.assets.filter((a) => a.kind === 'image' || a.kind === 'font' || a.kind === 'video').map((a) => [a.id, { kind: a.kind, hash: a.hash, name: a.name }])) }
       : {}),
   };
 

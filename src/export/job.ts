@@ -13,7 +13,7 @@ import type { DecodedImage } from '../engine/core/image.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
 import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
 import { frameCount } from '../engine/core/time.ts';
-import { ENGINE_VERSION, createEngine } from '../engine/engine.ts';
+import { ENGINE_VERSION, createEngine, type Engine } from '../engine/engine.ts';
 import { prepareExportAudio, samplesForFrames, type AudioPlacement, type AudioSource, type PreparedAudio } from './audio.ts';
 import { startEncoder, type EncoderProcess } from './encoder.ts';
 import { buildFfmpegArgs, formatCommandLine, resolveConversion, settingsProblems, type EncodeSettings } from './ffmpeg-args.ts';
@@ -32,6 +32,13 @@ export interface ExportRequest {
   readonly images?: ReadonlyMap<string, DecodedImage>;
   /** Glyph rasterisation with the project's fonts already registered. */
   readonly text?: TextRasterizer;
+  /**
+   * Awaited before each frame is rendered, for inputs the host fetches rather than computes —
+   * a video layer's still comes off the frame cache and is decoded (M39).
+   */
+  readonly prepareFrame?: (frameIndex: number) => Promise<void>;
+  /** Called once with the engine this export builds, for hosts that register inputs into it. */
+  readonly onEngine?: (engine: Engine) => void;
   readonly outputPath: string;
   readonly scratchDir: string;
   readonly settings: EncodeSettings;
@@ -117,6 +124,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     ...(request.text === undefined ? {} : { text: request.text }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
+  request.onEngine?.(engine);
   const readback = readbackMode === 'sync' ? engine.createSyncReadback(width, height) : engine.createReadback(width, height, request.readbackDepth);
   const warnings = new Set<string>();
   const frameHashes: string[] = [];
@@ -134,6 +142,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
       sink: activeEncoder.sink,
       source: {
         readback,
+        ...(request.prepareFrame !== undefined ? { prepareFrame: request.prepareFrame } : {}),
         renderFrame(frameIndex) {
           const report = engine.renderFrame(project, request.analysis, frameIndex);
           for (const w of report.warnings) warnings.add(w);

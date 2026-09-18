@@ -22,6 +22,14 @@ export interface FontFileRef {
   file: string;
 }
 
+/** An extracted video sequence the renderer reads stills from (M39). */
+export interface VideoSequenceFile {
+  hash: string;
+  /** The frame-cache folder for this clip at this fps and width. */
+  dir: string;
+  frameCount: number;
+}
+
 /** Fonts for a render: the default, and the project's font assets. */
 export interface FontsConfig {
   default: FontFileRef;
@@ -57,6 +65,7 @@ export interface ExportConfig {
   images?: ImageFile[];
   /** Absent: text layers report that no rasteriser is available. */
   text?: FontsConfig;
+  videos?: VideoSequenceFile[];
   dither: boolean;
   outputPath: string;
   scratchDir: string;
@@ -83,6 +92,7 @@ export interface FramesConfig {
   images?: ImageFile[];
   /** Absent: text layers report that no rasteriser is available. */
   text?: FontsConfig;
+  videos?: VideoSequenceFile[];
   frames: number[];
   dither: boolean;
 }

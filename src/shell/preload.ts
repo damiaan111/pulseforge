@@ -28,6 +28,17 @@ const api: PulseforgeApi = {
   pickAudio: () => ipcRenderer.invoke(IPC.audioPick) as ReturnType<PulseforgeApi['pickAudio']>,
   readAudio: (path) => ipcRenderer.invoke(IPC.audioRead, path) as ReturnType<PulseforgeApi['readAudio']>,
   analyzeAudio: (path) => ipcRenderer.invoke(IPC.audioAnalyze, path) as ReturnType<PulseforgeApi['analyzeAudio']>,
+  importVideo: () => ipcRenderer.invoke(IPC.videoImport) as ReturnType<PulseforgeApi['importVideo']>,
+  prepareVideo: (request) => ipcRenderer.invoke(IPC.videoPrepare, request) as ReturnType<PulseforgeApi['prepareVideo']>,
+  videoFrame: (hash, fps, sourceFrame) => ipcRenderer.invoke(IPC.videoFrame, hash, fps, sourceFrame) as ReturnType<PulseforgeApi['videoFrame']>,
+  onVideoProgress(listener) {
+    // Wrapped for the same reason as onRendersChanged: the page never gets the IPC event object.
+    const handler = (_event: unknown, hash: string, frames: number) => listener(hash, frames);
+    ipcRenderer.on(IPC.videoProgress, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.videoProgress, handler);
+    };
+  },
   importFont: () => ipcRenderer.invoke(IPC.fontImport) as ReturnType<PulseforgeApi['importFont']>,
   loadFont: (path, projectPath) => ipcRenderer.invoke(IPC.fontLoad, path, projectPath) as ReturnType<PulseforgeApi['loadFont']>,
   defaultFont: () => ipcRenderer.invoke(IPC.fontDefault) as ReturnType<PulseforgeApi['defaultFont']>,
