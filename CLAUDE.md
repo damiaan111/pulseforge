@@ -43,8 +43,8 @@ on Ampere. Probe capabilities and hide unsupported options rather than failing a
 ## Current phase
 
 See `docs/STATUS.md` for the live state and `docs/ROADMAP.md` §3 for what comes next. P0, P2, P3 and
-P4 are complete (2026-09-18), and so is the modulation binding UI (M13); the next items are the
-layer and clip editing gaps (M9, M29, M7). `START-HERE.md`
+P4 are complete (2026-09-18), and so are the modulation UI (M13) and the layer/clip editing gaps
+(M7, M9, M29); the next item is stems end to end (M5, M27, M28 — ROADMAP §3 item 3). `START-HERE.md`
 describes P0, which is done.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept

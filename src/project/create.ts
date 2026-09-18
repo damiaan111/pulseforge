@@ -40,6 +40,8 @@ export const DEFAULT_AUDIO: AudioSettings = {
   clipOutTicks: null,
   fadeInTicks: 0,
   fadeOutTicks: 0,
+  fadeInCurve: 'equal-power',
+  fadeOutCurve: 'equal-power',
   gain: 1,
   stemsEnabled: false,
   extra: {},

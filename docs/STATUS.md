@@ -9,18 +9,17 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 826 tests, `npm run golden` 21/21 identical,
-> `--smoke` 19/19.
+> any aspect. Last full verification: `npm run check` 856 tests, `npm run golden` 21/21 identical,
+> `--smoke` 20/20.
 >
-> **Since P4:** modulation can now be wired in the studio (M13, §4.46) — ∿ beside every control,
-> recipes, a binding editor with live meters, the matrix panel — and the analysis computes the
-> project's own bands (§4.45).
+> **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
+> project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
+> ranges, and the audio clip's trim, padding, fades and gain are all editable and rendered (§4.47).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): no trim/fade, solo/lock,
-> reordering or time-range editing in the UI (M29, M9) and two unimplemented blend modes (M7);
-> stems are separated but not wired into analysis or the studio (M5); lyrics (P6) and the
-> auto-director (P7) are not started beyond analysis and classification; operability (autosave M1,
-> cache management M33, logs M34, settings M36).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): stems are separated but not
+> wired into analysis or the studio (M5, with the GPU job queue M28); autosave and crash recovery
+> (M1); lyrics (P6) and the auto-director (P7) are not started beyond analysis and classification;
+> operability (cache management M33, logs M34, settings M36).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -77,6 +76,7 @@
 | | **After P4** |
 | 4.45 | The project's own analysis bands — M4 |
 | 4.46 | Modulation in the studio — M13, modulation-spec §10–§11, ui-spec §4, §6 |
+| 4.47 | Blend modes, layer editing and the audio clip — M7, M9, M29 |
 
 ---
 
@@ -182,7 +182,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 826 tests in 62 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 856 tests in 65 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -1902,6 +1902,68 @@ copy/paste of bindings between parameters; right-click on controls; bindings on 
 chain; quantisation (needs a beat-synced grid source, §4.10); per-stem sources are offered but
 inactive until M5.
 
+### 4.47 Blend modes, layer editing and the audio clip — M7, M9, M29
+
+Three small, visible holes, closed together (ROADMAP §3 item 2).
+
+**Blend modes (M7, compositor-spec §3).** The inspector offered `multiply` and `overlay`, but the
+compositor drew only normal/add/screen, so they rendered as normal with a note. Now the ten
+**separable** modes are real: multiply, overlay, soft-light, hard-light, darken, lighten,
+difference, exclusion, colour-dodge, colour-burn. They need the backdrop, so they cannot be GL blend
+state: the compositor copies the backdrop to a pooled scratch target (a pass never reads what it
+writes — the spec's ping-pong) and runs `BLEND_FRAG`, the W3C formula in premultiplied form —
+`(1−αb)·Cs + (1−αs)·Cb + αs·αb·B(cs, cb)`, so a transparent backdrop (a layer alone in a group) draws
+the layer as itself. The composite is linear and may exceed 1: modes defined on 0..1 see clamped
+inputs; multiply, darken, lighten, difference and exclusion do not. Normal/add/screen keep the
+fixed-function path. One list of modes now lives in the engine (`BLEND_MODES`, core/project.ts) and
+the document re-exports it, so the UI can never again offer a mode that is not drawn; the
+snapshot's fallback-with-a-note stays for files from a later build (tested with `hue`). The HSL
+family is not implemented.
+
+**Layer editing (M9, ui-spec §5).** In the layer list: **S** (solo — the snapshot already honoured
+it) and **L** (lock) on every row; **↑/↓** in the actions (one step within the layer's group);
+**drag a row onto another** to put it directly above that row, into that row's group
+(`src/project/layer-order.ts`: `stepPosition`, `dropPosition`, pure and tested — the flip between
+the top-first list and bottom-first storage and the index-after-removal are worked out once).
+**Lock now means something**: the inspector's controls sit in a `fieldset` that is disabled for a
+locked layer, with a note saying how to unlock; Delete is disabled; a preset cannot be applied onto
+it (add-as-new-layer still works). **Timing** in the inspector: the layer's in and out points in
+seconds, "at the playhead" buttons, and ∞ for "to the end" (an out point is kept at least one tick
+after the in point). Found on the way: the list showed a **group's row below its own children**
+(it reversed a pre-order walk); `displayOrder` fixes it.
+
+**The audio clip (M29, PROJECT.md §8.10).** The model had trim, lead-in/out, fades and gain, but
+**the export applied neither fades nor gain**, and nothing in the studio edited any of it. Now:
+- `fadeInCurve` / `fadeOutCurve` join the document (`equal-power` — the default — `linear`,
+  `s-curve`); additive, so older files read with the default and no schema bump was needed.
+- `src/project/audio-clip.ts`: `fadeShape`, `clipLevel` (gain × fade-in × fade-out, in clip samples;
+  overlapping fades rise and fall rather than jump), `isUnity`. **One definition, two users**: the
+  exporter multiplies every placed sample by it (`placeAudio`, `AudioPlacement.level`), and the
+  preview sets the audio element's volume from it each tick, so the fade you hear is the fade that
+  renders. The fade-out ends where the clip ends even when the video cuts the clip short. An element
+  cannot play above unity, so a gain boost is exported but not previewed louder (said in the UI).
+- The **Clip** panel under Audio: trim in/out (with at-the-playhead buttons, clamped so the clip is
+  never inside out; the file's end is stored as "to the end"), lead-in, lead-out, fade in/out with
+  their curves, gain in dB (−24…+12). Every edit is `setAudio`, one undo step per field. If a
+  project never recorded the file's length, the loaded audio's length stands in.
+- Verified in a real export: a 6 s clip of a steady tone with 1.5 s equal-power fades measures RMS
+  0.0066 → 0.035 across the fade-in, 0.044 in the middle, and the mirror image on the way out.
+
+Verified here: `npm run check` **856 tests** — `tests/golden/blend-gpu.test.ts` (each of the ten
+modes over the test pattern matches the W3C formula computed in the test, through the engine's tone
+curve and sRGB, within 2 code values; a lone blended layer in a group draws as itself; screen is
+unchanged), `tests/project/layer-order.test.ts` (step up/down, drop from either direction, into a
+group, never into itself, display order), `tests/project/audio-clip.test.ts` (curves, clip level,
+overlapping fades), new cases in `export-units`, `preset-apply` (locked layers) and `snapshot`
+(fallback now tested with `hue`; separable modes pass through). `npm run golden` **21/21**.
+`--smoke` **20/20** with a new `layerEditing` check (its own two layers: solo on/undo, lock disables
+the inspector and Delete/undo, a one-step move/undo). The UI tour captures the clip panel when a
+project with audio is opened (`npm run dev -- <project> --smoke` with `PULSEFORGE_UI_TOUR=1`).
+
+**Not done:** dragging time ranges and clip edges on the **timeline** (the inspector and the Clip
+panel edit the same values); multi-select; the HSL blend family; a fade curve preview; export-spec
+§7's stream-copy of untouched audio.
+
 ---
 
 ## 5. Measured results
@@ -1952,9 +2014,8 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
   (16-bit samples packed like NV12) would likely close the gap.
 - Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7), and the
-  **`multiply` and `overlay` blend modes** — the inspector offers them (they are in the document's
-  `BLEND_MODES`) but the compositor implements normal/add/screen only, so they render as normal with
-  a note. Either implement them (M7) or stop offering them. Group compositing (M38) landed in §4.39.
+  non-separable HSL blend modes (hue, saturation, colour, luminosity), which the document does not
+  offer yet. The ten separable modes landed in §4.47; group compositing (M38) in §4.39.
 - Modulation UI (§4.46) does not yet have: the source sparkline/scope, copy-paste of bindings,
   right-click on a control (the ∿ button does the same job), bindings on the **global** effect chain,
   or keyframes. Stem sources are offered but read "not analysed" until stems are wired (M5).

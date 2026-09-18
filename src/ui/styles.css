@@ -401,3 +401,20 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .matrix-drawer { width: 400px; }
 .matrix-filter { width: 100%; box-sizing: border-box; margin: 8px 0 2px; }
 .matrix-group h3 { margin: 10px 0 4px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
+
+/* --- layer and clip editing (M9, M29) ---------------------------------------- */
+
+.inspector-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.inspector-fields:disabled { opacity: 0.55; }
+.locked-note { margin: 0 0 8px; font-size: 11.5px; }
+.layer-row .flag { padding: 0 4px; border: 0; background: none; color: var(--text-dim); font-size: 10.5px; font-weight: 700; opacity: 0.45; }
+.layer-row:hover .flag { opacity: 0.8; }
+.layer-row .flag.on { opacity: 1; color: var(--warn); }
+.layer-row.locked .name { color: var(--text-dim); }
+.layer-row.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+.layer-row[draggable="true"] { cursor: grab; }
+.clip-controls h3 { margin: 8px 0 4px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
+.field.seconds .seconds-input { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.field.seconds input[type="number"] { width: 58px; background: var(--panel-raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 1px 4px; font: inherit; }
+.field.seconds button { padding: 0 5px; }
+.field.seconds select { min-width: 72px; flex: 1; }

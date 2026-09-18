@@ -262,6 +262,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
       leadInSamples: document.audio.leadInTicks,
       clipInSamples: document.audio.clipInTicks,
       clipOutSamples: document.audio.clipOutTicks ?? undefined,
+      level: document.audio,
     },
     durationTicks,
     images,

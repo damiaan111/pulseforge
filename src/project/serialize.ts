@@ -195,6 +195,8 @@ export function toJson(document: ProjectDocument): Json {
       clipOutTicks: audio.clipOutTicks,
       fadeInTicks: audio.fadeInTicks,
       fadeOutTicks: audio.fadeOutTicks,
+      fadeInCurve: audio.fadeInCurve,
+      fadeOutCurve: audio.fadeOutCurve,
       gain: audio.gain,
       stemsEnabled: audio.stemsEnabled,
     }),

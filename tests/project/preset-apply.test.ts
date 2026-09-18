@@ -79,6 +79,14 @@ describe('applying a preset from the browser', () => {
     expect(notes.join(' ')).toContain('core.visualizer.bars');
   });
 
+  it('refuses to change a locked layer, but may still add beside it', () => {
+    const locked = { ...document(), layers: document().layers.map((l) => ({ ...l, locked: true })) };
+    for (const mode of ['replace', 'style', 'modulations'] as const) {
+      expect(() => applyPreset(barsPreset(), mode, { document: locked, selectedLayerId: L1, manifests, newId })).toThrow(/locked/);
+    }
+    expect(() => applyPreset(barsPreset(), 'add', { document: locked, selectedLayerId: L1, manifests, newId })).not.toThrow();
+  });
+
   it('refuses to replace when nothing is selected, with a sentence', () => {
     expect(() => applyPreset(barsPreset(), 'replace', { document: document(), selectedLayerId: null, manifests, newId })).toThrow(/Select a layer/);
   });

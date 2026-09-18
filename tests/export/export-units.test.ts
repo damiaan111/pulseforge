@@ -116,6 +116,21 @@ describe('audio placement', () => {
     expect(placed.adjustmentSamples).toBe(-4);
   });
 
+  it('applies gain and linear fades over the trimmed clip, after the lead-in', () => {
+    const source = [new Float32Array(10).fill(1)];
+    const level = { gain: 0.5, fadeInTicks: 4, fadeOutTicks: 2, fadeInCurve: 'linear', fadeOutCurve: 'linear' } as const;
+    const placed = placeAudio(source, { leadInSamples: 1, clipInSamples: 0, clipOutSamples: 8, level }, 10);
+    // Clip samples 0..7 at 0.5 gain: fade-in over 4 (0, ¼, ½, ¾), then full, fade-out over the last 2.
+    expect(Array.from(placed.channels[0]!)).toEqual([0, 0, 0.125, 0.25, 0.375, 0.5, 0.5, 0.5, 0.25, 0]);
+  });
+
+  it('ends the fade-out where the clip ends, even when the video cuts the clip short', () => {
+    const level = { gain: 1, fadeInTicks: 0, fadeOutTicks: 4, fadeInCurve: 'linear', fadeOutCurve: 'linear' } as const;
+    const placed = placeAudio([new Float32Array(8).fill(1)], { leadInSamples: 0, clipInSamples: 0, clipOutSamples: undefined, level }, 5);
+    // 8-sample clip, 4-sample fade-out over samples 4..7; the video keeps only 0..4.
+    expect(Array.from(placed.channels[0]!)).toEqual([1, 1, 1, 1, 1]);
+  });
+
   it('writes a valid 32-bit float WAV header', () => {
     const wav = encodeWavFloat32([Float32Array.from([0.5, -0.5]), Float32Array.from([0.25, 0])], 48_000);
     const view = new DataView(wav.buffer);

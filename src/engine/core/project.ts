@@ -9,7 +9,17 @@ import type { LayerTransform } from './layout.ts';
 import type { ModulationBinding } from './modulation.ts';
 import type { Rational } from './time.ts';
 
-export type BlendMode = 'normal' | 'add' | 'screen';
+/**
+ * Blend modes the compositor implements (compositor-spec §3). The first three are fixed-function
+ * GL blending; the rest are the separable modes, which read the backdrop and run as a shader pass.
+ * The non-separable HSL family (hue, saturation, color, luminosity) is not implemented yet.
+ */
+export const BLEND_MODES = [
+  'normal', 'add', 'screen',
+  'multiply', 'overlay', 'soft-light', 'hard-light', 'darken', 'lighten',
+  'difference', 'exclusion', 'color-dodge', 'color-burn',
+] as const;
+export type BlendMode = (typeof BLEND_MODES)[number];
 
 /**
  * When a layer is on screen, in timeline ticks (PROJECT.md §8.10). A layer is drawn on the

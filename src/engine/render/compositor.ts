@@ -78,6 +78,84 @@ void main() {
 }
 `;
 
+/**
+ * The separable blend modes (compositor-spec §3), which need the backdrop and so cannot be GL blend
+ * state. The W3C compositing formula in premultiplied form, with cs/cb the un-premultiplied
+ * colours:
+ *
+ *   result.rgb = (1 − αb)·Cs + (1 − αs)·Cb + αs·αb·B(cs, cb)
+ *   result.a   = αs + αb − αs·αb
+ *
+ * so where the layer is transparent the backdrop comes through untouched, and on a transparent
+ * backdrop (inside a group) the layer draws as itself. The composite is linear light and can exceed
+ * 1; the modes defined on 0..1 (overlay, the lights, dodge, burn) see their inputs clamped to it,
+ * while multiply, darken, lighten, difference and exclusion take them as they are.
+ */
+const BLEND_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D u_layer;
+uniform sampler2D u_backdrop;
+uniform float u_opacity;
+uniform bool u_transformed;
+uniform mat3 u_inverse;
+uniform int u_mode;
+out vec4 outColor;
+
+vec3 softLight(vec3 s, vec3 b) {
+  vec3 d = mix(sqrt(b), ((16.0 * b - 12.0) * b + 4.0) * b, step(b, vec3(0.25)));
+  return mix(b + (2.0 * s - 1.0) * (d - b), b - (1.0 - 2.0 * s) * b * (1.0 - b), step(s, vec3(0.5)));
+}
+vec3 hardLight(vec3 s, vec3 b) {
+  return mix(1.0 - (1.0 - b) * (1.0 - (2.0 * s - 1.0)), b * 2.0 * s, step(s, vec3(0.5)));
+}
+vec3 dodge(vec3 s, vec3 b) {
+  vec3 r = min(vec3(1.0), b / max(vec3(1e-6), 1.0 - s));
+  return mix(r, vec3(0.0), step(b, vec3(0.0)));
+}
+vec3 burn(vec3 s, vec3 b) {
+  vec3 r = 1.0 - min(vec3(1.0), (1.0 - b) / max(vec3(1e-6), s));
+  return mix(r, vec3(1.0), step(vec3(1.0), b));
+}
+
+vec3 blendMode(vec3 s, vec3 b) {
+  vec3 s1 = clamp(s, 0.0, 1.0);
+  vec3 b1 = clamp(b, 0.0, 1.0);
+  if (u_mode == 0) return s * b;                  // multiply
+  if (u_mode == 1) return hardLight(b1, s1);      // overlay: hard light with the roles swapped
+  if (u_mode == 2) return softLight(s1, b1);      // soft-light
+  if (u_mode == 3) return hardLight(s1, b1);      // hard-light
+  if (u_mode == 4) return min(s, b);              // darken
+  if (u_mode == 5) return max(s, b);              // lighten
+  if (u_mode == 6) return abs(s - b);             // difference
+  if (u_mode == 7) return s + b - 2.0 * s * b;    // exclusion
+  if (u_mode == 8) return dodge(s1, b1);          // color-dodge
+  return burn(s1, b1);                            // color-burn
+}
+
+void main() {
+  vec4 src;
+  if (u_transformed) {
+    vec2 size = vec2(textureSize(u_layer, 0));
+    vec2 p = (u_inverse * vec3(gl_FragCoord.xy, 1.0)).xy;
+    src = any(lessThan(p, vec2(0.0))) || any(greaterThan(p, size)) ? vec4(0.0) : texture(u_layer, p / size);
+  } else {
+    src = texelFetch(u_layer, ivec2(gl_FragCoord.xy), 0);
+  }
+  src *= u_opacity;
+  vec4 dst = texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0);
+  vec3 cs = src.a > 0.0 ? src.rgb / src.a : vec3(0.0);
+  vec3 cb = dst.a > 0.0 ? dst.rgb / dst.a : vec3(0.0);
+  vec3 rgb = (1.0 - dst.a) * src.rgb + (1.0 - src.a) * dst.rgb + src.a * dst.a * blendMode(cs, cb);
+  outColor = vec4(rgb, src.a + dst.a - src.a * dst.a);
+}
+`;
+
+/** The shader-blended modes, in the order `BLEND_FRAG` numbers them in `u_mode`. */
+const SHADER_BLENDS: readonly BlendMode[] = [
+  'multiply', 'overlay', 'soft-light', 'hard-light', 'darken', 'lighten',
+  'difference', 'exclusion', 'color-dodge', 'color-burn',
+];
+
 const OUTPUT_FRAG = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
@@ -121,6 +199,15 @@ export class Compositor {
     transformed: WebGLUniformLocation;
     inverse: WebGLUniformLocation;
   };
+  private readonly blendProgram: WebGLProgram;
+  private readonly blendUniforms: {
+    layer: WebGLUniformLocation;
+    backdrop: WebGLUniformLocation;
+    opacity: WebGLUniformLocation;
+    transformed: WebGLUniformLocation;
+    inverse: WebGLUniformLocation;
+    mode: WebGLUniformLocation;
+  };
   private readonly outputProgram: WebGLProgram;
   private readonly outputUniforms: {
     composite: WebGLUniformLocation;
@@ -142,6 +229,15 @@ export class Compositor {
       opacity: uniformLocation(gl, this.layerProgram, 'u_opacity'),
       transformed: uniformLocation(gl, this.layerProgram, 'u_transformed'),
       inverse: uniformLocation(gl, this.layerProgram, 'u_inverse'),
+    };
+    this.blendProgram = createProgram(gl, 'compositor.blend', FULLSCREEN_VERT, BLEND_FRAG);
+    this.blendUniforms = {
+      layer: uniformLocation(gl, this.blendProgram, 'u_layer'),
+      backdrop: uniformLocation(gl, this.blendProgram, 'u_backdrop'),
+      opacity: uniformLocation(gl, this.blendProgram, 'u_opacity'),
+      transformed: uniformLocation(gl, this.blendProgram, 'u_transformed'),
+      inverse: uniformLocation(gl, this.blendProgram, 'u_inverse'),
+      mode: uniformLocation(gl, this.blendProgram, 'u_mode'),
     };
     this.outputProgram = createProgram(gl, 'compositor.output', FULLSCREEN_VERT, OUTPUT_FRAG);
     this.outputUniforms = {
@@ -227,24 +323,50 @@ export class Compositor {
         target = runEffectChain(gl, this.pool, target, layer.effects, depth);
       }
 
+      const transformed = layer.inverseTransform !== undefined;
+      const shaderMode = SHADER_BLENDS.indexOf(layer.blend);
+      // A shader-blended mode reads the backdrop, and a pass may not read the target it writes
+      // (compositor-spec §3: ping-pong). So the backdrop is copied first and read from the copy.
+      const backdrop = shaderMode < 0 ? null : this.pool.acquire(width, height, into.format);
+      if (backdrop !== null) {
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, into.framebuffer);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, backdrop.framebuffer);
+        gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      }
+
       gl.bindFramebuffer(gl.FRAMEBUFFER, into.framebuffer);
       resetState(gl, width, height);
-      gl.enable(gl.BLEND);
-      setBlend(gl, layer.blend);
-      gl.useProgram(this.layerProgram);
+      if (backdrop === null) {
+        gl.enable(gl.BLEND);
+        setBlend(gl, layer.blend);
+      }
+      const u = backdrop === null ? this.layerUniforms : this.blendUniforms;
+      gl.useProgram(backdrop === null ? this.layerProgram : this.blendProgram);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, target.texture);
-      const transformed = layer.inverseTransform !== undefined;
       // Pooled targets default to NEAREST (targets.ts); a resampled layer needs bilinear,
       // and the filter is set every time because the pool hands the same texture around.
       const filter = transformed ? gl.LINEAR : gl.NEAREST;
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
-      gl.uniform1i(this.layerUniforms.layer, 0);
-      gl.uniform1f(this.layerUniforms.opacity, Math.min(1, layer.opacity));
-      gl.uniform1i(this.layerUniforms.transformed, transformed ? 1 : 0);
-      gl.uniformMatrix3fv(this.layerUniforms.inverse, false, layer.inverseTransform ?? IDENTITY_MAT3);
+      gl.uniform1i(u.layer, 0);
+      gl.uniform1f(u.opacity, Math.min(1, layer.opacity));
+      gl.uniform1i(u.transformed, transformed ? 1 : 0);
+      gl.uniformMatrix3fv(u.inverse, false, layer.inverseTransform ?? IDENTITY_MAT3);
+      if (backdrop !== null) {
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, backdrop.texture);
+        gl.uniform1i(this.blendUniforms.backdrop, 1);
+        gl.uniform1i(this.blendUniforms.mode, shaderMode);
+      }
       drawFullscreenTriangle(gl, this.vao);
+      if (backdrop !== null) {
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        gl.activeTexture(gl.TEXTURE0);
+        this.pool.release(backdrop);
+      }
       gl.bindTexture(gl.TEXTURE_2D, null);
       this.pool.release(target);
     }
@@ -252,6 +374,7 @@ export class Compositor {
 
   dispose(): void {
     this.gl.deleteProgram(this.layerProgram);
+    this.gl.deleteProgram(this.blendProgram);
     this.gl.deleteProgram(this.outputProgram);
     this.gl.deleteVertexArray(this.vao);
   }
@@ -271,18 +394,21 @@ function resetState(gl: WebGL2RenderingContext, width: number, height: number): 
   gl.bindVertexArray(null);
 }
 
-/** Blend modes in premultiplied form (compositor-spec §3). P0 has the separable workhorses. */
+/**
+ * The fixed-function modes in premultiplied form (compositor-spec §3). Every other mode is a shader
+ * pass (`BLEND_FRAG`) and never reaches here; `normal` is the safe answer if one ever does.
+ */
 function setBlend(gl: WebGL2RenderingContext, mode: BlendMode): void {
   gl.blendEquation(gl.FUNC_ADD);
   switch (mode) {
-    case 'normal':
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      break;
     case 'add':
       gl.blendFunc(gl.ONE, gl.ONE);
       break;
     case 'screen':
       gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_COLOR, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      break;
+    default:
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       break;
   }
 }

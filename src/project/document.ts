@@ -14,6 +14,7 @@
 // are not reported as unknown, because their absence from this version is deliberate, not a
 // mistake in the file.
 
+import type { BlendMode as EngineBlendMode } from '../engine/core/project.ts';
 import { ANCHORS, SCALE_REFERENCES, type Anchor, type ScaleReference } from '../engine/core/layout.ts';
 import type { Rational } from '../engine/core/time.ts';
 
@@ -60,6 +61,14 @@ export interface CanvasSettings {
  * Timeline time is the master coordinate; every analysis read maps through `leadInTicks`
  * and `clipInTicks` via `timelineToSourceSeconds`.
  */
+/**
+ * How a fade shapes the level (PROJECT.md §8.10 "fades with adjustable length and curve"):
+ * linear amplitude, equal-power (constant perceived loudness through the fade — the usual choice for
+ * music), or an S-curve that eases in and out.
+ */
+export const FADE_CURVES = ['equal-power', 'linear', 's-curve'] as const;
+export type FadeCurve = (typeof FADE_CURVES)[number];
+
 export interface AudioSettings {
   /** Relative to the project file when possible, absolute otherwise (data-formats §1.2). */
   readonly path: string;
@@ -76,6 +85,8 @@ export interface AudioSettings {
   readonly clipOutTicks: number | null;
   readonly fadeInTicks: number;
   readonly fadeOutTicks: number;
+  readonly fadeInCurve: FadeCurve;
+  readonly fadeOutCurve: FadeCurve;
   /** Linear gain applied to the exported audio. */
   readonly gain: number;
   readonly stemsEnabled: boolean;
@@ -118,8 +129,9 @@ export interface Palette {
 
 export type LayerKind = 'module' | 'group';
 
-export const BLEND_MODES = ['normal', 'add', 'screen', 'multiply', 'overlay'] as const;
-export type DocumentBlendMode = (typeof BLEND_MODES)[number];
+/** The engine's list (compositor-spec §3), so the document can never offer a mode that is not drawn. */
+export { BLEND_MODES } from '../engine/core/project.ts';
+export type DocumentBlendMode = EngineBlendMode;
 
 // Anchors and scale references are defined by the engine's layout module, which is what
 // consumes them; re-exported here so document code has one import site and the two can

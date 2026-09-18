@@ -26,6 +26,7 @@ import { RenderSetupError, ShaderCompileError } from '../../engine/render/gl.ts'
 import { toRenderProject, timelineDurationTicks } from '../../project/snapshot.ts';
 import type { ProjectDocument } from '../../project/document.ts';
 import { PreviewClock, type PreviewStats, type Transport } from '../clock.ts';
+import { clipLevel } from '../../project/audio-clip.ts';
 
 /** An analysis set with nothing in it, so the preview runs before any audio is loaded. */
 const EMPTY_ANALYSIS: AnalysisSet = { sources: new Map() };
@@ -305,6 +306,22 @@ export class PreviewHost {
     if (tick.playAudio === true) this.startAudio();
   }
 
+  /**
+   * The clip's gain and fades on the element (M29), from the same `clipLevel` the export multiplies
+   * samples by, so the fade you hear is the fade that renders. An element's volume stops at 1, so a
+   * gain above unity is exported but not previewed louder.
+   */
+  private applyLevel(): void {
+    const audio = this.document?.audio;
+    if (audio === undefined) return;
+    const clipIn = audio.clipInTicks;
+    const clipEnd = audio.clipOutTicks ?? audio.durationTicks;
+    const clipSample = this.audio.currentTime * TICKS_PER_SECOND - clipIn;
+    const volume = Math.min(1, Math.max(0, clipLevel(audio, clipSample, Math.max(0, clipEnd - clipIn))));
+    // Only on change: assigning volume every frame is cheap but fires a volumechange each time.
+    if (Math.abs(this.audio.volume - volume) > 1e-3) this.audio.volume = volume;
+  }
+
   private loop = (): void => {
     if (!this.running) return;
     this.rafHandle = requestAnimationFrame(this.loop);
@@ -315,6 +332,7 @@ export class PreviewHost {
 
     const tick = clock.tick({ positionSeconds: this.audio.currentTime, playing: !this.audio.paused });
     this.applyAudio(tick);
+    this.applyLevel();
 
     // The clock's frame when time moved; otherwise the frame the playhead is already parked on,
     // but only when something asked for a redraw. Idle with nothing changed costs nothing.

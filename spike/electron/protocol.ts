@@ -1,5 +1,6 @@
 // Messages between the spike orchestrators, the Electron main process and the renderer.
 
+import type { AudioPlacement } from '../../src/export/audio.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
@@ -60,7 +61,7 @@ export interface ExportConfig {
    * explicitly rather than assumed zero: a project with lead-in silence or a trimmed clip
    * would otherwise export out of sync with its own preview.
    */
-  audioPlacement: { leadInSamples: number; clipInSamples: number; clipOutSamples: number | undefined };
+  audioPlacement: AudioPlacement;
   durationTicks: number;
   project: RenderProject;
   images?: ImageFile[];

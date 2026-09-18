@@ -7,12 +7,18 @@ import {
 } from '../../project/commands.ts';
 import { PALETTE_ROLES } from '../../project/palette.ts';
 import { createGroupLayer, createModuleLayer } from '../../project/create.ts';
-import { walkLayers, type Layer } from '../../project/document.ts';
+import { type Layer } from '../../project/document.ts';
+import { displayOrder, dropPosition, stepPosition } from '../../project/layer-order.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
 import { PresetsPanel } from './PresetsPanel.tsx';
+import { ClipControls } from './ClipControls.tsx';
 import { useModules } from '../modules.ts';
+import { useState } from 'react';
+
+/** The drag payload for reordering layers: a layer id, under a type nothing else uses. */
+const DRAG_TYPE = 'application/x-pulseforge-layer';
 
 const LAYER_KINDS = ['source', 'text', 'visualizer', 'scene3d'] as const;
 
@@ -31,7 +37,9 @@ export function LeftRail(): React.JSX.Element {
   const { all } = useModules();
   const VISUALIZERS = all.filter((m) => (LAYER_KINDS as readonly string[]).includes(m.manifest.kind));
   const grid = analysis?.beatGrid;
-  const layers = [...walkLayers(document.layers)];
+  // Top first, each group's row above its children (layer-order.ts).
+  const layers = displayOrder(document.layers);
+  const selectedLayer = selectedLayerId === null ? undefined : findLayer(document, selectedLayerId);
 
   async function importAudio(): Promise<void> {
     const path = await window.pulseforge.pickAudio();
@@ -79,6 +87,7 @@ export function LeftRail(): React.JSX.Element {
           <dt>Sections</dt><dd>{sections.length === 0 ? 'none' : String(sections.length)}</dd>
         </dl>
       )}
+      <ClipControls />
       {analysisMessage !== null && (
         <p className={analysisState === 'error' ? 'bad' : analysisState === 'working' ? 'dim' : 'ok'}>
           {analysisMessage}
@@ -104,11 +113,11 @@ export function LeftRail(): React.JSX.Element {
       ) : (
         // Bottom-to-top is how they composite; showing them top-first matches every other tool.
         <ul className="layer-list">
-          {[...layers].reverse().map(({ layer, parents }) => (
+          {layers.map(({ layer, depth }) => (
             <LayerRow
               key={layer.id}
               layer={layer}
-              depth={parents.length}
+              depth={depth}
               selected={layer.id === selectedLayerId}
               onSelect={() => select(layer.id)}
             />
@@ -118,7 +127,29 @@ export function LeftRail(): React.JSX.Element {
       {selectedLayerId !== null && (
         <div className="layer-actions">
           <button type="button" onClick={() => run(duplicateLayer(selectedLayerId, newId))}>Duplicate</button>
-          <button type="button" onClick={() => { run(removeLayer(selectedLayerId)); select(null); }}>Delete</button>
+          <button
+            type="button"
+            disabled={selectedLayer?.locked === true}
+            title={selectedLayer?.locked === true ? 'Locked — unlock it to delete' : 'Delete this layer'}
+            onClick={() => { run(removeLayer(selectedLayerId)); select(null); }}
+          >
+            Delete
+          </button>
+          {(['up', 'down'] as const).map((direction) => {
+            const position = stepPosition(document, selectedLayerId, direction);
+            return (
+              <button
+                key={direction}
+                type="button"
+                data-action={`layer-${direction}`}
+                title={direction === 'up' ? 'Up one (drawn later, on top)' : 'Down one (drawn earlier, underneath)'}
+                disabled={position === undefined}
+                onClick={() => position !== undefined && run(moveLayer(selectedLayerId, position))}
+              >
+                {direction === 'up' ? '↑' : '↓'}
+              </button>
+            );
+          })}
           <button type="button" onClick={() => run(moveLayer(selectedLayerId, { index: Number.MAX_SAFE_INTEGER }))}>
             To top
           </button>
@@ -208,11 +239,62 @@ function LayerRow(props: {
 }): React.JSX.Element {
   const { layer, depth, selected, onSelect } = props;
   const run = useStudio((s) => s.run);
+  const notify = useStudio((s) => s.notify);
+  const [dropping, setDropping] = useState(false);
+
+  // Drag a row onto another to put it directly above that row, in that row's group (layer-order.ts).
+  function drop(event: React.DragEvent): void {
+    event.preventDefault();
+    setDropping(false);
+    const draggedId = event.dataTransfer.getData(DRAG_TYPE);
+    if (draggedId === '') return;
+    const position = dropPosition(useStudio.getState().document, draggedId, layer.id);
+    if (position === undefined) return;
+    try {
+      run(moveLayer(draggedId, position));
+    } catch (error) {
+      notify({ text: error instanceof Error ? error.message : String(error), kind: 'bad' });
+    }
+  }
+
   return (
-    <li className={`layer-row${selected ? ' selected' : ''}${layer.enabled ? '' : ' hidden'}`}>
+    <li
+      className={`layer-row${selected ? ' selected' : ''}${layer.enabled ? '' : ' hidden'}${layer.locked ? ' locked' : ''}${dropping ? ' drop-target' : ''}`}
+      data-layer={layer.id}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(DRAG_TYPE, layer.id);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
+        event.preventDefault();
+        setDropping(true);
+      }}
+      onDragLeave={() => setDropping(false)}
+      onDrop={drop}
+    >
       <button type="button" className="layer-name" style={{ paddingLeft: `${8 + depth * 12}px` }} onClick={onSelect}>
-        <span className="name">{layer.name === '' ? '(unnamed)' : layer.name}</span>
+        <span className="name">{layer.locked ? '🔒 ' : ''}{layer.name === '' ? '(unnamed)' : layer.name}</span>
         <span className="meta">{layer.kind === 'group' ? `group · ${layer.children.length}` : layer.module}</span>
+      </button>
+      <button
+        type="button"
+        className={layer.soloed ? 'flag on' : 'flag'}
+        title={layer.soloed ? 'Soloed — only soloed layers draw. Click to unsolo' : 'Solo: draw only this layer (and other soloed ones)'}
+        data-action="solo"
+        onClick={() => run(setLayerFlag(layer.id, 'soloed', !layer.soloed))}
+      >
+        S
+      </button>
+      <button
+        type="button"
+        className={layer.locked ? 'flag on' : 'flag'}
+        title={layer.locked ? 'Locked — its settings cannot be edited. Click to unlock' : 'Lock its settings against edits'}
+        data-action="lock"
+        onClick={() => run(setLayerFlag(layer.id, 'locked', !layer.locked))}
+      >
+        L
       </button>
       <button
         type="button"

@@ -1,6 +1,6 @@
 // Export-ready audio (export-spec §7, PROJECT.md §8.10).
 //
-// Decode → trim to the clip → lead-in silence → pad or cut to exactly the video's length.
+// Decode → trim to the clip → gain and fades → lead-in silence → pad or cut to exactly the video's length.
 // Done in sample arithmetic here rather than with FFmpeg filters, so the placement is exact,
 // testable, and the adjustment can be reported. The result is a float WAV that the encoder
 // muxes as AAC. Video length is authoritative; `-shortest` is never used.
@@ -8,6 +8,7 @@
 import { spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { frameCount, type Rational } from '../engine/core/time.ts';
+import { clipLevel, isUnity, type ClipLevel } from '../project/audio-clip.ts';
 
 export const EXPORT_SAMPLE_RATE = 48_000;
 
@@ -22,6 +23,11 @@ export interface AudioPlacement {
   readonly clipInSamples: number;
   /** One past the last source sample used; undefined = to the end. */
   readonly clipOutSamples: number | undefined;
+  /**
+   * Gain and fades over the trimmed clip (PROJECT.md §8.10), in clip samples. The fade-out ends
+   * where the clip ends, even if the video cuts it short. Omitted: the clip at unity.
+   */
+  readonly level?: ClipLevel;
 }
 
 export interface PreparedAudio {
@@ -59,6 +65,10 @@ export function placeAudio(source: readonly Float32Array[], placement: AudioPlac
     if (input !== undefined && leadIn < totalSamples) {
       const copy = Math.min(sourceSamples, totalSamples - leadIn);
       out.set(input.subarray(clipIn, clipIn + copy), leadIn);
+      const level = placement.level;
+      if (level !== undefined && !isUnity(level)) {
+        for (let i = 0; i < copy; i += 1) out[leadIn + i]! *= clipLevel(level, i, sourceSamples);
+      }
     }
     return out;
   });

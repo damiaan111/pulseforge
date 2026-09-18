@@ -65,6 +65,9 @@ export function applyPreset(
   if (target === undefined || target.kind !== 'module') {
     throw new CommandError('Select a layer to apply this preset to, or add it as a new layer.');
   }
+  if (target.locked) {
+    throw new CommandError(`"${target.name}" is locked. Unlock it to apply a preset to it, or add the preset as a new layer.`);
+  }
   if (mode !== 'replace' && mode !== 'style' && mode !== 'modulations') {
     throw new CommandError(`A layer preset cannot be applied as "${mode}".`);
   }

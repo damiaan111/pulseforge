@@ -265,8 +265,7 @@ it with amount, curve, attack and release, and watch the slider move with the tr
 shows every connection in the project in one place.
 
 **The gaps that matter most:** stems separate fine but are not yet wired into the studio, so every
-connection listens to the full mix for now. Clip trimming and fades, solo, lock and layer
-reordering have no controls yet.
+connection listens to the full mix for now. There is no autosave yet.
 
 **Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me, autosave,
 and the settings and cache screens.

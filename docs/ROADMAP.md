@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-18, after the modulation UI (M13).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-18, after the layer and clip editing step (M7, M9, M29).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -25,7 +25,7 @@
 | P7 — Auto-director | 🔶 | analysis, sections and classification only |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 22 done, 11 partly done, 7 not started.** By count that is about 69%; by
+**Must-haves (M1–M40): 25 done, 8 partly done, 7 not started.** By count that is about 73%; by
 effort — the not-started items include the whole lyrics phase and the auto-director's templates,
 both large — the v1 must-have work is **roughly two-thirds done**.
 
@@ -43,7 +43,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
 | M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | 🔶 | 4.6, 4.24 | separation works through the supervised sidecar (8.6 s for 4 min); **not wired**: running it from the studio, per-stem analysis into the cache, stem status in the UI, per-stem waveform rows |
 | M6 | Determinism contract from commit one; golden frames | ✅ | 4.3, 4.12 | golden frames run locally (`npm run golden`); the repo is on GitHub but no CI is configured (the golden set needs the RTX GPU, so a hosted runner could not run it) |
-| M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | 🔶 | 4.3, 4.39 | **`multiply` and `overlay` blend modes**: offered in the UI, rendered as normal with a note (only normal/add/screen are implemented) |
+| M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | ✅ | 4.3, 4.39, 4.47 | thirteen modes (normal, add, screen and the ten separable ones); the HSL family is not implemented and not offered |
 | M8 | Undo/redo for every mutation | ✅ | 4.15 | |
 | M27 | ML sidecar lifecycle: spawn/supervise/restart, JSON-lines, progress, cancel, health check | 🔶 | 4.24 | built and tested; nothing in the studio uses it yet (arrives with M5) |
 | M28 | Global GPU job queue: renderer / Demucs / WhisperX never contend for VRAM | ⬜ | — | the whole item; needed before stems run from the studio while a render is going |
@@ -52,7 +52,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | 🔶 | 4.15, 4.27 | the commands all exist; the studio lacks **solo and lock buttons, step up/down or drag reordering** (only "To top"), and **time-range editing** on the timeline |
+| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | time ranges are edited in the inspector; dragging them on the timeline, and multi-select, are not built |
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
@@ -61,7 +61,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M15 | Logo/watermark with reactive pulse | ✅ | 4.40 | |
 | M16 | Text layer with styling and animation | ✅ | 4.38 | |
 | M17 | Palette: reskin in one action | ✅ | 4.32 | |
-| M29 | Audio clip model: trim, fades with curves, lead-in/out, timeline→source mapping | 🔶 | 4.7, 4.16 | the model and mapping are in the document and the engine; **no UI** for trim, fades or padding |
+| M29 | Audio clip model: trim, fades with curves, lead-in/out, timeline→source mapping | ✅ | 4.7, 4.16, 4.47 | edited in the Clip panel; dragging clip edges on the timeline is not built |
 | M30 | Layout & aspect: anchors, scale references, per-aspect overrides, switcher, multi-aspect export | ✅ | 4.8, 4.27, 4.34 | |
 | M31 | Preview clock: audio master, drop never drift, scrub, dropped-frame indicator | ✅ | 4.16, 4.27 | |
 | M32 | Deterministic text rasterisation with per-word metrics, missing-font reporting | ✅ | 4.38 | |
@@ -124,9 +124,8 @@ S1, S6, S7, S10, S12, S13, S15, S16 and S17 are not started. Could-haves (C1–C
 Ordered by what makes the app most useful soonest, then by what unblocks what.
 
 1. ✅ **Modulation binding UI (M13)** — done (STATUS 4.46), with the analysis bands fix (4.45).
-2. **Layer and clip editing gaps (M9, M29, M7)** — solo/lock buttons, up/down and drag reordering,
-   time-range handles on the timeline, trim/fade/padding for the audio clip, and the two missing
-   blend modes. Small items that each close a visible hole.
+2. ✅ **Layer and clip editing gaps (M9, M29, M7)** — done (STATUS 4.47). Timeline dragging of
+   time ranges and clip edges is still open.
 3. **Stems end to end (M5, M27, M28)** — the GPU job queue, running Demucs from the studio with
    progress and cancel, per-stem analysis into the cache, stem status and waveform rows, and stem
    sources in the binding UI. This is what makes "the kick drives scale, the vocal drives glow"
@@ -164,9 +163,9 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 826 tests — unit tests, and GPU tests that render through Electron |
+| `npm run check` | typecheck, lint (including the engine boundary) and 856 tests — unit tests, and GPU tests that render through Electron |
 | `npm run golden` | 21 reference frames (bars, layered, 3D scenes at 16:9, 9:16, 1:1) are byte-identical |
-| `npm run dev -- --smoke` | 19 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
+| `npm run dev -- --smoke` | 20 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |
 | `npm run render -- <project> -o <mp4>` | a real NVENC export, verified after encoding |
 | `npm run validate` | the P0 hardware checks (determinism, readback, NVENC, stems, sync) |

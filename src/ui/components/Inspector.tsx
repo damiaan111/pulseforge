@@ -13,12 +13,13 @@
 import type { ParamSpec } from '../../engine/core/params.ts';
 import {
   addAsset, addEffect, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
-  sequence, setEffectEnabled, setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTransform,
+  sequence, setEffectEnabled, setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTimeRange, setLayerTransform,
 } from '../../project/commands.ts';
+import { secondsToTicks, ticksToSeconds } from '../../engine/core/time.ts';
 import type { Command } from '../../project/history.ts';
 import { createEffect } from '../../project/create.ts';
 import { PALETTE_ROLES, linkedRole, resolveRole, roleLink, type PaletteRole } from '../../project/palette.ts';
-import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec } from '../../project/document.ts';
+import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec, type TimeRange } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { useModules } from '../modules.ts';
@@ -75,6 +76,11 @@ export function Inspector(): React.JSX.Element {
 
   return (
     <aside className="inspector">
+      {layer.locked && (
+        <p className="warn locked-note">This layer is locked, so its settings cannot be edited. Unlock it with <strong>L</strong> in the layer list.</p>
+      )}
+      {/* A disabled fieldset disables every control inside it: lock means nothing here moves. */}
+      <fieldset className="inspector-fields" disabled={layer.locked}>
       <h2>Layer</h2>
       <label className="field">
         <span>Name</span>
@@ -205,7 +211,9 @@ export function Inspector(): React.JSX.Element {
       )}
 
       <EffectChain layerId={layer.id} effects={layer.effects} hasDepth={manifest?.kind === 'scene3d'} />
+      <LayerTiming layerId={layer.id} range={layer.timeRange} />
       <ModulationSection layerId={layer.id} bindings={layer.modulations} />
+      </fieldset>
     </aside>
   );
 }
@@ -292,6 +300,69 @@ function EffectChain(props: { layerId: string; effects: readonly EffectSpec[]; h
           <option value="">Add an effect…</option>
           {EFFECTS.map((m) => <option key={m.manifest.id} value={m.manifest.id}>{m.manifest.name}</option>)}
         </select>
+      </label>
+    </>
+  );
+}
+
+/**
+ * When the layer is on screen (M9 "per-layer time range", PROJECT.md §8.10): in and out on the
+ * timeline, in seconds, with "at the playhead" buttons — the quickest way to line an entrance up
+ * with a moment you have just heard. Out may be "to the end". A layer outside its range draws
+ * nothing, and its entry/exit animations run against these points.
+ */
+function LayerTiming(props: { layerId: string; range: TimeRange }): React.JSX.Element {
+  const { layerId, range } = props;
+  const run = useStudio((s) => s.run);
+  const playhead = useStudio((s) => s.timelineSeconds);
+  const inSeconds = ticksToSeconds(range.inTicks);
+  const outSeconds = range.outTicks === null ? null : ticksToSeconds(range.outTicks);
+  const set = (inS: number, outS: number | null, seal = true) => {
+    const inTicks = secondsToTicks(Math.max(0, inS));
+    // An out point at or before the in point would hide the layer entirely and say nothing; keep
+    // at least one tick of range.
+    const outTicks = outS === null ? null : Math.max(inTicks + 1, secondsToTicks(Math.max(0, outS)));
+    run(setLayerTimeRange(layerId, inTicks, outTicks), { seal });
+  };
+
+  return (
+    <>
+      <h2>Timing</h2>
+      <label className="field seconds">
+        <span>In</span>
+        <span className="seconds-input">
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={Number(inSeconds.toFixed(3))}
+            data-action="layer-in"
+            onChange={(e) => Number.isFinite(Number(e.target.value)) && set(Number(e.target.value), outSeconds, false)}
+            onBlur={() => set(inSeconds, outSeconds)}
+          />
+          <span className="dim">s</span>
+          <button type="button" title="In at the playhead" onClick={() => set(playhead, outSeconds)}>⌖</button>
+        </span>
+      </label>
+      <label className="field seconds">
+        <span>Out</span>
+        <span className="seconds-input">
+          {outSeconds === null ? (
+            <span className="dim">end of the video</span>
+          ) : (
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={Number(outSeconds.toFixed(3))}
+              data-action="layer-out"
+              onChange={(e) => Number.isFinite(Number(e.target.value)) && set(inSeconds, Number(e.target.value), false)}
+              onBlur={() => set(inSeconds, outSeconds)}
+            />
+          )}
+          <button type="button" title="Out at the playhead" onClick={() => set(inSeconds, Math.max(playhead, inSeconds))}>⌖</button>
+          {outSeconds !== null && <button type="button" title="Run to the end of the video" onClick={() => set(inSeconds, null)}>∞</button>}
+        </span>
       </label>
     </>
   );

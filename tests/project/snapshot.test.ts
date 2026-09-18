@@ -164,13 +164,25 @@ describe('toRenderProject', () => {
   });
 
   it('falls back on a blend mode the compositor lacks, and says which', () => {
+    // `hue` is a spec'd mode (compositor-spec §3) this build does not draw yet — as a file from a
+    // later build might name it.
+    const document = {
+      ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }),
+      layers: [{ ...layer('0000000000K000000000000001'), blend: 'hue' as unknown as 'normal' }],
+    };
+    const { project, notes } = toRenderProject(document);
+    expect(project.layers[0]?.blend).toBe('normal');
+    expect(notes.some((n) => n.detail.includes('"hue"'))).toBe(true);
+  });
+
+  it('passes the separable blend modes through to the compositor', () => {
     const document = {
       ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }),
       layers: [{ ...layer('0000000000K000000000000001'), blend: 'overlay' as const }],
     };
     const { project, notes } = toRenderProject(document);
-    expect(project.layers[0]?.blend).toBe('normal');
-    expect(notes.some((n) => n.detail.includes('"overlay"'))).toBe(true);
+    expect(project.layers[0]?.blend).toBe('overlay');
+    expect(notes).toEqual([]);
   });
 
   it('produces no notes for a project made only of what the engine implements', () => {

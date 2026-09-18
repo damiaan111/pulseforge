@@ -16,7 +16,7 @@
 import type { LayerTransform } from '../engine/core/layout.ts';
 import { hasPaletteLinks, resolvePaletteValue } from './palette.ts';
 import type { ModulationBinding } from '../engine/core/modulation.ts';
-import type { BlendMode, EffectSpec, GroupSpec as GroupLayerSpec, LayerSpec, RenderProject } from '../engine/core/project.ts';
+import { BLEND_MODES, type BlendMode, type EffectSpec, type GroupSpec as GroupLayerSpec, type LayerSpec, type RenderProject } from '../engine/core/project.ts';
 import {
   aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer,
   type EffectSpec as DocumentEffect, type ModulationBinding as DocumentBinding,
@@ -36,8 +36,11 @@ export interface SnapshotResult {
   readonly aspect: AspectBucket;
 }
 
-/** Blend modes the compositor implements today; the rest fall back to `normal` with a note. */
-const ENGINE_BLEND_MODES: readonly BlendMode[] = ['normal', 'add', 'screen'];
+/**
+ * Blend modes the compositor implements. The document's list is the same one today; the check stays
+ * so a file from a later build naming a mode this one lacks renders as normal with a note.
+ */
+const ENGINE_BLEND_MODES: readonly string[] = BLEND_MODES;
 
 /** Document effect → engine effect: the id, the module and the stored params, nothing else. */
 function toEngineEffect(effect: DocumentEffect, palette: Palette, path: string, notes: SnapshotNote[]): EffectSpec {
@@ -160,7 +163,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       notes.push({ path, detail: 'masking (S7) is not implemented; the layer renders unmasked' });
     }
     let blend: BlendMode = 'normal';
-    if (ENGINE_BLEND_MODES.includes(layer.blend as BlendMode)) {
+    if (ENGINE_BLEND_MODES.includes(layer.blend)) {
       blend = layer.blend as BlendMode;
     } else {
       notes.push({ path, detail: `blend mode "${layer.blend}" is not implemented by the compositor; rendering as normal` });

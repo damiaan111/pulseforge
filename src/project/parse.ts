@@ -13,7 +13,7 @@
 // so a document that has been through a newer build survives a round-trip through this one.
 
 import {
-  ANCHORS, ASPECT_BUCKETS, ASSET_KINDS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE,
+  ANCHORS, ASPECT_BUCKETS, ASSET_KINDS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE, FADE_CURVES, type FadeCurve,
   DEFAULT_ENVELOPE, DEFAULT_LOOK_AHEAD_MS, ENVELOPE_MODES, IDENTITY_TRANSFORM,
   MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
@@ -545,6 +545,8 @@ function parseAudio(node: Node): AudioSettings {
     clipOutTicks: a.nullableTicks('clipOutTicks'),
     fadeInTicks: a.ticks('fadeInTicks', 0),
     fadeOutTicks: a.ticks('fadeOutTicks', 0),
+    fadeInCurve: a.oneOf<FadeCurve>('fadeInCurve', FADE_CURVES, 'equal-power'),
+    fadeOutCurve: a.oneOf<FadeCurve>('fadeOutCurve', FADE_CURVES, 'equal-power'),
     gain: a.num('gain', 1, { min: 0 }),
     stemsEnabled: a.bool('stemsEnabled', false),
     extra: a.rest(),

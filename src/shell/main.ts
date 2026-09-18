@@ -1033,6 +1033,50 @@ app.whenReady().then(async () => {
         presetSave = saved === true && gone === true;
       }
 
+      // Layer editing (M9): solo and lock from the list, lock disabling the inspector and Delete, and
+      // a one-step move — each undoable. Run on whichever layer is selected, with at least two rows.
+      let layerEditing = false;
+      const order = () => [...document.querySelectorAll('#app .layer-list .layer-row')].map((row) => row.getAttribute('data-layer'));
+      const selectedRow = () => document.querySelector('#app .layer-list .layer-row.selected');
+      const pressUndo = async () => {
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+      };
+      // Its own two layers, so it does not depend on what earlier checks left behind; undone at the end.
+      const addBars = () => [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      addBars();
+      await new Promise((done) => setTimeout(done, 80));
+      addBars();
+      await new Promise((done) => setTimeout(done, 80));
+      if (selectedRow() !== null && order().length >= 2) {
+        const soloButton = () => selectedRow()?.querySelector('[data-action="solo"]');
+        soloButton()?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+        const soloed = soloButton()?.classList.contains('on') === true;
+        await pressUndo();
+        const unsoloed = soloButton()?.classList.contains('on') === false;
+
+        const lockButton = () => selectedRow()?.querySelector('[data-action="lock"]');
+        lockButton()?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+        const lockedInspector = document.querySelector('#app .inspector fieldset.inspector-fields')?.disabled === true;
+        const deleteDisabled = [...document.querySelectorAll('#app .layer-actions button')].find((b) => b.textContent?.trim() === 'Delete')?.disabled === true;
+        await pressUndo();
+        const unlocked = document.querySelector('#app .inspector fieldset.inspector-fields')?.disabled === false;
+
+        const before = order();
+        const step = [...document.querySelectorAll('#app .layer-actions [data-action="layer-down"], #app .layer-actions [data-action="layer-up"]')].find((b) => !b.disabled);
+        step?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+        const moved = JSON.stringify(order()) !== JSON.stringify(before);
+        await pressUndo();
+        const restored = JSON.stringify(order()) === JSON.stringify(before);
+        layerEditing = soloed && unsoloed && lockedInspector && deleteDisabled && unlocked && step !== undefined && moved && restored;
+      }
+      await pressUndo();
+      await pressUndo();
+
       // Modulation (M13), end to end in the studio: ∿ beside a control → a recipe → a binding row in
       // the inspector, the preview reporting the rendered value (the slider's live marker) and the
       // binding's signal (its level meter), and the matrix listing it. "Breathing" is an LFO, so it
@@ -1092,6 +1136,7 @@ app.whenReady().then(async () => {
         presetApply,
         presetSave,
         modulationUi,
+        layerEditing,
         exportDialog,
       };
     })()`) as Record<string, boolean>;
@@ -1199,6 +1244,9 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(click('#app header button[data-action="modulation-matrix"]'));
     await snap(`${label}-7c-modulation-matrix`);
     await js(click('#app header button[data-action="modulation-matrix"]'));
+    // The audio clip panel (M29) — only there when the project has audio (open one with the tour).
+    await js(`document.querySelector('#app [data-testid="clip-controls"]')?.scrollIntoView({ block: 'center' })`);
+    await snap(`${label}-8-audio-clip`);
   }
   console.log(`[smoke] ui tour written to ${dir}`);
 }
