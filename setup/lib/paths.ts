@@ -12,6 +12,8 @@ export const CACHE = join(VENDOR, '.cache');
 export const TMP = join(VENDOR, '.tmp');
 export const WHEELHOUSE = join(VENDOR, 'wheelhouse');
 export const MODELS = join(VENDOR, 'models');
+/** The drop-in modules folder (M35), scanned at startup. */
+export const MODULES_DIR = join(ROOT, 'modules');
 /** Bundled open-licence fonts (text layers). */
 export const FONTS = join(VENDOR, 'fonts');
 /** The default typeface when a text layer names no font. */

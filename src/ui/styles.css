@@ -155,6 +155,12 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .library-thumb.broken { display: grid; place-items: center; color: var(--text-dim); }
 .library-name { font-size: 10px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Drop-in modules (M35) */
+.modules-panel { margin-top: 6px; }
+.modules-bar { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.modules-bar button { padding: 1px 6px; font-size: 11px; }
+.module-problem { font-size: 11px; margin: 4px 0 0; overflow-wrap: anywhere; user-select: text; }
+
 .layer-list { list-style: none; margin: 0; padding: 0; }
 .layer-row { display: flex; align-items: stretch; border: 1px solid transparent; border-radius: var(--radius); }
 .layer-row:hover { background: var(--panel); }

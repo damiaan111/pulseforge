@@ -20,6 +20,8 @@ import { runExport } from '../../src/export/job.ts';
 import { CanvasTextRasterizer } from '../../src/text/canvas-rasterizer.ts';
 import { VideoFrameFeeder } from '../../src/video/frame-feeder.ts';
 import { framePath } from '../../src/assets/video-cache.ts';
+import { shaderModuleDefinition, type ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
+import { BUILTIN_MODULES } from '../../src/engine/engine.ts';
 import type {
   DeterminismConfig, ExportConfig, FontsConfig, FramesConfig, ImageFile, PassResult, VideoSequenceFile, SpikeConfig, SpikeExportResult,
   SpikeFramesResult, SpikeRenderResult,
@@ -80,11 +82,20 @@ function videoFeeder(engine: Engine, sequences: readonly VideoSequenceFile[] | u
   return feeder;
 }
 
-function newEngine(dither = true, text?: CanvasTextRasterizer): Engine {
+/** Built-ins plus the drop-in modules the config carries (M35). */
+function moduleSet(sources: readonly ShaderModuleSource[] | undefined) {
+  return sources === undefined || sources.length === 0
+    ? undefined
+    : [...BUILTIN_MODULES, ...sources.map(shaderModuleDefinition)];
+}
+
+function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[]): Engine {
+  const modules = moduleSet(sources);
   return createEngine(createContext(), {
     quality: 'final',
     output: { transfer: 'srgb', dither, flipY: true, bitDepth: 8 }, // D49
     ...(text === undefined ? {} : { text }),
+    ...(modules === undefined ? {} : { modules }),
   });
 }
 
@@ -183,7 +194,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
   try {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
-    const engine = newEngine(config.dither, await loadText(config.text));
+    const engine = newEngine(config.dither, await loadText(config.text), config.modules);
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     const feeder = videoFeeder(engine, config.videos);
     const pixels = new Uint8Array(width * height * 4);
@@ -254,6 +265,10 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       },
       durationTicks: config.durationTicks,
       images: loadImages(config.images),
+      ...(() => {
+        const modules = moduleSet(config.modules);
+        return modules === undefined ? {} : { modules };
+      })(),
       ...(config.text === undefined ? {} : { text: await loadText(config.text) as CanvasTextRasterizer }),
       outputPath: config.outputPath,
       scratchDir: config.scratchDir,

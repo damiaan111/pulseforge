@@ -1,6 +1,5 @@
 // The left rail (ui-spec §5): the audio panel and the layer list.
 
-import { BUILTIN_MODULES } from '../../engine/engine.ts';
 import { secondsToTicks } from '../../engine/core/time.ts';
 import {
   addLayer, addPaletteColor, duplicateLayer, findLayer, groupLayers, moveLayer, removeLayer,
@@ -12,9 +11,9 @@ import { walkLayers, type Layer } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
+import { useModules } from '../modules.ts';
 
 const LAYER_KINDS = ['source', 'text', 'visualizer'] as const;
-const VISUALIZERS = BUILTIN_MODULES.filter((m) => (LAYER_KINDS as readonly string[]).includes(m.manifest.kind));
 
 export function LeftRail(): React.JSX.Element {
   const document = useStudio((s) => s.document);
@@ -28,6 +27,8 @@ export function LeftRail(): React.JSX.Element {
   const run = useStudio((s) => s.run);
   const loadAudio = useStudio((s) => s.loadAudio);
 
+  const { all } = useModules();
+  const VISUALIZERS = all.filter((m) => (LAYER_KINDS as readonly string[]).includes(m.manifest.kind));
   const grid = analysis?.beatGrid;
   const layers = [...walkLayers(document.layers)];
 
@@ -91,6 +92,8 @@ export function LeftRail(): React.JSX.Element {
           </button>
         ))}
       </div>
+
+      <ModulesPanel />
 
       <h2>Layers</h2>
       {layers.length === 0 ? (
@@ -217,5 +220,32 @@ function LayerRow(props: {
         {layer.enabled ? '👁' : '—'}
       </button>
     </li>
+  );
+}
+
+/**
+ * The drop-in modules folder (M35): how many loaded, and every folder that did not, with the
+ * reason — a module that fails is flagged here rather than silently missing from the list.
+ */
+function ModulesPanel(): React.JSX.Element {
+  const userModules = useStudio((s) => s.userModules);
+  const problems = useStudio((s) => s.moduleProblems);
+  const loadModules = useStudio((s) => s.loadModules);
+  return (
+    <div className="modules-panel" data-testid="modules-panel">
+      <div className="modules-bar">
+        <span className="dim">
+          {userModules.length === 0 ? 'No drop-in modules' : `${userModules.length} drop-in module${userModules.length === 1 ? '' : 's'}`}
+        </span>
+        <span className="spacer" />
+        <button type="button" title="Read modules/ again" data-action="modules-reload" onClick={() => void loadModules()}>Reload</button>
+        <button type="button" title="Open the modules folder" onClick={() => void window.pulseforge.revealModules()}>Folder</button>
+      </div>
+      {problems.map((problem) => (
+        <p key={problem.folder} className="bad module-problem">
+          <strong>modules/{problem.folder}</strong>: {problem.problems.join('; ')}
+        </p>
+      ))}
+    </div>
   );
 }

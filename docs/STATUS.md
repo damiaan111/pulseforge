@@ -13,8 +13,8 @@
 > waveform peaks, section detection, presets and their store, the render queue, the supervised
 > ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
 >
-> **P3 is complete.** Next: P4 — Library (§10): the module catalogue, which is the thing the
-> studio is currently short of.
+> **P3 is complete; P4 — Library is well along** (2026-09-18: steps 1–14 done, see §1). Remaining
+> for P4: Three.js scene layers (M37) and the preset browser (S8) — §4.33.
 
 ---
 
@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅ (§4.28–§4.41); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅ (§4.28–§4.42); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -47,7 +47,8 @@ P4 steps:
 | 10 | Text layer (M16, M32): deterministic rasterisation, per-word metrics, styling, animation, bundled fonts | ✅ | `5472289` |
 | 11 | Layer groups (M38): real group compositing, group/ungroup in the studio | ✅ | `1c9efa7` |
 | 12 | Logo layer (M15): sized image with aspect kept, tint and reactive pulse | ✅ | `1a42b07` |
-| 13 | Video layers (M39): deterministic frame cache, engine video store, export + preview | ✅ | (this commit) |
+| 13 | Video layers (M39): deterministic frame cache, engine video store, export + preview | ✅ | `c81752b` |
+| 14 | `modules/` drop-in folder (M35): declarative shader modules, hot reload, authoring guide, `npm run modules:check` | ✅ | (this commit) |
 
 P3 steps:
 
@@ -503,8 +504,9 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   the suite and three of that file passed. Suspect too many concurrent Electron GPU children; if it
   recurs, cap vitest workers for `tests/golden/`.
 - **IPC reads any path the renderer names** (`readAudio`, `loadImage`, `readProject`). The renderer is
-  sandboxed and loads only our bundle, so this is not reachable today — but once `modules/` drop-ins
-  run in the renderer (M35) these should accept only paths the user picked or the project references.
+  sandboxed and loads only our bundle, so this is not reachable today. M35 kept it that way: drop-in
+  modules are JSON + GLSL and no JS from `modules/` runs (§4.42). If JS modules are ever allowed,
+  these should accept only paths the user picked or the project references.
 - A quit while a render is running cancels the render first, *then* the window asks about unsaved
   changes; answering Cancel keeps the app open with the render already cancelled.
 
@@ -1337,7 +1339,8 @@ suggested order:
 6. ✅ **Group compositing** (M38) — §4.39.
 7. ✅ **Video layers** (M39) — §4.41.
 8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
-9. **Preset browser UI** (S8) and **`modules/` drop-in folder + authoring guide** (M35).
+9. ✅ **`modules/` drop-in folder + authoring guide** (M35) — §4.42.
+10. **Preset browser UI** (S8): save-preset button, browser, thumbnails.
 
 ---
 
@@ -1712,3 +1715,56 @@ at 2.0 s — the exact source frame.
 **Not done:** cache size in a settings screen and pruning (M33, with the cache-management step);
 the smoke does not drive the video import dialog (it cannot), so the studio import → preview path is
 covered by the IPC check plus the GPU tests rather than one click-through.
+
+### 4.42 The `modules/` drop-in folder (P4 step 14) — M35, module-spec §11, PROJECT.md §8.17
+
+A drop-in module is **data**: a folder in `modules/` with `module.json` (manifest + parameter
+schema) and a GLSL ES 3.00 fragment shader. **No JavaScript from `modules/` runs** — the renderer
+stays sandboxed, the IPC surface does not grow, and a shader has no clock, network or disk, so a
+drop-in is deterministic by construction. What it cannot do (assets, state between frames,
+multi-pass) is documented; built-in modules remain the route for that. Written for authors:
+`docs/module-authoring.md`.
+
+**Engine** — `src/engine/modules/shader-module.ts`: `validateShaderModule` (id shape, `core.`
+reserved, duplicates against built-ins and each other, kind, parameter types/ranges/defaults/enum
+options/colours, `void main`, no `#version`), `shaderPrelude(kind, params)` and
+`shaderModuleDefinition` → an ordinary `ModuleDefinition`, so the inspector, presets, modulation,
+aspect overrides and export treat it like a built-in. The prelude gives `u_resolution`, `u_time`,
+`u_frame`, `u_scale`, the audio features of the first `select:stem` parameter's stem,
+`pf_spectrum`/`pf_bin`, `pf_uv()` (top-left origin), the seeded `pf_hash`, `pf_input` for effects,
+and one uniform per parameter (int → float, enum → index, colour → linear vec3). Compile errors are
+rewritten to the **author's** line numbers. The engine now isolates any module whose `create`
+throws: `broken` map, the layer is skipped with a note, the rest renders. `Engine.addModules`
+replaces a registered module (hot reload) and disposes its instances.
+
+**Scanning** — `src/modules-folder/scan.ts`: `scanModules(root, builtinIds)`, sorted folders,
+`_`/`.` folders ignored (so `_template` is not loaded), 256 KB shader cap, `shader` must be a
+file in the folder. Every folder that fails is returned with its reasons — never dropped silently.
+
+**Wiring** — main scans on request and watches the folder (debounced recursive `fs.watch` →
+`pf:modules:changed`); the studio's Modules line shows the count, Reload, Folder, and each broken
+folder with its reason; Add layer and the effect picker include the drop-ins; the preview host
+registers them. `renderDocument` scans `modules/` for the CLI and the queue and passes the sources to
+the Electron child, which builds the same definitions — preview and export cannot disagree.
+
+**Shipped** — `modules/example-pulse-rings/` (a worked example exercising every parameter type,
+audio drive by enum, stem choice, `u_scale` sizing) and `modules/_template/`.
+
+**Conformance** — `npm run modules:check [-- dir]` (`scripts/check-modules.ts`) renders each module
+on the GPU: params resolve and round-trip; compiles; determinism (frames 12/40/75 rendered twice in
+opposite orders, byte-identical); reflow (draws at 16:9, 9:16 and 1:1; effects are tested over the
+test pattern). Writes `out/modules-check.json`, exits 1 on any failure. Verified on a deliberately
+bad folder: a non-compiling shader and a pixel-sized one are both caught with the reason.
+
+Verified here: `npm run check` **705 tests** — `tests/modules/scan.test.ts` (loading, ignored
+folders, broken folders reported by name, id clashes, the shipped example, a message per schema
+mistake, `main`/`#version`, the prelude's uniforms) and
+`tests/golden/modules-folder-gpu.test.ts` (the example is deterministic; a drop-in effect over a
+drop-in source reads back the right colour; a broken shader is isolated and reported at the
+author's line 3). `npm run golden` 15/15; `npm run modules:check` passes on the shipped example;
+`--smoke` **14/14** with a new `dropInModule` check (the example is offered under Add layer, adds,
+shows its generated inspector, and no engine note says it is broken — without audio it rightly
+notes it has nothing to react to — then undoes).
+
+**Not done:** JS modules (deliberately — see above); drop-ins in the preset browser (S8); the
+module's `version` is recorded but projects do not yet warn when a drop-in they use has changed.

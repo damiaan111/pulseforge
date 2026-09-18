@@ -12,6 +12,7 @@
 // shapes. `import type` is erased, so none of their Node imports reach the browser bundle.
 import type { JobStatus, RenderJob } from '../export/queue.ts';
 import type { RenderRequest } from './render-service.ts';
+import type { ModuleScan } from '../modules-folder/scan.ts';
 
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
 export const IPC = {
@@ -30,6 +31,10 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  modulesList: 'pf:modules:list',
+  modulesReveal: 'pf:modules:reveal',
+  /** Main → renderer: something in modules/ changed on disk; list again. */
+  modulesChanged: 'pf:modules:changed',
   videoImport: 'pf:video:import',
   videoPrepare: 'pf:video:prepare',
   videoFrame: 'pf:video:frame',
@@ -53,7 +58,7 @@ export const IPC = {
   renderChanged: 'pf:render:changed',
 } as const;
 
-export type { RenderJob, JobStatus, RenderRequest };
+export type { RenderJob, JobStatus, RenderRequest, ModuleScan };
 
 export interface ProjectFile {
   readonly path: string;
@@ -262,6 +267,12 @@ export interface PulseforgeApi {
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
   analyzeAudio(path: string): Promise<AnalysisPayload>;
+  /** The drop-in modules folder, scanned now: loadable modules and per-folder problems (M35). */
+  listModules(): Promise<ModuleScan>;
+  /** Opens the modules folder in the file manager, creating it if needed. */
+  revealModules(): Promise<void>;
+  /** Called when files in modules/ change, so the studio can reload without a restart. */
+  onModulesChanged(listener: () => void): () => void;
   /** Shows an open dialog for a video and identifies it. Extraction is `prepareVideo`. */
   importVideo(): Promise<VideoFile | null>;
   /**

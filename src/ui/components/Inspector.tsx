@@ -10,7 +10,6 @@
 //    and an overridden parameter shows a badge with reset-to-base.
 //  - **Grouping and ordering come from the declaration**, so a module author controls the panel.
 
-import { BUILTIN_MODULES } from '../../engine/engine.ts';
 import type { ParamSpec } from '../../engine/core/params.ts';
 import {
   addAsset, addEffect, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
@@ -22,9 +21,9 @@ import { PALETTE_ROLES, linkedRole, resolveRole, roleLink, type PaletteRole } fr
 import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
+import { useModules } from '../modules.ts';
 import { useState } from 'react';
 
-const MANIFESTS = new Map(BUILTIN_MODULES.map((m) => [m.manifest.id, m.manifest]));
 
 /**
  * module-spec §3.1: show this control only when another parameter has a given value. Conditions
@@ -51,6 +50,7 @@ export function Inspector(): React.JSX.Element {
   const editTarget = useStudio((s) => s.editTarget);
   const run = useStudio((s) => s.run);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { manifests: MANIFESTS } = useModules();
 
   const layer = selectedId === null ? undefined : findLayer(document, selectedId);
 
@@ -206,7 +206,6 @@ export function Inspector(): React.JSX.Element {
   );
 }
 
-const EFFECTS = BUILTIN_MODULES.filter((m) => m.manifest.kind === 'effect');
 
 /**
  * The effect chain for the selected layer (module-spec §8, ui-spec §4).
@@ -221,6 +220,8 @@ const EFFECTS = BUILTIN_MODULES.filter((m) => m.manifest.kind === 'effect');
 function EffectChain(props: { layerId: string; effects: readonly EffectSpec[] }): React.JSX.Element {
   const { layerId, effects } = props;
   const run = useStudio((s) => s.run);
+  const { all, manifests: MANIFESTS } = useModules();
+  const EFFECTS = all.filter((m) => m.manifest.kind === 'effect');
   const [openId, setOpenId] = useState<string | null>(null);
   const [picking, setPicking] = useState('');
 

@@ -19,6 +19,7 @@ import { VideoFrameFeeder } from '../../video/frame-feeder.ts';
 import type { RenderProject } from '../../engine/core/project.ts';
 import { frameCount, frameTimeSeconds, secondsToTicks, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
+import type { ModuleDefinition } from '../../engine/core/module.ts';
 import { RenderSetupError, ShaderCompileError } from '../../engine/render/gl.ts';
 import { toRenderProject, timelineDurationTicks } from '../../project/snapshot.ts';
 import type { ProjectDocument } from '../../project/document.ts';
@@ -66,6 +67,7 @@ export class PreviewHost {
   private feeder: VideoFrameFeeder | null = null;
   private videoSequences: readonly { hash: string; frameCount: number }[] = [];
   private fetching: Promise<void> | null = null;
+  private userModules: readonly ModuleDefinition[] = [];
 
   private running = false;
   private rafHandle = 0;
@@ -107,6 +109,7 @@ export class PreviewHost {
     this.feeder = new VideoFrameFeeder(this.engine, (hash, sourceFrame) =>
       window.pulseforge.videoFrame(hash, this.document?.canvas.fps ?? { num: 60, den: 1 }, sourceFrame));
     this.feeder.setSequences(this.videoSequences);
+    this.engine.addModules(this.userModules);
     this.running = true;
     this.uploadImages();
     this.loop();
@@ -197,6 +200,17 @@ export class PreviewHost {
     };
     if (defaultFont !== null) void register(defaultFont.hash, defaultFont.bytes, true);
     for (const [hash, bytes] of fonts) void register(hash, bytes, false);
+  }
+
+  /**
+   * Drop-in modules (M35). Registered with the engine, which replaces a module it already has — so
+   * an edited shader recompiles on the next frame, and one that no longer compiles is skipped and
+   * reported rather than taking the preview down.
+   */
+  setModules(definitions: readonly ModuleDefinition[]): void {
+    this.userModules = definitions;
+    this.engine?.addModules(definitions);
+    this.needsRedraw = true;
   }
 
   /** The prepared proxies: which clips have frames, and how many. */

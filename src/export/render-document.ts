@@ -28,7 +28,9 @@ import { frameCount, rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { loadDocument } from '../project/load.ts';
 import { timelineDurationTicks, toRenderProject, type SnapshotNote } from '../project/snapshot.ts';
 import type { DocumentIssue } from '../project/parse.ts';
-import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
+import { FFMPEG_EXE, FFPROBE_EXE, MODULES_DIR } from '../../setup/lib/paths.ts';
+import { scanModules } from '../modules-folder/scan.ts';
+import { BUILTIN_MODULES } from '../engine/engine.ts';
 import type { ImageFile, VideoSequenceFile } from '../../spike/electron/protocol.ts';
 import { bundleElectron } from '../../spike/harness.ts';
 import { runExportSpike } from '../../spike/lib/export-run.ts';
@@ -84,6 +86,8 @@ export interface RenderDocumentOptions {
    * belongs on a drive with room; defaults to `cacheRoot`.
    */
   readonly videoCacheRoot?: string | undefined;
+  /** The drop-in modules folder; defaults to the repo's `modules/`. */
+  readonly modulesDir?: string | undefined;
   /** Distinguishes concurrent callers' scratch files. */
   readonly name: string;
   readonly noCache?: boolean | undefined;
@@ -217,6 +221,10 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
       videoProblems.push({ assetId: asset.id, detail: (error as Error).message });
     }
   }
+  // Drop-in modules (M35), scanned exactly as the studio scans them, so a project using one renders
+  // here too. A broken module is a note, and its layers draw nothing — the engine says which.
+  const scanned = await scanModules(options.modulesDir ?? MODULES_DIR, new Set(BUILTIN_MODULES.map((m) => m.manifest.id)));
+  for (const broken of scanned.problems) say(`Warning: modules/${broken.folder}: ${broken.problems.join('; ')}`);
   const problems = [...loaded.problems, ...fontAssets.problems, ...videoProblems];
   const allNotes: SnapshotNote[] = [
     ...notes,
@@ -257,6 +265,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     images,
     text: { default: defaultFontFile(), fonts: fontAssets.fonts },
     videos,
+    modules: [...scanned.modules],
     settings: defaultEncodeSettings(options.codec),
     outputPath: options.outputPath,
     // Sync readback: measured faster than the PBO ring through ANGLE (D50).

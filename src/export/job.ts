@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
+import type { ModuleDefinition } from '../engine/core/module.ts';
 import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
 import { frameCount } from '../engine/core/time.ts';
 import { ENGINE_VERSION, createEngine, type Engine } from '../engine/engine.ts';
@@ -37,6 +38,8 @@ export interface ExportRequest {
    * a video layer's still comes off the frame cache and is decoded (M39).
    */
   readonly prepareFrame?: (frameIndex: number) => Promise<void>;
+  /** The module set, when it is more than the built-ins (drop-in modules, M35). */
+  readonly modules?: readonly ModuleDefinition[];
   /** Called once with the engine this export builds, for hosts that register inputs into it. */
   readonly onEngine?: (engine: Engine) => void;
   readonly outputPath: string;
@@ -122,6 +125,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     output: { transfer: 'srgb', dither: request.dither ?? true, flipY: true, bitDepth: settings.bitDepth },
     packing: settings.conversion === 'gpu-nv12' ? 'nv12' : 'rgba',
     ...(request.text === undefined ? {} : { text: request.text }),
+    ...(request.modules === undefined ? {} : { modules: request.modules }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
   request.onEngine?.(engine);

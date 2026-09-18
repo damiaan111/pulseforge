@@ -40,6 +40,13 @@ export function App(): React.JSX.Element {
   const reportVideoProgress = useStudio((s) => s.reportVideoProgress);
   useEffect(() => window.pulseforge.onVideoProgress(reportVideoProgress), [reportVideoProgress]);
 
+  // Drop-in modules (M35): listed at start and again whenever the folder changes on disk.
+  const loadModules = useStudio((s) => s.loadModules);
+  useEffect(() => {
+    void loadModules();
+    return window.pulseforge.onModulesChanged(() => void loadModules());
+  }, [loadModules]);
+
   // The bundled typeface, once: text layers need it before they can draw anything (§8.13).
   useEffect(() => {
     void loadDefaultFont();

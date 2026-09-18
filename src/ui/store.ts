@@ -34,6 +34,8 @@ import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
 import type { ImageBytes, LibraryListing, RenderJob } from '../shell/ipc.ts';
+import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
+import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
 
 /** The one history for the open project. Module-level: there is exactly one document. */
@@ -125,6 +127,12 @@ export interface StudioState {
   findMissing(): Promise<void>;
   /** "Collect files": the project and its media copied into one folder. */
   collectFiles(): Promise<void>;
+
+  /** Drop-in modules from modules/ (M35), and the folders that could not load, with why. */
+  userModules: readonly ShaderModuleSource[];
+  moduleProblems: readonly ModuleFolderProblem[];
+  modulesFolder: string | null;
+  loadModules(): Promise<void>;
 
   /** The managed library folder (M40, D6); null until first listed. */
   library: LibraryListing | null;
@@ -463,6 +471,19 @@ export const useStudio = create<StudioState>((set, get) => ({
       });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Collecting files'), kind: 'bad' } });
+    }
+  },
+
+  userModules: [],
+  moduleProblems: [],
+  modulesFolder: null,
+
+  async loadModules() {
+    try {
+      const scan = await window.pulseforge.listModules();
+      set({ userModules: scan.modules, moduleProblems: scan.problems, modulesFolder: scan.root });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the modules folder'), kind: 'bad' } });
     }
   },
 

@@ -22,11 +22,11 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, watch } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
 import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
@@ -47,6 +47,8 @@ import {
   PROXY_WIDTH, VIDEO_EXTENSIONS, extractSequence, framePath, hashVideoFile, probeVideo, sequenceDir,
 } from '../assets/video-cache.ts';
 import { loadDocument } from '../project/load.ts';
+import { scanModules, type ModuleScan } from '../modules-folder/scan.ts';
+import { BUILTIN_MODULES } from '../engine/engine.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
@@ -352,6 +354,14 @@ function registerHandlers(): void {
     return { path, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
   };
 
+  // Drop-in modules (M35): scanned on request, so the studio's reload is a fresh read of the folder.
+  const builtinIds = new Set(BUILTIN_MODULES.map((m) => m.manifest.id));
+  ipcMain.handle(IPC.modulesList, async (): Promise<ModuleScan> => scanModules(MODULES_DIR, builtinIds));
+  ipcMain.handle(IPC.modulesReveal, async (): Promise<void> => {
+    await mkdir(MODULES_DIR, { recursive: true });
+    await shell.openPath(MODULES_DIR);
+  });
+
   // Video (M39): extracted under the repo's drive, like the CLI's cache — a frame cache runs to
   // gigabytes and C: is nearly full on the build machine (STATUS §2). The studio and the CLI share
   // it, so a clip previewed here is already extracted when the queue renders it at the same size.
@@ -547,6 +557,27 @@ function registerRenderHandlers(renders: RenderService): void {
   });
 }
 
+/**
+ * Hot reload for module authors (module-spec §12): editing a shader or a module.json in modules/
+ * tells the studio to list again. Debounced — an editor's save is often several writes.
+ */
+function watchModules(window: BrowserWindow): void {
+  if (!existsSync(MODULES_DIR)) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const watcher = watch(MODULES_DIR, { recursive: true }, () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!window.isDestroyed()) window.webContents.send(IPC.modulesChanged);
+      }, 300);
+    });
+    window.on('closed', () => watcher.close());
+  } catch (error) {
+    // Watching is a convenience; without it, Reload in the studio still works.
+    console.error(`[modules] cannot watch ${MODULES_DIR}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function createWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 1600,
@@ -571,6 +602,7 @@ async function createWindow(): Promise<BrowserWindow> {
   });
 
   window.once('ready-to-show', () => window.show());
+  watchModules(window);
   // The page vetoed its unload because the project has unsaved changes (ui/main.tsx). Without a
   // handler Electron silently keeps the window open, which reads as "the close button is broken".
   window.webContents.on('will-prevent-unload', (event) => {
@@ -786,6 +818,36 @@ app.whenReady().then(async () => {
         await new Promise((done) => setTimeout(done, 80));
       }
 
+      // Drop-in modules (M35): the shipped example in modules/ must be scanned by the main
+      // process, offered under Add layer, and compile in the preview — a broken module would
+      // leave an engine note saying so.
+      let dropInModule = false;
+      let pulseButton;
+      for (let i = 0; i < 40 && pulseButton === undefined; i += 1) {
+        pulseButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Pulse rings');
+        if (pulseButton === undefined) await new Promise((done) => setTimeout(done, 50));
+      }
+      if (pulseButton !== undefined) {
+        pulseButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 1000));
+        // Without audio the layer notes that it has nothing to react to; the check is that no
+        // note says the module is broken. The notes are read from the toast they open.
+        let noteText = '';
+        const notesButton = document.querySelector('#app .canvas-notes');
+        if (notesButton !== null) {
+          notesButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await new Promise((done) => setTimeout(done, 50));
+          const toast = document.querySelector('#app .toast');
+          noteText = toast?.textContent ?? '';
+          toast?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+        const inspectorControls = document.querySelectorAll('#app .inspector .field').length;
+        dropInModule = !noteText.includes('broken') && inspectorControls > 0
+          && [...document.querySelectorAll('#app .layer-row .meta')].some((m) => m.textContent === 'example.visualizer.pulse-rings');
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+      }
+
       // Video (M39), the studio half: the main process extracts a clip's preview proxy and hands
       // stills back over the bridge. (The GPU half — frames on screen — is tests/golden/video-gpu.)
       let videoBridge = false;
@@ -847,6 +909,7 @@ app.whenReady().then(async () => {
         imageControl,
         textLayer,
         grouping,
+        dropInModule,
         videoBridge,
         libraryToAsset,
         exportDialog,

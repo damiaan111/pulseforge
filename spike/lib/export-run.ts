@@ -8,6 +8,7 @@ import { encodeAnalysis } from '../../src/analysis/container.ts';
 import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { AnalysisSet, BeatGrid } from '../../src/engine/core/analysis.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
+import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import type { RenderReport } from '../../src/export/report.ts';
 import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
@@ -40,6 +41,8 @@ export interface ExportRunOptions {
   readonly text?: FontsConfig;
   /** Extracted video sequences (M39). */
   readonly videos?: readonly VideoSequenceFile[];
+  /** Drop-in modules (M35). */
+  readonly modules?: readonly ShaderModuleSource[];
   readonly settings: EncodeSettings;
   readonly readbackMode: 'sync' | 'async';
   readonly readbackDepth: number;
@@ -106,6 +109,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
       ...(options.images !== undefined && options.images.length > 0 ? { images: [...options.images] } : {}),
       ...(options.text === undefined ? {} : { text: options.text }),
       ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
+      ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
       dither: options.dither,
       outputPath,
       scratchDir: join(options.workDir, `${options.name}-scratch-${run}`),

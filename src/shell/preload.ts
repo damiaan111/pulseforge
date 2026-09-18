@@ -28,6 +28,15 @@ const api: PulseforgeApi = {
   pickAudio: () => ipcRenderer.invoke(IPC.audioPick) as ReturnType<PulseforgeApi['pickAudio']>,
   readAudio: (path) => ipcRenderer.invoke(IPC.audioRead, path) as ReturnType<PulseforgeApi['readAudio']>,
   analyzeAudio: (path) => ipcRenderer.invoke(IPC.audioAnalyze, path) as ReturnType<PulseforgeApi['analyzeAudio']>,
+  listModules: () => ipcRenderer.invoke(IPC.modulesList) as ReturnType<PulseforgeApi['listModules']>,
+  revealModules: () => ipcRenderer.invoke(IPC.modulesReveal) as Promise<void>,
+  onModulesChanged(listener) {
+    const handler = () => listener();
+    ipcRenderer.on(IPC.modulesChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.modulesChanged, handler);
+    };
+  },
   importVideo: () => ipcRenderer.invoke(IPC.videoImport) as ReturnType<PulseforgeApi['importVideo']>,
   prepareVideo: (request) => ipcRenderer.invoke(IPC.videoPrepare, request) as ReturnType<PulseforgeApi['prepareVideo']>,
   videoFrame: (hash, fps, sourceFrame) => ipcRenderer.invoke(IPC.videoFrame, hash, fps, sourceFrame) as ReturnType<PulseforgeApi['videoFrame']>,

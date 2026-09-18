@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { setCanvas } from '../../project/commands.ts';
 import { ASPECT_BUCKETS, aspectBucket, type AspectBucket } from '../../project/document.ts';
 import { PreviewHost } from '../preview/host.ts';
+import { shaderModuleDefinition } from '../../engine/modules/shader-module.ts';
 import { useStudio } from '../store.ts';
 
 /** Canvas sizes for the aspect switcher, all about 2 megapixels so switching is like for like. */
@@ -47,6 +48,7 @@ export function CanvasPane(): React.JSX.Element {
   const fonts = useStudio((s) => s.fonts);
   const defaultFont = useStudio((s) => s.defaultFont);
   const videos = useStudio((s) => s.videos);
+  const userModules = useStudio((s) => s.userModules);
   const setPreviewScale = useStudio((s) => s.setPreviewScale);
   const stats = useStudio((s) => s.stats);
   const editTarget = useStudio((s) => s.editTarget);
@@ -93,6 +95,10 @@ export function CanvasPane(): React.JSX.Element {
   useEffect(() => {
     hostRef.current?.setFonts(defaultFont, fonts);
   }, [defaultFont, fonts]);
+
+  useEffect(() => {
+    hostRef.current?.setModules(userModules.map(shaderModuleDefinition));
+  }, [userModules]);
 
   useEffect(() => {
     hostRef.current?.setVideos([...videos.entries()].map(([hash, proxy]) => ({ hash, frameCount: proxy.frameCount })));

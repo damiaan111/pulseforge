@@ -1,6 +1,7 @@
 // Messages between the spike orchestrators, the Electron main process and the renderer.
 
 import type { RenderProject } from '../../src/engine/core/project.ts';
+import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import type { RenderReport } from '../../src/export/report.ts';
 import type { EncodeSettings } from '../../src/export/ffmpeg-args.ts';
@@ -66,6 +67,8 @@ export interface ExportConfig {
   /** Absent: text layers report that no rasteriser is available. */
   text?: FontsConfig;
   videos?: VideoSequenceFile[];
+  /** Drop-in modules (M35), as data: compiled here exactly as the studio compiles them. */
+  modules?: ShaderModuleSource[];
   dither: boolean;
   outputPath: string;
   scratchDir: string;
@@ -93,6 +96,8 @@ export interface FramesConfig {
   /** Absent: text layers report that no rasteriser is available. */
   text?: FontsConfig;
   videos?: VideoSequenceFile[];
+  /** Drop-in modules (M35), as data: compiled here exactly as the studio compiles them. */
+  modules?: ShaderModuleSource[];
   frames: number[];
   dither: boolean;
 }

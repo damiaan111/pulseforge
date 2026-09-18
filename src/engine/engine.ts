@@ -152,6 +152,13 @@ export interface Engine {
    * declares how long the sequence is, which is what lets the module loop and clamp.
    */
   setVideoSequence(hash: string, frameCount: number): void;
+  /**
+   * Adds modules after creation — drop-in modules (M35) arrive from disk after the preview's
+   * engine exists. A module id already registered is replaced, so an edited module reloads.
+   */
+  addModules(definitions: readonly ModuleDefinition[]): void;
+  /** Modules that failed to create (a shader that does not compile), by id, with the reason. */
+  readonly brokenModules: ReadonlyMap<string, string>;
   setVideoFrame(hash: string, frameIndex: number, source: VideoFrameSource): void;
   hasVideo(hash: string): boolean;
   dispose(): void;
@@ -210,11 +217,26 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
     return program;
   }
 
-  function instanceFor(layerId: string, definition: ModuleDefinition): ModuleInstance {
+  /**
+   * Modules that could not be created, with why. A drop-in shader that does not compile must not
+   * take the frame down with it (module-spec §12): its layers are skipped and reported, and it is
+   * not retried every frame — only when the module is registered again.
+   */
+  const broken = new Map<string, string>();
+
+  function instanceFor(layerId: string, definition: ModuleDefinition): ModuleInstance | undefined {
     const existing = instances.get(layerId);
     if (existing !== undefined && existing.moduleId === definition.manifest.id) return existing.instance;
+    if (broken.has(definition.manifest.id)) return undefined;
     existing?.instance.dispose();
-    const instance = definition.create(gl);
+    instances.delete(layerId);
+    let instance: ModuleInstance;
+    try {
+      instance = definition.create(gl);
+    } catch (error) {
+      broken.set(definition.manifest.id, error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
     instances.set(layerId, { moduleId: definition.manifest.id, instance });
     return instance;
   }
@@ -336,6 +358,10 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           const resolved = resolveParams(definition.manifest.params, spec.params, modulationFor(`${pathPrefix}${spec.id}.params.`));
           if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
           const instance = instanceFor(spec.id, definition);
+          if (instance === undefined) {
+            warnings.push(`${owner}: effect "${spec.module}" is broken and is not applied — ${broken.get(spec.module) ?? 'it could not be created'}`);
+            continue;
+          }
           passes.push({
             id: spec.id,
             draw: (input, target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input, outputTarget: target }, resolved.values),
@@ -405,6 +431,10 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           const resolved = resolveParams(definition.manifest.params, layer.params, modulationFor(`layers.${layer.id}.params.`));
           if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
           const instance = instanceFor(layer.id, definition);
+          if (instance === undefined) {
+            warnings.push(`layer ${layer.id}: module "${layer.module}" is broken and is not rendered — ${broken.get(layer.module) ?? 'it could not be created'}`);
+            continue;
+          }
 
           built.push({
             ...common,
@@ -531,6 +561,24 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
     },
 
     hasVideo: (hash) => videos.has(hash),
+
+    addModules(definitions) {
+      for (const definition of definitions) {
+        const { id } = definition.manifest;
+        // Anything built from the old definition goes, so the next frame creates from the new one.
+        for (const [layerId, entry] of instances) {
+          if (entry.moduleId !== id) continue;
+          entry.instance.dispose();
+          instances.delete(layerId);
+        }
+        broken.delete(id);
+        registry.set(id, definition);
+      }
+    },
+
+    get brokenModules() {
+      return broken;
+    },
 
     dispose() {
       for (const { instance } of instances.values()) instance.dispose();

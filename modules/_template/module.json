@@ -1,0 +1,14 @@
+{
+  "id": "you.visualizer.my-module",
+  "version": "0.1.0",
+  "kind": "visualizer",
+  "name": "My module",
+  "description": "Copy this folder, drop the leading underscore from its name, and edit. See docs/module-authoring.md.",
+  "category": "mine",
+  "tags": [],
+  "shader": "shader.frag",
+  "params": [
+    { "key": "color", "label": "Colour", "group": "Look", "type": "color", "default": "#ffffff", "paletteRole": "primary" },
+    { "key": "size", "label": "Size", "group": "Look", "type": "float", "default": 0.25, "min": 0.01, "max": 1 }
+  ]
+}

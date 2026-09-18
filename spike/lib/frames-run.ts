@@ -13,6 +13,7 @@ import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import { encodeAnalysis } from '../../src/analysis/container.ts';
 import type { DecodedImage } from '../../src/engine/core/image.ts';
+import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import { existsSync } from 'node:fs';
 import { defaultFontFile } from '../../src/assets/fonts.ts';
 import { DEFAULT_FONT_FILE } from '../../setup/lib/paths.ts';
@@ -35,6 +36,8 @@ export interface FramesOptions {
   readonly fonts?: readonly FontFileRef[];
   /** Extracted video sequences, for layers that reference video assets (M39). */
   readonly videos?: readonly VideoSequenceFile[];
+  /** Drop-in modules (M35). */
+  readonly modules?: readonly ShaderModuleSource[];
 }
 
 /** One rendered frame, top-down RGBA8 (the engine's export orientation). */
@@ -97,6 +100,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     ...(images.length > 0 ? { images } : {}),
     ...(existsSync(DEFAULT_FONT_FILE) ? { text: { default: defaultFontFile(), fonts: [...(options.fonts ?? [])] } } : {}),
     ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
+    ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
     frames: [...options.frames],
     dither: options.dither ?? false,
   };
