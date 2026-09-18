@@ -23,6 +23,8 @@ import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { useModules } from '../modules.ts';
 import { useState } from 'react';
+import { effectParamTarget, isModulatable, layerParamTarget } from '../../project/modulation-authoring.ts';
+import { ModulateButton, ModulationSection, useLiveValue } from './Modulation.tsx';
 
 
 /**
@@ -188,6 +190,7 @@ export function Inspector(): React.JSX.Element {
                   overrideValue={override?.params[spec.key]}
                   onChange={(value, seal) => run(setLayerParam(layer.id, spec.key, value, editTarget), { seal })}
                   assign={(value) => setLayerParam(layer.id, spec.key, value, editTarget)}
+                  modulation={{ ownerId: layer.id, target: layerParamTarget(layer.id, spec.key) }}
                   onReset={editTarget === 'base' ? undefined : () => run(clearParamOverride(layer.id, spec.key, editTarget as AspectBucket))}
                 />
               ))}
@@ -202,6 +205,7 @@ export function Inspector(): React.JSX.Element {
       )}
 
       <EffectChain layerId={layer.id} effects={layer.effects} hasDepth={manifest?.kind === 'scene3d'} />
+      <ModulationSection layerId={layer.id} bindings={layer.modulations} />
     </aside>
   );
 }
@@ -275,6 +279,7 @@ function EffectChain(props: { layerId: string; effects: readonly EffectSpec[]; h
                     overrideValue={undefined}
                     onChange={(value, seal) => run(setEffectParam(layerId, effect.id, spec.key, value), { seal })}
                     assign={(value) => setEffectParam(layerId, effect.id, spec.key, value)}
+                    modulation={{ ownerId: layerId, target: effectParamTarget(layerId, effect.id, spec.key) }}
                   />
                 ))
             ) : null}
@@ -301,10 +306,15 @@ function ParamControl(props: {
   onReset?: (() => void) | undefined;
   /** The command that sets this parameter, so an asset import and its use are one undo step. */
   assign?: ((value: unknown) => Command) | undefined;
+  /** Where a binding on this parameter lives and points (M13); absent where modulation does not apply. */
+  modulation?: { readonly ownerId: string; readonly target: string } | undefined;
 }): React.JSX.Element {
-  const { spec, stored, overrideValue, onChange, onReset, assign } = props;
+  const { spec, stored, overrideValue, onChange, onReset, assign, modulation } = props;
   const overridden = overrideValue !== undefined;
   const raw = overridden ? overrideValue : stored;
+  const canModulate = modulation !== undefined && isModulatable(spec);
+  const live = useLiveValue(canModulate ? modulation.target : undefined);
+  const modulate = canModulate ? <ModulateButton ownerId={modulation.ownerId} target={modulation.target} spec={spec} /> : null;
 
   switch (spec.type) {
     case 'float':
@@ -318,6 +328,8 @@ function ParamControl(props: {
           unit={spec.unit ?? ''}
           overridden={overridden}
           onReset={onReset}
+          extra={modulate}
+          live={typeof live === 'number' ? live : undefined}
           onChange={(v) => onChange(v, false)}
           onCommit={() => onChange(typeof raw === 'number' ? raw : spec.default, true)}
         />
@@ -332,6 +344,8 @@ function ParamControl(props: {
           step={1}
           overridden={overridden}
           onReset={onReset}
+          extra={modulate}
+          live={typeof live === 'number' ? live : undefined}
           onChange={(v) => onChange(Math.round(v), false)}
           onCommit={() => onChange(typeof raw === 'number' ? raw : spec.default, true)}
         />
@@ -339,7 +353,7 @@ function ParamControl(props: {
     case 'bool':
       return (
         <label className="field">
-          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
+          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}{modulate}</span>
           <input
             type="checkbox"
             checked={typeof raw === 'boolean' ? raw : spec.default}
@@ -350,7 +364,7 @@ function ParamControl(props: {
     case 'enum':
       return (
         <label className="field">
-          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
+          <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}{modulate}</span>
           <select value={typeof raw === 'string' ? raw : spec.default} onChange={(e) => onChange(e.target.value, true)}>
             {spec.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -552,28 +566,43 @@ function Slider(props: {
   unit?: string;
   overridden?: boolean;
   onReset?: (() => void) | undefined;
+  /** Beside the label: the modulation button (M13). */
+  extra?: React.ReactNode;
+  /**
+   * The value the last frame actually rendered with, when modulation moved it (modulation-spec
+   * §10 "live overlay"): the handle stays the base value, a marker shows where it is now.
+   */
+  live?: number | undefined;
   onChange: (value: number) => void;
   /** Called on release: ends the merge run so the drag is one undo step (ui-spec §10). */
   onCommit?: () => void;
 }): React.JSX.Element {
-  const { label, value, min, max, step, unit, overridden, onReset, onChange, onCommit } = props;
+  const { label, value, min, max, step, unit, overridden, onReset, extra, live, onChange, onCommit } = props;
+  const livePosition = live === undefined || !(max > min) ? undefined : Math.min(1, Math.max(0, (live - min) / (max - min)));
   return (
-    <label className="field slider">
+    <label className={`field slider${live === undefined ? '' : ' modulated'}${extra === undefined || extra === null ? '' : ' has-mod'}`}>
       <span>
         {label}
         {overridden === true ? <Badge onReset={onReset} /> : null}
       </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        onPointerUp={onCommit}
-        onKeyUp={onCommit}
-      />
-      <output>{formatNumber(value)}{unit ?? ''}</output>
+      <span className="range-wrap">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          onPointerUp={onCommit}
+          onKeyUp={onCommit}
+        />
+        {livePosition !== undefined && <span className="live-marker" style={{ left: `${(livePosition * 100).toFixed(2)}%` }} />}
+      </span>
+      <output title={live === undefined ? undefined : `Set to ${formatNumber(value)}, rendering at ${formatNumber(live)}`}>
+        {formatNumber(live ?? value)}{unit ?? ''}
+      </output>
+      {/* Its own column, so it never crowds the label. */}
+      {extra}
     </label>
   );
 }

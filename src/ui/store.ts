@@ -37,6 +37,7 @@ import type { ImageBytes, LibraryListing, PresetLibraryListing, RenderJob } from
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
+import type { LiveModulation } from './preview/host.ts';
 
 /** The one history for the open project. Module-level: there is exactly one document. */
 export const history = new History(createDocument({ name: 'Untitled' }));
@@ -174,6 +175,15 @@ export interface StudioState {
   saveAs(): Promise<void>;
   loadAudio(path: string): Promise<void>;
   reportPreview(transport: Transport, timelineSeconds: number, stats: PreviewStats): void;
+  /** Live modulation from the preview (M13): rendered values, binding levels, compile issues. */
+  liveModulation: LiveModulation;
+  reportModulation(live: LiveModulation): void;
+  /** The binding whose editor is expanded, in the inspector and the matrix. */
+  openBinding: string | null;
+  setOpenBinding(id: string | null): void;
+  /** The modulation matrix panel (ui-spec §6). */
+  matrixOpen: boolean;
+  setMatrixOpen(open: boolean): void;
 }
 
 /** Everything derived from the history, recomputed after any command. */
@@ -596,7 +606,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({ exportOpen: open });
   },
   setQueueOpen(open) {
-    set({ queueOpen: open });
+    set(open ? { queueOpen: true, matrixOpen: false } : { queueOpen: false });
   },
 
   run(command, options) {
@@ -811,5 +821,24 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   reportPreview(transport, timelineSeconds, stats) {
     set({ transport, timelineSeconds, stats });
+  },
+
+  liveModulation: { values: new Map(), levels: new Map(), issues: [] },
+
+  reportModulation(live) {
+    set({ liveModulation: live });
+  },
+
+  openBinding: null,
+
+  setOpenBinding(id) {
+    set({ openBinding: id });
+  },
+
+  matrixOpen: false,
+
+  setMatrixOpen(open) {
+    // One drawer at a time on the right edge.
+    set(open ? { matrixOpen: true, queueOpen: false } : { matrixOpen: false });
   },
 }));

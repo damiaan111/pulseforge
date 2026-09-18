@@ -259,10 +259,14 @@ aspect. Underneath: the deterministic engine, the project format with undo, the 
 evaluator, audio analysis with beats and sections, stem separation, drop-in shader modules, and a
 command line that renders a project without opening anything.
 
-**The gaps that matter most:** there is no screen yet for wiring audio to parameters — the system
-that does it is finished, but bindings can only arrive through presets or the project file. Stems
-separate fine but are not yet wired into the studio. Clip trimming and fades, solo and lock have
-no controls yet.
+**Wiring the music in:** every control has a ∿ button. Pick what drives it (onsets, the beat grid,
+a frequency band, loudness, brightness, an LFO…) or a one-click recipe like "kick pump", then shape
+it with amount, curve, attack and release, and watch the slider move with the track. A matrix panel
+shows every connection in the project in one place.
+
+**The gaps that matter most:** stems separate fine but are not yet wired into the studio, so every
+connection listens to the full mix for now. Clip trimming and fades, solo, lock and layer
+reordering have no controls yet.
 
 **Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me, autosave,
 and the settings and cache screens.

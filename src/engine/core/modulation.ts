@@ -482,6 +482,19 @@ export function compileModulation(options: CompileOptions): ModulationProgram {
  * `base` is the value after the aspect override and automation; the result is **not** clamped
  * to the parameter's range — that happens once, at the end, in params.ts (module-spec §5).
  */
+/**
+ * Each enabled binding's shaped signal at time t — after look-ahead, normalisation, curve and
+ * envelope, before invert and amount — so the studio can show whether a source is doing anything
+ * here (modulation-spec §10 "source monitor"). 0..1 for well-calibrated sources.
+ */
+export function bindingLevels(program: ModulationProgram, t: number): Map<string, number> {
+  const levels = new Map<string, number>();
+  for (const list of program.targets.values()) {
+    for (const { binding, signal } of list) levels.set(binding.id, signal(t));
+  }
+  return levels;
+}
+
 export function modulateValue(program: ModulationProgram, target: string, base: number, t: number): number {
   const bindings = program.targets.get(target);
   if (bindings === undefined) return base;

@@ -20,6 +20,8 @@ import type { RenderProject } from '../../engine/core/project.ts';
 import { frameCount, frameTimeSeconds, secondsToTicks, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
 import type { ModuleDefinition } from '../../engine/core/module.ts';
+import type { ModulationIssue } from '../../engine/core/modulation.ts';
+import type { ParamValue } from '../../engine/core/params.ts';
 import { RenderSetupError, ShaderCompileError } from '../../engine/render/gl.ts';
 import { toRenderProject, timelineDurationTicks } from '../../project/snapshot.ts';
 import type { ProjectDocument } from '../../project/document.ts';
@@ -35,6 +37,18 @@ export interface PreviewCallbacks {
   readonly onError: (message: string | null) => void;
   /** Warnings and notes from the frame report, deduplicated. */
   readonly onNotes: (notes: readonly string[]) => void;
+  /**
+   * What modulation is doing, from the last rendered frame: each modulated parameter's rendered
+   * value, each binding's live level, and the bindings that could not be compiled. Throttled with
+   * `onStatus` — this drives meters, not the render (ui-spec §13).
+   */
+  readonly onModulation?: (live: LiveModulation) => void;
+}
+
+export interface LiveModulation {
+  readonly values: ReadonlyMap<string, ParamValue>;
+  readonly levels: ReadonlyMap<string, number>;
+  readonly issues: readonly ModulationIssue[];
 }
 
 const STATUS_INTERVAL_MS = 100;
@@ -74,6 +88,8 @@ export class PreviewHost {
   private running = false;
   private rafHandle = 0;
   private lastStatus = 0;
+  private live: LiveModulation | null = null;
+  private liveSent: LiveModulation | null = null;
   private lastNotes = '';
   private failed = false;
   /**
@@ -344,6 +360,10 @@ export class PreviewHost {
     if (now - this.lastStatus >= STATUS_INTERVAL_MS) {
       this.lastStatus = now;
       this.callbacks.onStatus(clock.transport, clock.timelineSeconds, clock.stats);
+      if (this.live !== null && this.live !== this.liveSent) {
+        this.liveSent = this.live;
+        this.callbacks.onModulation?.(this.live);
+      }
     }
   };
 
@@ -397,6 +417,7 @@ export class PreviewHost {
       };
 
     const report = engine.renderFrame(scaled, this.analysis, frameIndex);
+    this.live = { values: report.modulatedValues, levels: report.bindingLevels, issues: report.modulationIssues };
 
     const notes = [
       ...report.warnings,

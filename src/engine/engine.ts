@@ -11,9 +11,9 @@ import {
   type Mat3, type ScaleReference,
 } from './core/layout.ts';
 import {
-  compileModulation, modulateValue, type ModulationIssue, type ModulationProgram,
+  bindingLevels, compileModulation, modulateValue, type ModulationIssue, type ModulationProgram,
 } from './core/modulation.ts';
-import { resolveParams, type ParamIssue, type ResolveOptions } from './core/params.ts';
+import { resolveParams, type ParamIssue, type ParamValue, type ParamValues, type ResolveOptions } from './core/params.ts';
 import { createPrng, hash32 } from './core/prng.ts';
 import {
   isGroupSpec, layerIsLive, walkRenderModules, type AnyLayerSpec, type EffectSpec, type RenderProject,
@@ -105,6 +105,15 @@ export interface FrameReport {
    * every frame report so a caller that only looks at one frame still sees them.
    */
   readonly modulationIssues: readonly ModulationIssue[];
+  /**
+   * The value each modulated parameter actually rendered with this frame, by target path
+   * (`layers.<id>.params.<key>`, `layers.<id>.effects.<id>.params.<key>`): modulated, clamped,
+   * exactly what the module received. Only parameters that carry a binding appear. For the studio's
+   * live display (modulation-spec §10); never read back into rendering.
+   */
+  readonly modulatedValues: ReadonlyMap<string, ParamValue>;
+  /** Each enabled binding's shaped signal at this frame, by binding id (`bindingLevels`). */
+  readonly bindingLevels: ReadonlyMap<string, number>;
 }
 
 /** Non-blocking readback of rendered frames, oldest first (export-spec §4.2). */
@@ -286,6 +295,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       const t = frameTimeSeconds(frameIndex, fps);
       const warnings: string[] = [];
       const paramIssues: { layerId: string; issues: readonly ParamIssue[] }[] = [];
+      const modulatedValues = new Map<string, ParamValue>();
+      /** Notes what a modulated parameter resolved to, under its full target path. */
+      const recordModulated = (prefix: string, options: ResolveOptions, values: ParamValues) => {
+        for (const key of options.modulated ?? []) {
+          const value = values[key];
+          if (value !== undefined) modulatedValues.set(prefix + key, value);
+        }
+      };
       const frameContext = {
         time: { t, frameIndex, fps },
         analysis,
@@ -367,7 +384,9 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
             warnings.push(`${owner}: effect "${definition.manifest.name}" needs depth, which only 3D scene layers have; it is not applied`);
             continue;
           }
-          const resolved = resolveParams(definition.manifest.params, spec.params, modulationFor(`${pathPrefix}${spec.id}.params.`));
+          const effectModulation = modulationFor(`${pathPrefix}${spec.id}.params.`);
+          const resolved = resolveParams(definition.manifest.params, spec.params, effectModulation);
+          recordModulated(`${pathPrefix}${spec.id}.params.`, effectModulation, resolved.values);
           if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
           const instance = instanceFor(spec.id, definition);
           if (instance === undefined) {
@@ -440,7 +459,9 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           // evaluator; everything else resolves exactly as it did before modulation existed.
           // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
           // on 'min' and a full-bleed background on 'max' each get the number they need.
-          const resolved = resolveParams(definition.manifest.params, layer.params, modulationFor(`layers.${layer.id}.params.`));
+          const layerModulation = modulationFor(`layers.${layer.id}.params.`);
+          const resolved = resolveParams(definition.manifest.params, layer.params, layerModulation);
+          recordModulated(`layers.${layer.id}.params.`, layerModulation, resolved.values);
           if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
           const instance = instanceFor(layer.id, definition);
           if (instance === undefined) {
@@ -479,7 +500,10 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       }, globalEffects);
       nv12?.convert(output);
 
-      return { frameIndex, t, warnings, paramIssues, modulationIssues: program.issues };
+      return {
+        frameIndex, t, warnings, paramIssues, modulationIssues: program.issues,
+        modulatedValues, bindingLevels: bindingLevels(program, t),
+      };
     },
 
     readOutputSync(into) {

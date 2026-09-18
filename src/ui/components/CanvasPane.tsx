@@ -56,6 +56,7 @@ export function CanvasPane(): React.JSX.Element {
   const setEditTarget = useStudio((s) => s.setEditTarget);
   const run = useStudio((s) => s.run);
   const reportPreview = useStudio((s) => s.reportPreview);
+  const reportModulation = useStudio((s) => s.reportModulation);
   const notify = useStudio((s) => s.notify);
 
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export function CanvasPane(): React.JSX.Element {
     if (canvas === null || element === null) return;
     const host = new PreviewHost(canvas, element, {
       onStatus: reportPreview,
+      onModulation: reportModulation,
       onError: setError,
       onNotes: setNotes,
     });
@@ -82,7 +84,7 @@ export function CanvasPane(): React.JSX.Element {
       hostRef.current = null;
       if (activeHost === host) activeHost = null;
     };
-  }, [reportPreview]);
+  }, [reportPreview, reportModulation]);
 
   useEffect(() => {
     hostRef.current?.setDocument(document, analysis);

@@ -8,6 +8,7 @@ import { CanvasPane } from './CanvasPane.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
 import { SavePresetDialog } from './SavePresetDialog.tsx';
 import { RenderQueue } from './RenderQueue.tsx';
+import { ModulationMatrix } from './Modulation.tsx';
 import { Inspector } from './Inspector.tsx';
 import { LeftRail } from './LeftRail.tsx';
 import { Timeline } from './Timeline.tsx';
@@ -64,6 +65,7 @@ export function App(): React.JSX.Element {
         if (state.presetDialog !== null) state.setPresetDialog(null);
         else if (state.exportOpen) state.setExportOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
+        else if (state.matrixOpen) state.setMatrixOpen(false);
         else if (state.toast !== null) state.notify(null);
         return;
       }
@@ -109,6 +111,7 @@ export function App(): React.JSX.Element {
         <Timeline />
       </div>
       <RenderQueue />
+      <ModulationMatrix />
       <ExportDialog />
       <SavePresetDialog />
       {toast === null ? null : (

@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-18, commit `c980c7c`.** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-18, after the modulation UI (M13).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -40,7 +40,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M1 | Shell; new/open/save/save-as; autosave + crash recovery; versioned schema with migrations | 🔶 | 4.7, 4.14 | **autosave and crash recovery** |
 | M2 | One-command setup with checksums; fully offline after | 🔶 | 4.2 | lyrics/extras tiers (Whisper models), `htdemucs_ft`, an offline-rebuild check. Offline at runtime is enforced (network requests are blocked and logged, 4.14) |
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
-| M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17 | |
+| M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
 | M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | 🔶 | 4.6, 4.24 | separation works through the supervised sidecar (8.6 s for 4 min); **not wired**: running it from the studio, per-stem analysis into the cache, stem status in the UI, per-stem waveform rows |
 | M6 | Determinism contract from commit one; golden frames | ✅ | 4.3, 4.12 | golden frames run locally (`npm run golden`); the repo is on GitHub but no CI is configured (the golden set needs the RTX GPU, so a hosted runner could not run it) |
 | M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | 🔶 | 4.3, 4.39 | **`multiply` and `overlay` blend modes**: offered in the UI, rendered as normal with a note (only normal/add/screen are implemented) |
@@ -56,7 +56,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
-| M13 | Modulation matrix: all sources incl. per-stem bands, curves, attack/release, per-parameter binding UI with live values | 🔶 | 4.10 | the evaluator is complete and tested; **there is no UI to create or edit a binding** (bindings arrive only through presets and project files), no matrix panel, no live value display. Per-stem sources wait for M5 |
+| M13 | Modulation matrix: all sources incl. per-stem bands, curves, attack/release, per-parameter binding UI with live values | 🔶 | 4.10, 4.46 | the studio UI is done — ∿ on every control, recipes, editor, live values, matrix; **per-stem sources are offered but inactive until stems are wired (M5)**; not built: source sparkline, copy/paste of bindings, global-chain bindings |
 | M14 | Background: solid, gradient, image, video; fit modes; Ken Burns | ✅ | 4.35, 4.41 | |
 | M15 | Logo/watermark with reactive pulse | ✅ | 4.40 | |
 | M16 | Text layer with styling and animation | ✅ | 4.38 | |
@@ -123,10 +123,7 @@ S1, S6, S7, S10, S12, S13, S15, S16 and S17 are not started. Could-haves (C1–C
 
 Ordered by what makes the app most useful soonest, then by what unblocks what.
 
-1. **Modulation binding UI (M13)** — the core promise is "any audio feature drives any parameter",
-   and today that needs a text editor. Per-parameter "Add modulation" in the inspector, a bindings
-   list per layer with amount / curve / attack / release, live value feedback on the control, and
-   the matrix panel (modulation-spec §10, ui-spec §6). Mostly UI: the evaluator is done.
+1. ✅ **Modulation binding UI (M13)** — done (STATUS 4.46), with the analysis bands fix (4.45).
 2. **Layer and clip editing gaps (M9, M29, M7)** — solo/lock buttons, up/down and drag reordering,
    time-range handles on the timeline, trim/fade/padding for the audio clip, and the two missing
    blend modes. Small items that each close a visible hole.
@@ -159,6 +156,7 @@ it was made; they are collected here so none is a surprise.
 | Preset **thumbnails use a fixed reference track**, not the loaded song | D45 ("live preview-with-my-audio later") | a thumbnail is then a property of the preset alone, so it caches and matches across machines | STATUS 4.44 |
 | User presets live in **Documents/Pulseforge/Presets**, built-ins in the repo, thumbnails in `cache/` | data-formats §3 names "known folders" without fixing them | user work beside the asset library, in the user's backups; caches rebuildable | STATUS 4.44 |
 | The 3D field of view applies to the frame's **short side** | not specified | a 9:16 cut shows the same subject as the 16:9 one | STATUS 4.43 |
+| The analysis cache key **includes band names** | data-formats §4.3: a band rename should keep the cache | cached tracks are stored by name, so a rename that hit the cache would silently disable every binding on the band; a rename now costs one re-analysis | STATUS 4.45 |
 
 ---
 
@@ -166,9 +164,9 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 813 tests — unit tests, and GPU tests that render through Electron |
+| `npm run check` | typecheck, lint (including the engine boundary) and 826 tests — unit tests, and GPU tests that render through Electron |
 | `npm run golden` | 21 reference frames (bars, layered, 3D scenes at 16:9, 9:16, 1:1) are byte-identical |
-| `npm run dev -- --smoke` | 18 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
+| `npm run dev -- --smoke` | 19 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |
 | `npm run render -- <project> -o <mp4>` | a real NVENC export, verified after encoding |
 | `npm run validate` | the P0 hardware checks (determinism, readback, NVENC, stems, sync) |

@@ -22,6 +22,8 @@ export function TopBar(): React.JSX.Element {
   const layerSelected = useStudio((s) => s.selectedLayerId !== null && findLayer(s.document, s.selectedLayerId)?.kind === 'module');
   const queueOpen = useStudio((s) => s.queueOpen);
   const setQueueOpen = useStudio((s) => s.setQueueOpen);
+  const matrixOpen = useStudio((s) => s.matrixOpen);
+  const setMatrixOpen = useStudio((s) => s.setMatrixOpen);
   const activeRenders = useStudio((s) => s.renders.filter((job) => job.status === 'queued' || job.status === 'running').length);
 
   return (
@@ -48,6 +50,9 @@ export function TopBar(): React.JSX.Element {
       <span className="project-name" title={path ?? 'not saved yet'}>
         {name}{dirty ? ' •' : ''}
       </span>
+      <button type="button" data-action="modulation-matrix" className={matrixOpen ? 'active' : ''} title="Every modulation binding in the project" onClick={() => setMatrixOpen(!matrixOpen)}>
+        ∿ Modulation
+      </button>
       <button type="button" data-action="render-queue" className={queueOpen ? 'active' : ''} onClick={() => setQueueOpen(!queueOpen)}>
         Renders{activeRenders > 0 ? ` (${activeRenders})` : ''}
       </button>

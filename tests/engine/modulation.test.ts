@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ANALYSIS_RATE, type AnalysisSet, type AnalysisTrack } from '../../src/engine/core/analysis.ts';
 import {
-  applyCurve, compileModulation, modulateValue, smoothEnvelope, valueNoise,
+  applyCurve, bindingLevels, compileModulation, modulateValue, smoothEnvelope, valueNoise,
   type ModulationBinding, type ModulationSource,
 } from '../../src/engine/core/modulation.ts';
 import { resolveParams, type ParamSpec } from '../../src/engine/core/params.ts';
@@ -417,5 +417,23 @@ describe('value resolution: clamp once, at the end (module-spec §5)', () => {
       },
     });
     expect(called).toEqual(['glow']);
+  });
+});
+
+describe("binding levels (the studio's meters, M13)", () => {
+  it("reports each enabled binding's shaped signal, before amount and invert", () => {
+    const lfo = binding({ id: 'L', source: source({ type: 'lfo', shape: 'saw', rateHz: 1 }), inputRange: 'auto', amount: 5, invert: true });
+    const off = binding({ id: 'OFF', enabled: false });
+    const levels = bindingLevels(compile([lfo, off]), 0.25);
+    // Saw at 1 Hz, a quarter of the way through a cycle; amount and invert do not touch the level.
+    expect(levels.get('L')).toBeCloseTo(0.25);
+    expect(levels.has('OFF')).toBe(false);
+  });
+
+  it('leaves out a binding that could not be compiled, which the issues list reports instead', () => {
+    const missing = binding({ id: 'M', source: source({ stem: 'drums' }) });
+    const program = compile([missing]);
+    expect(bindingLevels(program, 1).has('M')).toBe(false);
+    expect(program.issues.map((i) => i.bindingId)).toEqual(['M']);
   });
 });

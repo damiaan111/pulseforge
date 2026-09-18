@@ -355,3 +355,49 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .preset-actions button.danger { color: var(--bad); }
 .preset-tags { width: 100%; font-size: 11px; }
 .save-preset-dialog { width: min(420px, 92vw); }
+
+/* --- modulation (M13, modulation-spec §10, ui-spec §4 item 5 and §6) ------ */
+
+.modulate { position: relative; display: inline-flex; }
+.field.slider.has-mod { grid-template-columns: 78px 1fr 48px 16px; }
+.field.slider.has-mod .modulate-menu { left: auto; right: 0; }
+.modulate-button { padding: 0 4px; line-height: 14px; border: 0; background: none; color: var(--control); opacity: 0.45; font-size: 12px; }
+.field:hover .modulate-button, .modulate-button:focus-visible { opacity: 1; }
+.modulate-button.bound { opacity: 1; color: var(--accent); font-weight: 700; }
+.popover-backdrop { position: fixed; inset: 0; z-index: 30; }
+.modulate-menu {
+  position: absolute; top: 100%; left: 0; z-index: 31; min-width: 170px;
+  display: flex; flex-direction: column; padding: 4px;
+  background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.modulate-menu button { text-align: left; border: 0; background: none; padding: 3px 6px; color: var(--text); font-size: 12px; }
+.modulate-menu button:hover { background: var(--line); }
+.menu-heading { padding: 4px 6px 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+.range-wrap { position: relative; display: block; min-width: 0; }
+.range-wrap input { width: 100%; }
+/* Where the rendered value is now; the handle stays the base value. */
+.live-marker { position: absolute; top: 50%; width: 3px; height: 14px; margin-left: -1.5px; transform: translateY(-50%); background: var(--accent); border-radius: 2px; pointer-events: none; box-shadow: 0 0 6px var(--accent); }
+.field.slider.modulated output { color: var(--accent); }
+.section-head { display: flex; align-items: center; gap: 6px; }
+.section-head h2 { margin-right: auto; }
+.binding-list { list-style: none; margin: 0; padding: 0; }
+.binding { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 5px; padding: 3px 5px; }
+.binding.open { border-color: var(--accent); }
+.binding.disabled { opacity: 0.55; }
+.binding-head { display: flex; align-items: center; gap: 4px; }
+.binding-head > button:not(.binding-name) { padding: 0 4px; border: 0; background: none; }
+.binding-head > button:disabled { opacity: 0.3; }
+.binding-name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 0; border: 0; background: none; text-align: left; }
+.binding-target, .binding-source { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.binding-target { font-size: 12px; }
+.binding-source { font-size: 11px; color: var(--text-dim); }
+.level-meter { flex: 0 0 44px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.level-fill { display: block; height: 100%; background: var(--accent); transition: width 90ms linear; }
+.binding-note { margin: 3px 0 0; font-size: 11px; }
+.binding-editor { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.binding-hint { margin: -2px 0 6px; font-size: 11px; }
+.binding-editor .field input[type="text"] { background: var(--panel-raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 2px 6px; font: inherit; min-width: 0; }
+.matrix-drawer { width: 400px; }
+.matrix-filter { width: 100%; box-sizing: border-box; margin: 8px 0 2px; }
+.matrix-group h3 { margin: 10px 0 4px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }

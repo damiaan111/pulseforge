@@ -9,14 +9,18 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 813 tests, `npm run golden` 21/21 identical,
-> `--smoke` 18/18.
+> any aspect. Last full verification: `npm run check` 826 tests, `npm run golden` 21/21 identical,
+> `--smoke` 19/19.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): no UI to create or edit
-> modulation bindings yet (the engine and evaluator are done — M13); stems are separated but not
-> wired into analysis or the studio (M5); no trim/fade, solo/lock or time-range editing in the UI
-> (M29, M9); lyrics (P6) and the auto-director (P7) are not started beyond analysis and
-> classification; operability (autosave M1, cache management M33, logs M34, settings M36).
+> **Since P4:** modulation can now be wired in the studio (M13, §4.46) — ∿ beside every control,
+> recipes, a binding editor with live meters, the matrix panel — and the analysis computes the
+> project's own bands (§4.45).
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): no trim/fade, solo/lock,
+> reordering or time-range editing in the UI (M29, M9) and two unimplemented blend modes (M7);
+> stems are separated but not wired into analysis or the studio (M5); lyrics (P6) and the
+> auto-director (P7) are not started beyond analysis and classification; operability (autosave M1,
+> cache management M33, logs M34, settings M36).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -70,6 +74,9 @@
 | 4.42 | The `modules/` drop-in folder (P4 step 14) — M35, module-spec §11, PROJECT.md §8.17 |
 | 4.43 | Three.js scene layers (P4 step 15) — M37, compositor-spec §7, module-spec §1 |
 | 4.44 | Preset browser (P4 step 16) — S8, M25, ui-spec §5, module-spec §10, D16, D45 |
+| | **After P4** |
+| 4.45 | The project's own analysis bands — M4 |
+| 4.46 | Modulation in the studio — M13, modulation-spec §10–§11, ui-spec §4, §6 |
 
 ---
 
@@ -175,7 +182,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 813 tests in 61 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 826 tests in 62 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -1809,6 +1816,92 @@ presets that bring their assets across projects (see §7); drag-and-drop of pres
 rename action in the browser (the store has `rename`); thumbnails for video layers show the
 missing-clip checkerboard, because the stills engine has no video frames.
 
+### 4.45 The project's own analysis bands — M4 (commit `7baa1b9`)
+
+Found while building the binding UI: the analyser computed **one hard-coded band** (`bass`,
+40–160 Hz) whatever the project declared, so a binding on any other band could never move, and
+`bass` itself was not the 60–250 Hz a document says it is.
+
+- `STANDARD_BANDS` (`src/analysis/spectrum.ts`): the seven default bands (sub, bass, lowMid, mid,
+  highMid, presence, brilliance) — one list, used as the analyser's default and as a new document's
+  `analysisSettings.bands`.
+- `analysisOptionsFor(analysisSettings)` (`src/analysis/project-settings.ts`): a project's bands,
+  onset sensitivity and tempo override → analyser options. **Both** the studio (`pf:audio:analyze`
+  now takes the settings, validated by `parseProjectAnalysisSettings` in main) and `renderDocument`
+  go through it, so preview and export analyse a track identically. Before this, neither passed any
+  project setting — they agreed only because both used the defaults.
+- The analysis cache key now includes **band names** as well as edges (data-formats §4.3 said names
+  should not count). Cached band tracks are stored under the names they were computed with, and the
+  container has no edges to re-match them by, so a rename that hit the cache would find no track
+  under its new name and silently kill every binding on it. A rename now costs one re-analysis.
+  Listed as a deviation in ROADMAP §4.
+- Golden `layered` frame 75 (16:9 and 9:16) was **re-baselined**: its document declares `bass` as
+  60–250 Hz and the analyser now honours that. Only the band-modulated bars' heights moved.
+
+Not done: editing bands in the UI (re-analysis on change comes with it); the stem model setting is
+still recorded but unused until M5.
+
+### 4.46 Modulation in the studio — M13, modulation-spec §10–§11, ui-spec §4 item 5 and §6
+
+The engine could always evaluate bindings (§4.10); now they can be made, edited and seen in the
+studio without touching the project file.
+
+**∿ beside every modulatable control** — float, int, bool and enum parameters of layers *and*
+effects (`isModulatable`: numeric or discrete, not `modulatable: false`; colours and pickers have no
+axis). On sliders it sits in its own column so it never crowds the label; it lights up when the
+parameter is bound. Its menu offers existing bindings to edit, then **sources suggested for that
+parameter** (modulation-spec §10: scale-like → onsets first, glow-like → loudness, hue-like →
+brightness, …, from the key and label the module already declares), then the **recipes**
+(§11): kick pump, bass glow, level bloom, hat sparkle, hue drift, beat pulse, breathing. One click
+makes a working binding — a quarter of the parameter's range, auto-calibrated, standard envelope
+and look-ahead, or the recipe's settings scaled to the parameter — and opens its editor.
+Recipes needing structural or lyric sources (build riser, drop flash, lyric dim) wait for them.
+
+**Binding rows** (inspector "Modulation" section, and the matrix): what it drives
+("Bars › Bloom › Intensity"), what drives it ("Onsets · drums"), a **live level meter** of its
+shaped signal, on/off, remove. Problems are said, not hidden: a target that no longer resolves
+(`describeTarget`: layer gone, effect removed, parameter renamed, module missing), a source the
+compiler could not use (e.g. a stem not analysed), and **"too weak to see"** when at full signal it
+moves the parameter by under 1% of its range (`isImperceptible`, modulation-spec §10).
+
+**Editor**: source with a one-line explanation (onset vs beat is spelled out, as the spec asks),
+stem, band (from the project's bands, with Hz), LFO shape and rate, drift speed, ramp ends, mode
+(add / multiply / replace), amount (bipolar, in the parameter's own units; a factor in multiply
+mode), offset, curve and its amount, attack, release, look-ahead (D51), invert, auto or fixed input
+range, and a name. Every change is an `updateModulation` command; a slider drag merges into one
+undo step.
+
+**Live values** — `FrameReport` gains `modulatedValues` (each bound parameter's rendered value, by
+target path — exactly what the module received) and `bindingLevels` (each binding's shaped signal,
+`bindingLevels()` in modulation.ts). The preview host forwards them with the status tick (~10 Hz,
+`onModulation`), and a modulated slider shows a glowing **marker at the rendered value** while its
+handle stays at the base value, with the readout showing the rendered number.
+
+**Matrix panel** (top bar "∿ Modulation", or "Matrix" in the section; a right-edge drawer that
+replaces the render queue while open): every binding in the project, grouped by layer or by source,
+filterable, with the same rows, **↑/↓ reordering among bindings on one target** (order matters for
+add vs multiply, modulation-spec §9.2 — one undo step per swap), jump-to-layer, and all on / all
+off for what the filter shows.
+
+The authoring logic is pure and tested — `src/project/modulation-authoring.ts`: source catalogue,
+suggestions, `defaultBinding`, `RECIPES`, target parsing and labels, `allBindings`,
+`isImperceptible`, `describeSource`.
+
+Verified here: `npm run check` **826 tests** — `tests/project/modulation-authoring.test.ts`
+(spans, what is modulatable, suggestions, default amounts in the parameter's units, every recipe
+compiles and scales to its parameter, target labels and every way a target breaks, weak-binding
+rule, source descriptions) and new cases in `tests/engine/modulation.test.ts` (binding levels are
+the shaped signal before amount/invert; disabled and uncompilable bindings are absent). `npm run
+golden` **21/21**. `--smoke` **19/19** with a new `modulationUi` check (adds Bars, ∿ → Breathing,
+then waits for the binding row, the slider's live marker, a moving level meter, the undo label and
+the matrix listing it; undoes). The UI tour now captures the menu, the editor and the matrix
+(`out/ui-tour/*-7*.png`).
+
+**Not done:** the source sparkline/scope (the level meter answers "is it doing anything" for now);
+copy/paste of bindings between parameters; right-click on controls; bindings on the global effect
+chain; quantisation (needs a beat-synced grid source, §4.10); per-stem sources are offered but
+inactive until M5.
+
 ---
 
 ## 5. Measured results
@@ -1862,8 +1955,9 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   **`multiply` and `overlay` blend modes** — the inspector offers them (they are in the document's
   `BLEND_MODES`) but the compositor implements normal/add/screen only, so they render as normal with
   a note. Either implement them (M7) or stop offering them. Group compositing (M38) landed in §4.39.
-- **No UI for modulation bindings** (M13): the evaluator is complete, but nothing in the studio calls
-  `addModulation`; bindings arrive only through presets and project files. Top of ROADMAP.md §3.
+- Modulation UI (§4.46) does not yet have: the source sparkline/scope, copy-paste of bindings,
+  right-click on a control (the ∿ button does the same job), bindings on the **global** effect chain,
+  or keyframes. Stem sources are offered but read "not analysed" until stems are wired (M5).
 - Presets: the store (§4.19, §4.25) and the browser (§4.44) are done. A preset that uses an image,
   font or video stores the project's asset **id**, not the file; applied to another project the
   asset is missing and the layer says so (D6's "referenced" is not yet cross-project).

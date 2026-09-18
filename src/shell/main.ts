@@ -1033,6 +1033,36 @@ app.whenReady().then(async () => {
         presetSave = saved === true && gone === true;
       }
 
+      // Modulation (M13), end to end in the studio: ∿ beside a control → a recipe → a binding row in
+      // the inspector, the preview reporting the rendered value (the slider's live marker) and the
+      // binding's signal (its level meter), and the matrix listing it. "Breathing" is an LFO, so it
+      // runs without audio. Undone afterwards.
+      let modulationUi = false;
+      const barsButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars');
+      if (barsButton !== undefined) {
+        barsButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 100));
+        document.querySelector('#app .inspector [data-action="modulate"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+        document.querySelector('#app .inspector [data-action="modulate-recipe-breathing"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const row = await waitFor(() => document.querySelector('#app .modulation-section .binding'), 40);
+        const marker = await waitFor(() => document.querySelector('#app .inspector .live-marker'), 60);
+        const meter = await waitFor(() => {
+          const fill = document.querySelector('#app .modulation-section .level-fill');
+          return fill !== null && parseFloat(fill.style.width) > 0;
+        }, 60);
+        const undoLabel = document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '';
+        document.querySelector('#app header [data-action="modulation-matrix"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const listed = await waitFor(() => document.querySelector('#app [data-testid="modulation-matrix"] .binding'), 40);
+        document.querySelector('#app header [data-action="modulation-matrix"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        for (let i = 0; i < 2; i += 1) {
+          document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await new Promise((done) => setTimeout(done, 80));
+        }
+        modulationUi = row !== null && marker !== null && meter === true && listed !== null && undoLabel.includes('Add modulation')
+          && document.querySelector('#app .modulation-section .binding') === null;
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1061,6 +1091,7 @@ app.whenReady().then(async () => {
         presetBrowser,
         presetApply,
         presetSave,
+        modulationUi,
         exportDialog,
       };
     })()`) as Record<string, boolean>;
@@ -1158,6 +1189,16 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(click('#app header button[data-action="render-queue"]'));
     await js(`${click('#app .canvas-notes')}`);
     await snap(`${label}-6-notes-toast`);
+    // Modulation (M13): a Bars layer with a recipe binding open in the inspector, then the matrix.
+    await js(`[...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await js(click('#app .inspector [data-action="modulate"]'));
+    await snap(`${label}-7a-modulate-menu`);
+    await js(`${click('#app .inspector [data-action="modulate-recipe-breathing"]')}; await new Promise((d) => setTimeout(d, 400))`);
+    await js(`document.querySelector('#app .modulation-section')?.scrollIntoView()`);
+    await snap(`${label}-7b-binding-editor`);
+    await js(click('#app header button[data-action="modulation-matrix"]'));
+    await snap(`${label}-7c-modulation-matrix`);
+    await js(click('#app header button[data-action="modulation-matrix"]'));
   }
   console.log(`[smoke] ui tour written to ${dir}`);
 }
