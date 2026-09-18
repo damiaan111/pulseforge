@@ -10,6 +10,7 @@ import { rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
+import type { TextRasterizer } from '../engine/core/text.ts';
 import type { RenderProject } from '../engine/core/project.ts';
 import { frameCount } from '../engine/core/time.ts';
 import { ENGINE_VERSION, createEngine } from '../engine/engine.ts';
@@ -29,6 +30,8 @@ export interface ExportRequest {
   readonly durationTicks: number;
   /** Decoded image assets by content hash, registered before the first frame. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
+  /** Glyph rasterisation with the project's fonts already registered. */
+  readonly text?: TextRasterizer;
   readonly outputPath: string;
   readonly scratchDir: string;
   readonly settings: EncodeSettings;
@@ -111,6 +114,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     quality: 'final',
     output: { transfer: 'srgb', dither: request.dither ?? true, flipY: true, bitDepth: settings.bitDepth },
     packing: settings.conversion === 'gpu-nv12' ? 'nv12' : 'rgba',
+    ...(request.text === undefined ? {} : { text: request.text }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
   const readback = readbackMode === 'sync' ? engine.createSyncReadback(width, height) : engine.createReadback(width, height, request.readbackDepth);

@@ -17,8 +17,9 @@ import type { DecodedImage } from '../../src/engine/core/image.ts';
 import { decodeAnalysis } from '../../src/analysis/container.ts';
 import { spikeProject } from '../project.ts';
 import { runExport } from '../../src/export/job.ts';
+import { CanvasTextRasterizer } from '../../src/text/canvas-rasterizer.ts';
 import type {
-  DeterminismConfig, ExportConfig, FramesConfig, ImageFile, PassResult, SpikeConfig, SpikeExportResult,
+  DeterminismConfig, ExportConfig, FontsConfig, FramesConfig, ImageFile, PassResult, SpikeConfig, SpikeExportResult,
   SpikeFramesResult, SpikeRenderResult,
 } from './protocol.ts';
 
@@ -51,10 +52,20 @@ function loadImages(files: readonly ImageFile[] | undefined): Map<string, Decode
   return images;
 }
 
-function newEngine(dither = true): Engine {
+/** The text rasteriser with every font the config names registered, or undefined when there are none. */
+async function loadText(config: FontsConfig | undefined): Promise<CanvasTextRasterizer | undefined> {
+  if (config === undefined) return undefined;
+  const text = new CanvasTextRasterizer();
+  await text.setDefaultFont(config.default.hash, readFileSync(config.default.file));
+  for (const font of config.fonts) await text.addFont(font.hash, readFileSync(font.file));
+  return text;
+}
+
+function newEngine(dither = true, text?: CanvasTextRasterizer): Engine {
   return createEngine(createContext(), {
     quality: 'final',
     output: { transfer: 'srgb', dither, flipY: true, bitDepth: 8 }, // D49
+    ...(text === undefined ? {} : { text }),
   });
 }
 
@@ -137,7 +148,7 @@ function runDeterminism(config: DeterminismConfig): SpikeRenderResult {
 }
 
 /** Renders the requested frames of a supplied project and writes each one's raw RGBA. */
-function runFrames(config: FramesConfig): SpikeFramesResult {
+async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
   const { width, height } = config.project.canvas;
   const base: SpikeFramesResult = {
     ok: false,
@@ -153,7 +164,7 @@ function runFrames(config: FramesConfig): SpikeFramesResult {
   try {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
-    const engine = newEngine(config.dither);
+    const engine = newEngine(config.dither, await loadText(config.text));
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     const pixels = new Uint8Array(width * height * 4);
     const warnings = new Set<string>();
@@ -213,6 +224,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       },
       durationTicks: config.durationTicks,
       images: loadImages(config.images),
+      ...(config.text === undefined ? {} : { text: await loadText(config.text) as CanvasTextRasterizer }),
       outputPath: config.outputPath,
       scratchDir: config.scratchDir,
       settings: config.settings,
@@ -246,7 +258,7 @@ setTimeout(() => {
   if (config.mode === 'export') {
     void runExportMode(config).then((result) => ipcRenderer.send('spike-done', result));
   } else if (config.mode === 'frames') {
-    ipcRenderer.send('spike-done', runFrames(config));
+    void runFrames(config).then((result) => ipcRenderer.send('spike-done', result));
   } else {
     ipcRenderer.send('spike-done', runDeterminism(config));
   }

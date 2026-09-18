@@ -115,7 +115,29 @@ export const DEMUCS_HTDEMUCS: FileArtefact = {
   installDir: 'models/demucs',
 };
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, PYTHON, UV, DEMUCS_HTDEMUCS];
+/**
+ * The bundled default typeface for text layers (M16, PROJECT.md §3 "open-licence only").
+ * rsms/inter publishes no checksum file; the hash was recorded from a verified download on
+ * 2026-09-15 and is enforced from then on. Extracted it is ~62 MB, over the ~20 MB font budget
+ * in PROJECT.md §3 — most of it is the .ttc and the woff variants; the app uses `extras/ttf/`.
+ */
+export const FONT_INTER: ArchiveArtefact = {
+  kind: 'archive',
+  id: 'font-inter',
+  name: 'Inter typeface',
+  version: '4.1',
+  tier: 'core',
+  url: 'https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip',
+  fileName: 'Inter-4.1.zip',
+  sha256: '9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e',
+  sizeBytes: 33_707_794,
+  license: 'OFL-1.1',
+  installDir: 'fonts/inter',
+  stripTopLevelDir: false,
+  expectFile: 'extras/ttf/Inter-Regular.ttf',
+};
+
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, PYTHON, UV, DEMUCS_HTDEMUCS];
 
 export const PYTHON_PACKAGES = {
   tier: 'stems' as Tier,

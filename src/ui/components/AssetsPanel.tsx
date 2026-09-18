@@ -26,7 +26,7 @@ export function AssetsPanel(): React.JSX.Element {
   const relink = useStudio((s) => s.relink);
   const findMissing = useStudio((s) => s.findMissing);
   const collectFiles = useStudio((s) => s.collectFiles);
-  const loadImages = useStudio((s) => s.loadImages);
+  const loadAssets = useStudio((s) => s.loadAssets);
 
   const usage = assetUsage(document);
   const missing = document.assets.filter((a) => statuses[a.id]?.state === 'missing').length;
@@ -81,7 +81,7 @@ export function AssetsPanel(): React.JSX.Element {
           </button>
         )}
         {document.assets.some((a) => statuses[a.id]?.state === 'missing' || statuses[a.id]?.state === 'error') && (
-          <button type="button" className="wide" onClick={() => void loadImages(true)}>Check again</button>
+          <button type="button" className="wide" onClick={() => void loadAssets(true)}>Check again</button>
         )}
         {unused > 0 && (
           <button type="button" className="wide" onClick={() => run(removeUnusedAssets())}>Remove {unused} unused</button>

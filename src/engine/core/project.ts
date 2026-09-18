@@ -3,6 +3,7 @@
 // ever sees an immutable snapshot like this one.
 
 import type { ImageAssetRef } from './image.ts';
+import type { FontAssetRef } from './text.ts';
 import type { LayerTransform } from './layout.ts';
 import type { ModulationBinding } from './modulation.ts';
 import type { Rational } from './time.ts';
@@ -82,5 +83,5 @@ export interface RenderProject {
   /** Post-process chain over the finished composite. */
   readonly globalEffects?: readonly EffectSpec[];
   /** Asset id → what it is. Pixels are registered with the engine separately, by hash (image.ts). */
-  readonly assets?: Readonly<Record<string, ImageAssetRef>>;
+  readonly assets?: Readonly<Record<string, ImageAssetRef | FontAssetRef>>;
 }

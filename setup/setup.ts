@@ -9,13 +9,13 @@ import { readVendorLock, writeVendorLock } from './lib/lockfile.ts';
 import { createLogger, formatBytes, type Logger } from './lib/log.ts';
 import { SETUP_LOG, SETUP_PID, VENDOR } from './lib/paths.ts';
 import { requiredBytes, runPreflight, type Check } from './lib/preflight.ts';
-import { ffmpegStep, pythonStep, uvStep } from './steps/archives.ts';
+import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
 import { pythonEnvStep } from './steps/python-env.ts';
 import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
-const STEPS: readonly Step[] = [ffmpegStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep];
+const STEPS: readonly Step[] = [ffmpegStep, fontStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep];
 
 const USAGE = `
 Usage: npm run setup -- [options]

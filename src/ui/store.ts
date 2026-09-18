@@ -96,10 +96,17 @@ export interface StudioState {
   images: ReadonlyMap<string, DecodedImage>;
   /** Per asset id: loaded, missing, changed on disk, or unreadable — shown, never silent (M40). */
   assetStatus: Readonly<Record<string, AssetStatus>>;
-  /** Loads every image asset the document references that is not loaded yet. `recheck` retries failed ones. */
-  loadImages(recheck?: boolean): Promise<void>;
+  /** Font file bytes by content hash, for the preview's text rasteriser. */
+  fonts: ReadonlyMap<string, Uint8Array>;
+  /** The bundled default typeface; null until loaded at startup. */
+  defaultFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
+  loadDefaultFont(): Promise<void>;
+  /** Loads every image and font the document references that is not loaded yet. `recheck` retries failed ones. */
+  loadAssets(recheck?: boolean): Promise<void>;
   /** Picks and decodes an image, keeping its pixels; the caller records the asset in the document. */
   importImage(): Promise<AssetRef | null>;
+  /** Picks a font file, keeping its bytes; the caller records the asset in the document. */
+  importFont(): Promise<AssetRef | null>;
   /** Picks a replacement file for one asset and relinks it (asks first if the content differs). */
   relink(assetId: string): Promise<void>;
   /** Asks for a folder and relinks every missing asset found in it, by content. */
@@ -208,15 +215,17 @@ export const useStudio = create<StudioState>((set, get) => ({
   stats: null,
 
   images: new Map(),
+  fonts: new Map(),
+  defaultFont: null,
   assetStatus: {},
 
-  async loadImages(recheck = false) {
+  async loadAssets(recheck = false) {
     const document = history.current;
     const projectPath = get().path;
     for (const asset of document.assets) {
       // Another project was opened meanwhile: stop, rather than attach this one's problems to it.
       if (history.current.id !== document.id) return;
-      if (asset.kind !== 'image') continue;
+      if (asset.kind !== 'image' && asset.kind !== 'font') continue;
       const setStatus = (state: AssetStatus['state'], detail: string) =>
         set({ assetStatus: { ...get().assetStatus, [asset.id]: { state, detail, path: asset.path, hash: asset.hash } } });
       const known = get().assetStatus[asset.id];
@@ -225,7 +234,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       if (fresh && !(recheck && failed)) continue;
       setStatus('loading', asset.path);
       try {
-        const result = await window.pulseforge.loadImage(asset.path, projectPath);
+        const result = asset.kind === 'image'
+          ? await window.pulseforge.loadImage(asset.path, projectPath)
+          : await window.pulseforge.loadFont(asset.path, projectPath);
         if (history.current.id !== document.id) return;
         if (result.status === 'missing') {
           setStatus('missing', `Not found: ${result.path}`);
@@ -235,12 +246,15 @@ export const useStudio = create<StudioState>((set, get) => ({
           setStatus('error', result.message);
           continue;
         }
-        const images = new Map(get().images);
         // Under the recorded hash, which is what the snapshot looks up; a changed file still draws.
-        images.set(asset.hash, imageOf(result.image));
-        set({ images });
-        if (result.image.hash === asset.hash) setStatus('ok', result.image.path);
-        else setStatus('changed', `"${asset.name}" has changed on disk since it was imported, so it may look different. Relink to accept the new file.`);
+        const loaded = 'image' in result ? result.image : result.font;
+        if ('image' in result) {
+          set({ images: new Map(get().images).set(asset.hash, imageOf(result.image)) });
+        } else {
+          set({ fonts: new Map(get().fonts).set(asset.hash, result.font.bytes) });
+        }
+        if (loaded.hash === asset.hash) setStatus('ok', loaded.path);
+        else setStatus('changed', `"${asset.name}" has changed on disk since it was chosen, so it may look different. Relink to accept the new file.`);
       } catch (error) {
         setStatus('error', error instanceof Error ? error.message : String(error));
       }
@@ -263,22 +277,48 @@ export const useStudio = create<StudioState>((set, get) => ({
     }
   },
 
+  async importFont() {
+    try {
+      const font = await window.pulseforge.importFont();
+      if (font === null) return null;
+      const id = newId();
+      set({
+        fonts: new Map(get().fonts).set(font.hash, font.bytes),
+        assetStatus: { ...get().assetStatus, [id]: { state: 'ok', detail: font.path, path: font.path, hash: font.hash } },
+      });
+      return { id, kind: 'font', path: font.path, hash: font.hash, size: font.size, name: font.name, extra: {} };
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Choosing the font'), kind: 'bad' } });
+      return null;
+    }
+  },
+
+  async loadDefaultFont() {
+    if (get().defaultFont !== null) return;
+    try {
+      const font = await window.pulseforge.defaultFont();
+      set({ defaultFont: { hash: font.hash, bytes: font.bytes } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Loading the default font'), kind: 'bad' } });
+    }
+  },
+
   async relink(assetId) {
     const asset = history.current.assets.find((a) => a.id === assetId);
     if (asset === undefined) return;
     try {
-      const image = await window.pulseforge.importImage();
-      if (image === null) return;
+      const picked = asset.kind === 'font' ? await window.pulseforge.importFont() : await window.pulseforge.importImage();
+      if (picked === null) return;
       // A different file is allowed — a re-export is often the point — but never silently
       // (data-formats §1.2): the look of every layer using it changes.
-      if (asset.hash !== '' && image.hash !== asset.hash
-        && !window.confirm(`"${image.name}" is not the same file as "${asset.name}" (the content differs). Use it anyway?`)) {
+      if (asset.hash !== '' && picked.hash !== asset.hash
+        && !window.confirm(`"${picked.name}" is not the same file as "${asset.name}" (the content differs). Use it anyway?`)) {
         return;
       }
-      const images = new Map(get().images);
-      images.set(image.hash, imageOf(image));
-      set({ images, assetStatus: { ...get().assetStatus, [assetId]: { state: 'ok', detail: image.path, path: image.path, hash: image.hash } } });
-      get().run(relinkAsset(assetId, { path: image.path, hash: image.hash, size: image.size, name: image.name }));
+      if ('pixels' in picked) set({ images: new Map(get().images).set(picked.hash, imageOf(picked)) });
+      else set({ fonts: new Map(get().fonts).set(picked.hash, picked.bytes) });
+      set({ assetStatus: { ...get().assetStatus, [assetId]: { state: 'ok', detail: picked.path, path: picked.path, hash: picked.hash } } });
+      get().run(relinkAsset(assetId, { path: picked.path, hash: picked.hash, size: picked.size, name: picked.name }));
     } catch (error) {
       set({ toast: { text: describeError(error, 'Relinking'), kind: 'bad' } });
     }
@@ -298,7 +338,7 @@ export const useStudio = create<StudioState>((set, get) => ({
           `Relink ${result.found.length} file${result.found.length === 1 ? '' : 's'}`,
           result.found.map((f) => relinkAsset(f.id, { path: f.path, hash: f.hash, size: f.size, name: f.name })),
         ));
-        await get().loadImages(true);
+        await get().loadAssets(true);
       }
       const still = wanted.length - result.found.length;
       set({
@@ -404,7 +444,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       history.run(command);
       if (options?.seal !== false) history.seal();
       set((state) => ({ ...fromHistory(), version: state.version + 1 }));
-      if (history.current.assets !== before) void get().loadImages();
+      if (history.current.assets !== before) void get().loadAssets();
     } catch (error) {
       // A command that cannot apply is a bug in the caller, but the user still needs a sentence
       // rather than a silently ignored click.
@@ -416,19 +456,19 @@ export const useStudio = create<StudioState>((set, get) => ({
     history.undo();
     set((state) => ({ ...fromHistory(), version: state.version + 1 }));
     // An undone relink points an asset back at its old file; its status has to follow.
-    void get().loadImages();
+    void get().loadAssets();
   },
 
   redo() {
     history.redo();
     set((state) => ({ ...fromHistory(), version: state.version + 1 }));
-    void get().loadImages();
+    void get().loadAssets();
   },
 
   jumpTo(index) {
     history.jumpTo(index);
     set((state) => ({ ...fromHistory(), version: state.version + 1 }));
-    void get().loadImages();
+    void get().loadAssets();
   },
 
   select(layerId) {
@@ -462,6 +502,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       selectedLayerId: null,
       toast: null,
       images: new Map(),
+      fonts: new Map(),
       assetStatus: {},
       // A new project has no audio; keeping the old track made "New" still react to the last song.
       audio: null,
@@ -501,8 +542,8 @@ export const useStudio = create<StudioState>((set, get) => ({
       if (previous !== null) URL.revokeObjectURL(previous.url);
       set({ audio: null, analysis: null, peaks: null, sections: [], analysisState: 'idle', analysisMessage: null });
     }
-    set({ images: new Map(), assetStatus: {} });
-    void get().loadImages();
+    set({ images: new Map(), fonts: new Map(), assetStatus: {} });
+    void get().loadAssets();
   },
 
   async openProject() {

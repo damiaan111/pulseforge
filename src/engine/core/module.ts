@@ -11,6 +11,7 @@
 import type { AnalysisSet } from './analysis.ts';
 import type { ImageTexture } from './image.ts';
 import type { ParamSpec, ParamValues } from './params.ts';
+import type { TextRasterizer } from './text.ts';
 import type { Prng } from './prng.ts';
 import type { RenderTarget, TargetPool } from '../render/targets.ts';
 import type { Rational } from './time.ts';
@@ -92,6 +93,19 @@ export interface RenderContext {
    * must then say so through `warn` and draw something visibly wrong, never nothing.
    */
   readonly image: (assetId: string) => ImageTexture | undefined;
+  /**
+   * The layer's time range in timeline seconds, for entry and exit animations. `out` is null when
+   * the layer runs to the end. Effects see their layer's range; the global chain sees 0 → null.
+   */
+  readonly layer: { readonly inSeconds: number; readonly outSeconds: number | null };
+  /** Glyph rasterisation, when the host supplied it (core/text.ts). Undefined: text cannot be drawn. */
+  readonly text: TextRasterizer | undefined;
+  /**
+   * A font asset, by the id a `font` asset param holds. `''` resolves to the default font
+   * (`{ hash: null }`). `missing` names why a chosen font cannot be used — not in the project, or
+   * its file was never registered — and the module must say so and draw with the default.
+   */
+  readonly font: (assetId: string) => { readonly hash: string | null; readonly name: string; readonly missing?: string };
 }
 
 /** A module instance draws into the currently bound framebuffer: linear light, premultiplied alpha. */

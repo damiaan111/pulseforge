@@ -21,18 +21,20 @@
 //  - **A strict CSP** on top, so an injected script tag has nowhere to load from either.
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
-import { FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
-  IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult,
+  IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type WantedAsset,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
@@ -41,13 +43,13 @@ import { collectProject } from '../assets/collect-files.ts';
 import { findFilesInFolder } from '../assets/find-in-folder.ts';
 import { addToLibrary, listLibrary } from '../assets/library.ts';
 import { loadDocument } from '../project/load.ts';
-
-/** Library thumbnails: decoded this small, so a panel of fifty costs little. */
-const THUMBNAIL_SIDE = 160;
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
 import { stringifyDocument } from '../project/serialize.ts';
+
+/** Library thumbnails: decoded this small, so a panel of fifty costs little. */
+const THUMBNAIL_SIDE = 160;
 
 /** The analysis cache the preview and the render queue share, so a queued render is a cache hit. */
 function analysisCacheRoot(): string {
@@ -346,6 +348,40 @@ function registerHandlers(): void {
     return { path, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
   };
 
+  const readFont = async (path: string): Promise<FontBytes> => {
+    const bytes = new Uint8Array(await readFile(path));
+    return { path, hash: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, name: basename(path), bytes };
+  };
+
+  ipcMain.handle(IPC.fontImport, async (): Promise<FontBytes | null> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose a font',
+      defaultPath: dirname(DEFAULT_FONT_FILE),
+      properties: ['openFile'],
+      filters: [{ name: 'Fonts', extensions: [...FONT_EXTENSIONS] }, { name: 'All files', extensions: ['*'] }],
+    });
+    const path = result.canceled ? undefined : result.filePaths[0];
+    return path === undefined ? null : readFont(path);
+  });
+
+  ipcMain.handle(IPC.fontLoad, async (_event, stored: unknown, projectPath: unknown): Promise<FontLoadResult> => {
+    if (typeof stored !== 'string') throw new Error('loadFont needs a path');
+    const path = resolveAssetPath(stored, typeof projectPath === 'string' ? projectPath : null);
+    if (path === undefined || !existsSync(path)) return { status: 'missing', path: path ?? stored };
+    try {
+      return { status: 'ok', font: await readFont(path) };
+    } catch (error) {
+      return { status: 'error', path, message: describe(error).message };
+    }
+  });
+
+  ipcMain.handle(IPC.fontDefault, async (): Promise<FontBytes> => {
+    if (!existsSync(DEFAULT_FONT_FILE)) {
+      throw new Error(`The bundled default font is missing (${DEFAULT_FONT_FILE}).\n\nTry:\n• Run \`npm run setup\` to provision vendor/fonts`);
+    }
+    return readFont(DEFAULT_FONT_FILE);
+  });
+
   ipcMain.handle(IPC.imageImport, async (): Promise<ImageBytes | null> => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an image',
@@ -634,6 +670,27 @@ app.whenReady().then(async () => {
         await new Promise((done) => setTimeout(done, 50));
       }
 
+      // The text layer (M16), end to end: adding it must give a generated text box in the
+      // inspector, and the preview must actually rasterise — the engine notes would otherwise say
+      // "no text rasteriser" or "fonts are still loading", which is what a missing font bundle or
+      // an unwired rasteriser looks like.
+      let textLayer = false;
+      const textButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Text');
+      if (textButton !== undefined) {
+        textButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 100));
+        const box = document.querySelector('#app .inspector [data-action="text-value"]');
+        let notes = '';
+        for (let i = 0; i < 40; i += 1) {
+          await new Promise((done) => setTimeout(done, 50));
+          notes = document.querySelector('#app .canvas-notes')?.textContent ?? '';
+          if (notes === '') break;
+        }
+        textLayer = box !== null && notes === '';
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+      }
+
       // The asset library (M40), end to end: the smoke library holds one generated image; clicking
       // it must add a background layer, record the asset, and load it (status "ok" in the Assets
       // panel means the main process decoded it through FFmpeg and the preview has the pixels).
@@ -678,6 +735,7 @@ app.whenReady().then(async () => {
         undoable: undoEnabled,
         effectChain,
         imageControl,
+        textLayer,
         libraryToAsset,
         exportDialog,
       };
@@ -759,6 +817,8 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
       if (picker && option) { picker.value = option.value; picker.dispatchEvent(new Event('change', { bubbles: true })); }
     `);
     await snap(`${label}-1-layer-and-effect`);
+    await js(`[...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Text')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await new Promise((d) => setTimeout(d, 600))`);
+    await snap(`${label}-1a-text-layer`);
     await js(`${click('#app .library-item')}; await new Promise((d) => setTimeout(d, 1200))`);
     await snap(`${label}-1b-assets-and-library`);
     await js(click('#app .inspector'));

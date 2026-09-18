@@ -17,6 +17,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { AnalysisCache } from '../analysis/cache.ts';
 import { loadImageAssets } from '../assets/load-images.ts';
+import { defaultFontFile, loadFontAssets } from '../assets/fonts.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
@@ -173,11 +174,15 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   // Image assets decode here, through the same code the studio preview uses, and cross to the
   // Electron child as raw files. Problems become notes: the render still goes ahead.
   const loaded = await loadImageAssets(document, options.projectPath, { ffmpegExe: FFMPEG_EXE, ffprobeExe: FFPROBE_EXE });
+  // Fonts cross as files (the child reads them); the bundled default is always registered, so a text
+  // layer with no font chosen — or a missing one — still renders, and says which.
+  const fontAssets = loadFontAssets(document, options.projectPath);
+  const problems = [...loaded.problems, ...fontAssets.problems];
   const allNotes: SnapshotNote[] = [
     ...notes,
-    ...loaded.problems.map((problem) => ({ path: `assets.${problem.assetId}`, detail: problem.detail })),
+    ...problems.map((problem) => ({ path: `assets.${problem.assetId}`, detail: problem.detail })),
   ];
-  for (const problem of loaded.problems) say(`Warning: ${problem.detail}`);
+  for (const problem of problems) say(`Warning: ${problem.detail}`);
   await mkdir(options.workDir, { recursive: true });
   const images: ImageFile[] = [];
   for (const [hash, image] of loaded.images) {
@@ -210,6 +215,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     },
     durationTicks,
     images,
+    text: { default: defaultFontFile(), fonts: fontAssets.fonts },
     settings: defaultEncodeSettings(options.codec),
     outputPath: options.outputPath,
     // Sync readback: measured faster than the PBO ring through ANGLE (D50).

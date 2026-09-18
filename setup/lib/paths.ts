@@ -12,6 +12,10 @@ export const CACHE = join(VENDOR, '.cache');
 export const TMP = join(VENDOR, '.tmp');
 export const WHEELHOUSE = join(VENDOR, 'wheelhouse');
 export const MODELS = join(VENDOR, 'models');
+/** Bundled open-licence fonts (text layers). */
+export const FONTS = join(VENDOR, 'fonts');
+/** The default typeface when a text layer names no font. */
+export const DEFAULT_FONT_FILE = join(FONTS, 'inter', 'extras', 'ttf', 'Inter-Regular.ttf');
 
 export const VENDOR_LOCK = join(VENDOR, 'vendor.lock.json');
 export const SETUP_LOG = join(VENDOR, 'setup.log');

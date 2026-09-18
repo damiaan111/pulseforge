@@ -21,6 +21,7 @@ export function App(): React.JSX.Element {
   const save = useStudio((s) => s.save);
   const setExportOpen = useStudio((s) => s.setExportOpen);
   const setRenders = useStudio((s) => s.setRenders);
+  const loadDefaultFont = useStudio((s) => s.loadDefaultFont);
 
   // The queue lives in the main process; the list is fetched once and then pushed on every change.
   useEffect(() => {
@@ -34,6 +35,11 @@ export function App(): React.JSX.Element {
       off();
     };
   }, [setRenders]);
+
+  // The bundled typeface, once: text layers need it before they can draw anything (§8.13).
+  useEffect(() => {
+    void loadDefaultFont();
+  }, [loadDefaultFont]);
 
   // ui-spec §9. The full remappable map comes later; these are the ones whose absence is felt
   // immediately. Typing in a field must not trigger them.

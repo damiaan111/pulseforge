@@ -14,6 +14,7 @@
 import { analysisFrameCount } from '../../analysis/spectrum.ts';
 import type { AnalysisSet } from '../../engine/core/analysis.ts';
 import type { DecodedImage } from '../../engine/core/image.ts';
+import { CanvasTextRasterizer } from '../../text/canvas-rasterizer.ts';
 import type { RenderProject } from '../../engine/core/project.ts';
 import { frameCount, frameTimeSeconds, secondsToTicks, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
@@ -49,6 +50,13 @@ export class PreviewHost {
   private analysis: AnalysisSet = EMPTY_ANALYSIS;
   private scale = 1;
   private images: ReadonlyMap<string, DecodedImage> = new Map();
+  /**
+   * Glyph rasterisation for text layers. Created here and handed to the engine at startup, because
+   * `createEngine` takes it once; fonts are registered into it as their bytes arrive, and a text
+   * layer says "fonts are still loading" until the default one is in.
+   */
+  private readonly text = new CanvasTextRasterizer();
+  private readonly registeredFonts = new Set<string>();
 
   private running = false;
   private rafHandle = 0;
@@ -77,6 +85,7 @@ export class PreviewHost {
       this.gl = createContext(this.canvas);
       this.engine = createEngine(this.gl, {
         quality: 'preview',
+        text: this.text,
         // flipY off: the blit to screen wants GL's own bottom-up orientation. Export flips,
         // because video wants rows top-down.
         output: { transfer: 'srgb', dither: true, flipY: false, bitDepth: 8 },
@@ -153,6 +162,27 @@ export class PreviewHost {
       }
     }
     if (added) this.needsRedraw = true;
+  }
+
+  /**
+   * Registers font bytes with the rasteriser. Asynchronous (a FontFace has to be parsed), so each
+   * one asks for a redraw as it lands rather than blocking the preview loop.
+   */
+  setFonts(defaultFont: { hash: string; bytes: Uint8Array } | null, fonts: ReadonlyMap<string, Uint8Array>): void {
+    const register = async (hash: string, bytes: Uint8Array, isDefault: boolean) => {
+      if (this.registeredFonts.has(hash)) return;
+      this.registeredFonts.add(hash);
+      try {
+        if (isDefault) await this.text.setDefaultFont(hash, bytes);
+        else await this.text.addFont(hash, bytes);
+        this.needsRedraw = true;
+      } catch (error) {
+        this.registeredFonts.delete(hash);
+        this.callbacks.onError(`A font could not be loaded: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    if (defaultFont !== null) void register(defaultFont.hash, defaultFont.bytes, true);
+    for (const [hash, bytes] of fonts) void register(hash, bytes, false);
   }
 
   setScale(scale: number): void {

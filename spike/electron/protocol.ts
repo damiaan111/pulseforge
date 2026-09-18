@@ -16,6 +16,18 @@ export interface ImageFile {
   file: string;
 }
 
+/** A font file for text layers: the renderer reads and registers it under `hash`. */
+export interface FontFileRef {
+  hash: string;
+  file: string;
+}
+
+/** Fonts for a render: the default, and the project's font assets. */
+export interface FontsConfig {
+  default: FontFileRef;
+  fonts: FontFileRef[];
+}
+
 export interface DeterminismConfig {
   mode: 'determinism';
   analysisFile: string;
@@ -43,6 +55,8 @@ export interface ExportConfig {
   durationTicks: number;
   project: RenderProject;
   images?: ImageFile[];
+  /** Absent: text layers report that no rasteriser is available. */
+  text?: FontsConfig;
   dither: boolean;
   outputPath: string;
   scratchDir: string;
@@ -67,6 +81,8 @@ export interface FramesConfig {
   rawDir: string;
   project: RenderProject;
   images?: ImageFile[];
+  /** Absent: text layers report that no rasteriser is available. */
+  text?: FontsConfig;
   frames: number[];
   dither: boolean;
 }

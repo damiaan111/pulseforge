@@ -13,7 +13,8 @@ import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
 
-const VISUALIZERS = BUILTIN_MODULES.filter((m) => m.manifest.kind === 'visualizer' || m.manifest.kind === 'source');
+const LAYER_KINDS = ['source', 'text', 'visualizer'] as const;
+const VISUALIZERS = BUILTIN_MODULES.filter((m) => (LAYER_KINDS as readonly string[]).includes(m.manifest.kind));
 
 export function LeftRail(): React.JSX.Element {
   const document = useStudio((s) => s.document);

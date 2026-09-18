@@ -361,9 +361,20 @@ function ParamControl(props: {
       return (
         <AssetControl
           label={spec.label}
+          accept={spec.accept}
           assetId={typeof raw === 'string' ? raw : spec.default}
           badge={overridden ? <Badge onReset={onReset} /> : null}
           {...(assign === undefined ? {} : { assign })}
+        />
+      );
+    case 'string':
+      return (
+        <TextControl
+          label={spec.label}
+          value={typeof raw === 'string' ? raw : spec.default}
+          multiline={spec.multiline === true}
+          badge={overridden ? <Badge onReset={onReset} /> : null}
+          onChange={(value, seal) => onChange(value, seal)}
         />
       );
     case 'select:stem':
@@ -428,14 +439,16 @@ function ColorControl(props: {
  */
 function AssetControl(props: {
   label: string;
+  accept: 'image' | 'font';
   assetId: string;
   badge: React.ReactNode;
   assign?: (value: unknown) => Command;
 }): React.JSX.Element {
-  const { label, assetId, badge, assign } = props;
+  const { label, accept, assetId, badge, assign } = props;
   const assets = useStudio((s) => s.document.assets);
   const statuses = useStudio((s) => s.assetStatus);
   const importImage = useStudio((s) => s.importImage);
+  const importFont = useStudio((s) => s.importFont);
   const run = useStudio((s) => s.run);
   const asset = assetId === '' ? undefined : assets.find((a) => a.id === assetId);
   const status = asset === undefined ? undefined : statuses[asset.id];
@@ -444,11 +457,11 @@ function AssetControl(props: {
 
   async function choose(): Promise<void> {
     if (assign === undefined) return;
-    const imported = await importImage();
+    const imported = accept === 'font' ? await importFont() : await importImage();
     if (imported === null) return;
     const existing = findAssetByHash(useStudio.getState().document, imported.hash);
     run(existing === undefined
-      ? sequence(`Use image ${imported.name}`, [addAsset(imported), assign(imported.id)])
+      ? sequence(`Use ${accept} ${imported.name}`, [addAsset(imported), assign(imported.id)])
       : assign(existing.id));
   }
 
@@ -457,9 +470,9 @@ function AssetControl(props: {
       <span>{label}{badge}</span>
       <div className="asset-pick">
         <span className="asset-name" title={asset?.path ?? ''}>
-          {assetId === '' ? 'none' : asset === undefined ? 'unknown asset' : asset.name}
+          {assetId === '' ? (accept === 'font' ? 'Inter (bundled)' : 'none') : asset === undefined ? 'unknown asset' : asset.name}
         </span>
-        <button type="button" data-action="choose-image" disabled={assign === undefined} onClick={() => void choose()}>
+        <button type="button" data-action={accept === 'font' ? 'choose-font' : 'choose-image'} disabled={assign === undefined} onClick={() => void choose()}>
           Choose…
         </button>
         {assetId !== '' && assign !== undefined && (
@@ -474,6 +487,42 @@ function AssetControl(props: {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Free text (a title, a credit). Every keystroke reaches the engine so the preview follows as you
+ * type, but only as an unsealed edit: the run collapses into one undo step, sealed on blur.
+ */
+function TextControl(props: {
+  label: string;
+  value: string;
+  multiline: boolean;
+  badge: React.ReactNode;
+  onChange: (value: string, seal: boolean) => void;
+}): React.JSX.Element {
+  const { label, value, multiline, badge, onChange } = props;
+  return (
+    <label className={multiline ? 'field text multiline' : 'field text'}>
+      <span>{label}{badge}</span>
+      {multiline ? (
+        <textarea
+          rows={3}
+          value={value}
+          data-action="text-value"
+          onChange={(e) => onChange(e.target.value, false)}
+          onBlur={() => onChange(value, true)}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          data-action="text-value"
+          onChange={(e) => onChange(e.target.value, false)}
+          onBlur={() => onChange(value, true)}
+        />
+      )}
+    </label>
   );
 }
 

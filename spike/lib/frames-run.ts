@@ -13,7 +13,10 @@ import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import { encodeAnalysis } from '../../src/analysis/container.ts';
 import type { DecodedImage } from '../../src/engine/core/image.ts';
-import type { FramesConfig, ImageFile, SpikeFramesResult } from '../electron/protocol.ts';
+import { existsSync } from 'node:fs';
+import { defaultFontFile } from '../../src/assets/fonts.ts';
+import { DEFAULT_FONT_FILE } from '../../setup/lib/paths.ts';
+import type { FontFileRef, FramesConfig, ImageFile, SpikeFramesResult } from '../electron/protocol.ts';
 import { SPIKE_OUT, runElectron } from '../harness.ts';
 import { synthesizeTestTrack } from '../test-signal.ts';
 
@@ -28,6 +31,8 @@ export interface FramesOptions {
   readonly dither?: boolean;
   /** Decoded images by content hash, for layers that reference assets. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
+  /** Font files by content hash, beyond the bundled default (which is always registered when present). */
+  readonly fonts?: readonly FontFileRef[];
 }
 
 /** One rendered frame, top-down RGBA8 (the engine's export orientation). */
@@ -88,6 +93,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     rawDir,
     project: options.project,
     ...(images.length > 0 ? { images } : {}),
+    ...(existsSync(DEFAULT_FONT_FILE) ? { text: { default: defaultFontFile(), fonts: [...(options.fonts ?? [])] } } : {}),
     frames: [...options.frames],
     dither: options.dither ?? false,
   };

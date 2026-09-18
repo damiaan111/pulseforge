@@ -44,6 +44,8 @@ export function CanvasPane(): React.JSX.Element {
   const audio = useStudio((s) => s.audio);
   const previewScale = useStudio((s) => s.previewScale);
   const images = useStudio((s) => s.images);
+  const fonts = useStudio((s) => s.fonts);
+  const defaultFont = useStudio((s) => s.defaultFont);
   const setPreviewScale = useStudio((s) => s.setPreviewScale);
   const stats = useStudio((s) => s.stats);
   const editTarget = useStudio((s) => s.editTarget);
@@ -86,6 +88,10 @@ export function CanvasPane(): React.JSX.Element {
   useEffect(() => {
     hostRef.current?.setImages(images);
   }, [images]);
+
+  useEffect(() => {
+    hostRef.current?.setFonts(defaultFont, fonts);
+  }, [defaultFont, fonts]);
 
   const canvasAspect = aspectBucket(document.canvas.width, document.canvas.height);
   const effective = {

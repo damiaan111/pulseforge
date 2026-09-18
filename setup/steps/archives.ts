@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { FFMPEG, PYTHON, UV, type ArchiveArtefact } from '../manifest.ts';
+import { FFMPEG, FONT_INTER, PYTHON, UV, type ArchiveArtefact } from '../manifest.ts';
 import { installArchive, isInstalled } from '../lib/archive.ts';
 import { ensureDownloaded, sha256File } from '../lib/download.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import { upsertArtefact } from '../lib/lockfile.ts';
 import { formatBytes } from '../lib/log.ts';
-import { DOWNLOADS, FFMPEG_EXE, PYTHON_EXE, UV_EXE, VENDOR } from '../lib/paths.ts';
+import { DOWNLOADS, FFMPEG_EXE, FONTS, PYTHON_EXE, UV_EXE, VENDOR } from '../lib/paths.ts';
 import { runChecked } from '../lib/proc.ts';
 import type { Step, StepContext } from './types.ts';
 
@@ -169,6 +169,15 @@ const uvCheck: PostInstallCheck = async (ctx, step) => {
   ctx.log.ok(result.stdout.trim());
 };
 
+const fontCheck: PostInstallCheck = async (ctx, step) => {
+  const file = join(FONTS, 'inter', 'extras', 'ttf', 'Inter-Regular.ttf');
+  if (!existsSync(file)) {
+    throw new SetupError({ step, what: `${file} is missing after extraction.`, fix: [`Delete ${join(FONTS, 'inter')} and re-run setup.`] });
+  }
+  ctx.log.ok('Inter present (extras/ttf)');
+};
+
 export const ffmpegStep = archiveStep(FFMPEG, 'FFmpeg (NVENC build)', ffmpegCheck);
+export const fontStep = archiveStep(FONT_INTER, 'Bundled fonts (Inter)', fontCheck);
 export const pythonStep = archiveStep(PYTHON, 'Portable Python', pythonCheck);
 export const uvStep = archiveStep(UV, 'uv', uvCheck);

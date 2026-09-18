@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ArchiveArtefact } from '../manifest.ts';
 import { SetupError } from './errors.ts';
 import type { Logger } from './log.ts';
@@ -76,6 +76,8 @@ export async function installArchive(archivePath: string, artefact: ArchiveArtef
   }
 
   await removeVendorDir(target);
+  // A nested install dir (`fonts/inter`) needs its parent before the rename can land in it.
+  await mkdir(dirname(target), { recursive: true });
   await rename(source, target);
   const marker: InstallMarker = { id: artefact.id, version: artefact.version, sha256: artefact.sha256 };
   await writeFile(join(target, MARKER), JSON.stringify(marker, null, 2) + '\n');

@@ -24,6 +24,8 @@ import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
 import { ImageStore } from './render/images.ts';
 import { backgroundModule } from './modules/background.ts';
 import type { DecodedImage } from './core/image.ts';
+import type { TextRasterizer } from './core/text.ts';
+import { textModule } from './modules/text.ts';
 import { TargetPool, type RenderTarget } from './render/targets.ts';
 import { Nv12Converter, nv12Bytes, nv12Supported } from './render/yuv.ts';
 import { barsModule } from './modules/bars.ts';
@@ -50,8 +52,8 @@ import { flashModule } from './modules/flash.ts';
 import { testPatternModule } from './modules/test-pattern.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
-  // Sources (M14), visualizers (M11), then effects (M12), then the test modules the validator uses.
-  backgroundModule,
+  // Sources (M14), text (M16), visualizers (M11), then effects (M12), then the test modules the validator uses.
+  backgroundModule, textModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
@@ -71,6 +73,8 @@ export interface EngineOptions {
    */
   readonly packing?: 'rgba' | 'nv12';
   readonly modules?: readonly ModuleDefinition[];
+  /** Glyph rasterisation for text layers (core/text.ts). Without it, text layers report and draw nothing. */
+  readonly text?: TextRasterizer;
 }
 
 export interface FrameReport {
@@ -244,9 +248,26 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         warn: (message: string) => warnings.push(message),
         image: (assetId: string) => {
           const ref = project.assets?.[assetId];
-          return ref === undefined ? undefined : images.texture(ref.hash);
+          return ref === undefined || ref.kind !== 'image' ? undefined : images.texture(ref.hash);
+        },
+        text: options.text,
+        font: (assetId: string) => {
+          if (assetId === '') return { hash: null, name: 'default' };
+          const ref = project.assets?.[assetId];
+          if (ref === undefined || ref.kind !== 'font') {
+            return { hash: null, name: 'default', missing: `font asset "${assetId}" is not in the project` };
+          }
+          if (options.text === undefined || !options.text.hasFont(ref.hash)) {
+            return { hash: null, name: ref.name, missing: `font "${ref.name}" is not available (missing file?)` };
+          }
+          return { hash: ref.hash, name: ref.name };
         },
       };
+      const layerSeconds = (range: { inTicks: number; outTicks: number | null } | undefined) => ({
+        inSeconds: range === undefined ? 0 : ticksToSeconds(range.inTicks),
+        outSeconds: range?.outTicks == null ? null : ticksToSeconds(range.outTicks),
+      });
+      const wholeTimeline = layerSeconds(undefined);
 
       const program = programFor(project, analysis);
       const tick = frameStartTick(frameIndex, fps);
@@ -274,6 +295,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         pathPrefix: string,
         owner: string,
         canvas: ReturnType<typeof canvasFor>,
+        layerTime: { inSeconds: number; outSeconds: number | null },
       ): EffectPass[] => {
         const passes: EffectPass[] = [];
         for (const spec of specs) {
@@ -292,7 +314,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           const instance = instanceFor(spec.id, definition);
           passes.push({
             id: spec.id,
-            draw: (input, target) => instance.render({ ...frameContext, canvas, targets: pool, input, outputTarget: target }, resolved.values),
+            draw: (input, target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input, outputTarget: target }, resolved.values),
           });
         }
         return passes;
@@ -318,6 +340,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         // on 'min' and a full-bleed background on 'max' each get the number they need.
         const transform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
         const canvas = canvasFor(transform.scaleReference);
+        const layerTime = layerSeconds(layer.timeRange);
 
         let inverseTransform: Mat3 | undefined;
         if (!isIdentityTransform(transform)) {
@@ -334,8 +357,8 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         layers.push({
           opacity: Math.min(1, Math.max(0, layer.opacity)),
           blend: layer.blend,
-          draw: (target) => instance.render({ ...frameContext, canvas, targets: pool, input: null, outputTarget: target }, resolved.values),
-          effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas),
+          draw: (target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, outputTarget: target }, resolved.values),
+          effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime),
           ...(inverseTransform === undefined ? {} : { inverseTransform }),
         });
       }
@@ -346,7 +369,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       }
       // The global chain has no layer of its own, so its sizes follow the smaller canvas
       // dimension — the reference that behaves the same in landscape and vertical.
-      const globalEffects = buildEffects(project.globalEffects ?? [], 'global.effects.', 'global effects', canvasFor('min'));
+      const globalEffects = buildEffects(project.globalEffects ?? [], 'global.effects.', 'global effects', canvasFor('min'), wholeTimeline);
 
       compositor.composite(output, { ...background, a: 1 }, layers, options.output, {
         frameIndex,

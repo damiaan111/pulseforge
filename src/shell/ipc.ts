@@ -30,6 +30,9 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  fontImport: 'pf:font:import',
+  fontLoad: 'pf:font:load',
+  fontDefault: 'pf:font:default',
   imageImport: 'pf:image:import',
   imageLoad: 'pf:image:load',
   environment: 'pf:app:environment',
@@ -112,6 +115,20 @@ export interface ImageBytes {
 /** Loading an image the project references: the pixels, or why not — distinguishable, for the asset panel. */
 export type ImageLoadResult =
   | { readonly status: 'ok'; readonly image: ImageBytes }
+  | { readonly status: 'missing'; readonly path: string }
+  | { readonly status: 'error'; readonly path: string; readonly message: string };
+
+/** A font file's bytes, for the preview's text rasteriser. Registered by `hash`, never looked up by name. */
+export interface FontBytes {
+  readonly path: string;
+  readonly hash: string;
+  readonly size: number;
+  readonly name: string;
+  readonly bytes: Uint8Array;
+}
+
+export type FontLoadResult =
+  | { readonly status: 'ok'; readonly font: FontBytes }
   | { readonly status: 'missing'; readonly path: string }
   | { readonly status: 'error'; readonly path: string; readonly message: string };
 
@@ -215,6 +232,12 @@ export interface PulseforgeApi {
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
   analyzeAudio(path: string): Promise<AnalysisPayload>;
+  /** Shows an open dialog for a font file (starting in the bundled fonts). Null when cancelled. */
+  importFont(): Promise<FontBytes | null>;
+  /** Reads a font the project references; the path may be relative to `projectPath`. */
+  loadFont(path: string, projectPath: string | null): Promise<FontLoadResult>;
+  /** The bundled default typeface (Inter Regular). */
+  defaultFont(): Promise<FontBytes>;
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
   importImage(): Promise<ImageBytes | null>;
   /** Decodes an asset the project already references; the path may be relative to `projectPath`. */

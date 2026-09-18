@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅ (§4.28–§4.37); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅ (§4.28–§4.38); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -43,7 +43,8 @@ P4 steps:
 | 7 | Render queue in the studio: export dialog, queue drawer; EXDEV fix | ✅ | `024fd7c` |
 | 8 | Background layer (M14): solid/gradient/image, fit modes, Ken Burns; image assets end to end | ✅ | `e20d14c` |
 | — | Code and UI audit (§4.36) | ✅ | `96520b9` |
-| 9 | Asset library (M40): status, relink, find-in-folder, collect files, relative paths, library folder | ✅ | (this commit) |
+| 9 | Asset library (M40): status, relink, find-in-folder, collect files, relative paths, library folder | ✅ | `daaea3b` |
+| 10 | Text layer (M16, M32): deterministic rasterisation, per-word metrics, styling, animation, bundled fonts | ✅ | (this commit) |
 
 P3 steps:
 
@@ -111,7 +112,7 @@ STATUS.md updated and commit after each step."*
 |---|---|---|
 | `npm install` | dev deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2) | once |
 | `npm run check` | typecheck + lint + 519 tests (FFmpeg/Python tests skip without `vendor/`; the GPU layout test skips without Electron) | ~15 s |
-| `npm run setup` | provision `vendor/`; `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
+| `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
@@ -1330,7 +1331,7 @@ suggested order:
 1. ✅ **Render queue in the studio** — §4.34.
 2. ✅ **Background source layer** (M14) — §4.35.
 3. ✅ **Asset library** (M40) — §4.37. Fonts join it with the text layer; video with M39.
-4. **Text layer** (M16, M32): deterministic glyph rasterisation at target resolution, per-word metrics.
+4. ✅ **Text layer** (M16, M32) — §4.38.
 5. **Logo layer** (M15) — an image layer with reactive pulse, cheap once 2–3 exist.
 6. **Group compositing** (M38): group transform/opacity/blend/effects over composited children.
 7. **Video layers** (M39): frame cache at project fps.
@@ -1539,3 +1540,64 @@ audio relink from the panel (audio has its own "Replace audio…"), a "missing f
 Verified here: `npm run check` **636 tests** (new: `tests/project/asset-paths.test.ts`,
 `tests/project/asset-library.test.ts`, `tests/assets/library-files.test.ts`); `--smoke` 10/10
 including `libraryToAsset`; collect + CLI render of the collected copy.
+
+
+---
+
+### 4.38 Text layer (P4 step 10) — M16, M32, PROJECT.md §8.13, §8.7
+
+**Rasterisation** — `TextRasterizer` is an *interface* in `src/engine/core/text.ts`; the engine never
+touches a font engine (CLAUDE.md #2). The browser implementation is
+`src/text/canvas-rasterizer.ts`: Chromium canvas 2D, `willReadFrequently` (CPU-backed, so two runs
+agree), `textRendering: geometricPrecision` (no hinting differences between preview and export
+resolution), fonts registered as `FontFace`s **from bytes keyed by content hash** — nothing is ever
+looked up by family name, so an installed font of the same name cannot change a render (§8.13).
+Layout is ours, not the DOM's: `src/text/layout.ts` is pure (injected `measure`) and tested in Node —
+greedy wrap at spaces, a too-long word overflows rather than breaking, blank lines kept, font-wide
+line rhythm, alignment ignoring trailing letter spacing. It returns per-line **and per-word boxes**,
+which is M32's requirement and what karaoke fill will use (lyrics-spec §4).
+
+**Module** `core.text.title` (kind `text`, second "Add layer" button). Params: text (new `string`
+param type, multiline), font (`asset` with `accept: 'font'`), case, size (canvas-relative,
+**not modulatable** — size re-rasterises; pulse with the layer's scale), tracking, line height,
+align, max width; fill solid/vertical-gradient (mixed in linear light); outline; shadow (on by
+default, ui-spec legibility); glow; rounded plate; in/out animation — none, fade, slide up/down,
+scale, blur, typewriter, stagger — with `textAnimation()` a closed form in `t` (unit-tested), timed
+from the layer's in and out points (`RenderContext.layer`, new).
+
+**One shader** over two coverage masks (fill, outline) packed as RG8 with mipmaps: colour, gradient,
+outline, shadow, glow, plate and animation. Blur samples `textureLod` one level finer than the
+radius on a ring of taps — no derivatives, so it is safe inside branches. **Per-word animation**
+multiplies the mask by a per-word visibility texture in a first pass and rebuilds its mipmaps, so a
+hidden word cannot smear into its neighbour's glow (the first version did, as hard vertical streaks).
+Word ids are painted from the word boxes, split at the midpoint between overlapping lines — without
+that, a tight line height let the next line's boxes clip the descenders above them.
+
+**Fonts** — `vendor/fonts/inter` (Inter 4.1, OFL), pinned in `setup/manifest.ts` and installed by a
+new setup step; `DEFAULT_FONT_FILE` is Inter Regular. Fonts are ordinary **assets** (`kind: 'font'`,
+path + hash), so relink, find-in-folder, collect-files and the asset panel already cover them.
+A chosen font that is missing draws with the default **and warns**, never silently (§8.13).
+`src/assets/fonts.ts` hashes the default once and resolves a document's font assets for the export;
+the studio loads bytes over IPC (`pf:font:*`) and registers them with the preview's rasteriser.
+
+**Studio** — generated `string` control (textarea, live preview as you type, one undo step per edit),
+the asset picker now accepts fonts ("Inter (bundled)" when none is chosen), and text layers appear in
+"Add layer" automatically because the rail lists `source | text | visualizer` kinds.
+
+**Setup bug fixed:** a nested `installDir` (`fonts/inter`) failed to install — the final rename had no
+parent directory.
+
+**Default animation is `none`:** a fade-in is fully transparent *at* the in point, so a text layer
+added to a stopped preview looked broken until you scrubbed. Found in the UI tour.
+
+Verified here: `npm run check` **657 tests** (new: `tests/text/layout.test.ts`,
+`tests/engine/text-module.test.ts`, `tests/golden/text-gpu.test.ts` — draws, deterministic across
+runs and order, honours a font asset, reports a missing one, typewriter reveals per word and fades
+out at the out point); `npm run golden` **15/15 identical**; `--smoke` **11/11** with a new
+`textLayer` check (the generated text box exists and the preview rasterises with no engine notes);
+a CLI render of background + bars + animated title wrote a verified 1080p60 MP4 at 135 fps.
+
+**Deferred (stated, not forgotten):** S17 Unicode shaping, fallback chains and RTL (the rasteriser
+boundary is where that lands); per-line and per-role overrides, background-plate blur, and
+keyframed text (S1) belong with the lyrics work (P6); no font picker browsing the system font
+folder yet — you choose a file.

@@ -91,10 +91,20 @@ export interface StemParam extends ParamCommon {
 export interface AssetParam extends ParamCommon {
   readonly type: 'asset';
   readonly default: '';
-  readonly accept: 'image';
+  readonly accept: 'image' | 'font';
 }
 
-export type ParamSpec = FloatParam | IntParam | BoolParam | EnumParam | ColorParam | StemParam | AssetParam;
+/** Free text (module-spec §3.2 `string`) — a title, a credit line. */
+export interface StringParam extends ParamCommon {
+  readonly type: 'string';
+  readonly default: string;
+  /** Offer a multi-line editor; newlines are kept. */
+  readonly multiline?: boolean;
+  /** Longer stored values are cut, reported. */
+  readonly maxLength?: number;
+}
+
+export type ParamSpec = FloatParam | IntParam | BoolParam | EnumParam | ColorParam | StemParam | AssetParam | StringParam;
 export type ParamValue = number | boolean | string;
 export type ParamValues = Readonly<Record<string, ParamValue>>;
 
@@ -150,6 +160,14 @@ function baseValue(spec: ParamSpec, stored: unknown, issues: ParamIssue[]): Para
     }
     case 'asset':
       return typeof stored === 'string' ? stored : wrongType('an asset id');
+    case 'string': {
+      if (typeof stored !== 'string') return wrongType('a string');
+      if (spec.maxLength !== undefined && stored.length > spec.maxLength) {
+        issues.push({ key: spec.key, problem: 'invalid-value', detail: `${stored.length} characters is over the limit of ${spec.maxLength}; cut` });
+        return stored.slice(0, spec.maxLength);
+      }
+      return stored;
+    }
   }
 }
 
