@@ -44,8 +44,8 @@ on Ampere. Probe capabilities and hide unsupported options rather than failing a
 
 See `docs/STATUS.md` for the live state and `docs/ROADMAP.md` §3 for what comes next. P0, P2, P3 and
 P4 are complete (2026-09-18), and so are the modulation UI (M13), the layer/clip editing gaps
-(M7, M9, M29) and stems end to end (M5, M27, M28); the next item is autosave and crash recovery (M1 —
-ROADMAP §3 item 4). `START-HERE.md`
+(M7, M9, M29), stems end to end (M5, M27, M28) and autosave with crash recovery (M1); the next item
+is lyrics (P6 — ROADMAP §3 item 5). `START-HERE.md`
 describes P0, which is done.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept

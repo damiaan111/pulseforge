@@ -37,7 +37,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -54,6 +54,7 @@ import { SidecarSupervisor, spawnPythonSidecar } from '../ml/supervisor.ts';
 import { StemsCancelledError, separateStems } from '../ml/stems.ts';
 import { GpuJobCancelledError, GpuQueue } from '../node/gpu-queue.ts';
 import { newId } from '../project/ids.ts';
+import { RecoveryStore } from '../project/recovery-store.ts';
 import { pythonEnv } from '../../setup/lib/env.ts';
 import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
@@ -83,6 +84,29 @@ function sidecar(): SidecarSupervisor {
     onLog: (message) => console.log(`[sidecar] ${message}`),
   });
   return sidecarInstance;
+}
+
+/**
+ * Autosave and crash recovery (M1). This run's session id names its folder of snapshots; a clean
+ * quit removes it, so a folder found at the next start is a run that crashed. `PULSEFORGE_RECOVERY`
+ * moves the folder — the smoke check uses its own, so it never sees or touches the owner's.
+ */
+const recoverySessionId = newId();
+/**
+ * A clean quit: this run's autosaves are not needed at the next start. (A crash never gets here,
+ * which is the whole mechanism.) If the user chose to quit with unsaved changes, they were asked
+ * and said discard.
+ */
+function endRecoverySession(): void {
+  try {
+    recoveryStore().clearSync(recoverySessionId);
+  } catch (error) {
+    console.error(`[recovery] could not clear this session's autosaves: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function recoveryStore(): RecoveryStore {
+  return new RecoveryStore({ root: process.env['PULSEFORGE_RECOVERY'] ?? join(app.getPath('userData'), 'recovery') });
 }
 
 /**
@@ -432,6 +456,50 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC.stemsCancel, async (): Promise<void> => {
     stemsController?.abort();
+  });
+
+  // Autosave and crash recovery (M1).
+  ipcMain.handle(IPC.recoveryWrite, async (_event, raw: unknown): Promise<void> => {
+    const snapshot = raw as { text?: unknown; projectPath?: unknown; projectName?: unknown; reason?: unknown };
+    if (typeof snapshot.text !== 'string' || snapshot.text.length > 64 * 1024 * 1024) throw new Error('writeRecovery needs the project text');
+    await recoveryStore().write(recoverySessionId, {
+      text: snapshot.text,
+      projectPath: typeof snapshot.projectPath === 'string' ? snapshot.projectPath : null,
+      projectName: typeof snapshot.projectName === 'string' ? snapshot.projectName : 'Untitled',
+      reason: typeof snapshot.reason === 'string' ? snapshot.reason.slice(0, 120) : 'autosave',
+    });
+  });
+  ipcMain.handle(IPC.recoveryClear, async (): Promise<void> => {
+    await recoveryStore().clear(recoverySessionId);
+  });
+  ipcMain.handle(IPC.recoveryList, async (): Promise<readonly RecoveryCandidate[]> => {
+    const store = recoveryStore();
+    const sessions = await store.listRecoverable(recoverySessionId);
+    const candidates: RecoveryCandidate[] = [];
+    for (const session of sessions) {
+      let savedText: string | null = null;
+      if (session.projectPath !== null) {
+        try {
+          savedText = await readFile(session.projectPath, 'utf8');
+        } catch {
+          savedText = null; // moved or deleted since: the summary says "never saved" instead
+        }
+      }
+      candidates.push({
+        sessionId: session.sessionId,
+        projectPath: session.projectPath,
+        projectName: session.projectName,
+        savedAt: session.savedAt,
+        reason: session.reason,
+        text: await store.readLatest(session.sessionId),
+        savedText,
+      });
+    }
+    return candidates;
+  });
+  ipcMain.handle(IPC.recoveryDiscard, async (_event, sessionId: unknown): Promise<void> => {
+    if (typeof sessionId !== 'string' || sessionId === recoverySessionId) throw new Error('That is not a recovery session this can discard.');
+    await recoveryStore().clear(sessionId);
   });
 
   const decodeForRenderer = async (path: string): Promise<ImageBytes> => {
@@ -791,6 +859,14 @@ app.whenReady().then(async () => {
     }
     process.env['PULSEFORGE_LIBRARY'] = library;
 
+    // Its own recovery folder too: the smoke must not offer (or clear) the owner's autosaves.
+    const recovery = join(ROOT, 'out', 'smoke-recovery');
+    await rm(recovery, { recursive: true, force: true });
+    process.env['PULSEFORGE_RECOVERY'] = recovery;
+    // …seeded with the autosave of a "crashed" run, which the studio must offer back (M1).
+    const crashed = { ...createDocument({ name: 'Smoke crash' }), layers: [createModuleLayer('core.visualizer.bars', { name: 'Recovered smoke layer' })] };
+    await new RecoveryStore({ root: recovery }).write('smokecrashed', { text: stringifyDocument(crashed), projectPath: null, projectName: 'Smoke crash', reason: 'every minute' });
+
     // A fresh, empty user preset folder, so the preset checks start from the built-ins alone and
     // never touch (or depend on) the owner's own presets.
     const presets = join(ROOT, 'out', 'smoke-presets');
@@ -836,6 +912,7 @@ app.whenReady().then(async () => {
   // The sidecar is a child process too; it must not outlive the app either.
   app.on('will-quit', () => {
     void sidecarInstance?.stop();
+    endRecoverySession();
   });
   app.on('before-quit', (event) => {
     if (quitting || !renders.list().some((job) => job.status === 'running')) return;
@@ -1219,6 +1296,21 @@ app.whenReady().then(async () => {
       await new Promise((done) => setTimeout(done, 50));
       const exportDialog = presets >= 6 && document.querySelector('#app .export-dialog') === null;
 
+      // Crash recovery (M1), last because it replaces the project: the seeded autosave of a
+      // "crashed" run is offered on start with its summary, and Restore opens it — unsaved — with
+      // its layer. (The main process then checks the old session was let go and this one holds a
+      // fresh snapshot.) The "discard your changes?" question is answered yes: nothing here is kept.
+      let recoveryDialog = false;
+      const offered = await waitFor(() => document.querySelector('#app .recovery-dialog [data-recovery="smokecrashed"]'), 60);
+      if (offered !== null && offered !== false) {
+        const summary = offered.textContent ?? '';
+        window.confirm = () => true;
+        document.querySelector('#app [data-action="recovery-restore"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const restored = await waitFor(() => [...document.querySelectorAll('#app .layer-list .layer-row')].some((row) => row.textContent?.includes('Recovered smoke layer')), 60);
+        recoveryDialog = summary.includes('Smoke crash') && summary.includes('never saved') && restored === true
+          && document.querySelector('#app .recovery-dialog') === null;
+      }
+
       return {
         rendered: document.querySelector('#app header') !== null,
         bridge: typeof window.pulseforge?.openProject === 'function',
@@ -1242,8 +1334,21 @@ app.whenReady().then(async () => {
         layerEditing,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         exportDialog,
+        recoveryDialog,
       };
     })()`) as Record<string, boolean>;
+
+    // The other half of the recovery check: restoring let the crashed run's folder go and took a
+    // fresh snapshot into this run's own (a crash from here on recovers the restored work).
+    if (checks['recoveryDialog'] === true) {
+      let sessions: readonly string[] = [];
+      for (let i = 0; i < 40; i += 1) {
+        sessions = (await recoveryStore().listRecoverable('none')).map((session) => session.sessionId);
+        if (!sessions.includes('smokecrashed') && sessions.includes(recoverySessionId)) break;
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      checks['recoveryDialog'] = !sessions.includes('smokecrashed') && sessions.includes(recoverySessionId);
+    }
 
     // A real render through the studio's queue, from inside Electron's main process. This is the
     // path the Node-side check cannot cover: here `electron` is the API object, not a path, and
@@ -1290,7 +1395,11 @@ app.whenReady().then(async () => {
     // Also to a file: Electron's stdout does not always reach a parent that captures it (a GUI
     // subsystem binary under a piped shell), and a smoke check whose verdict can vanish is no check.
     await writeFile(join(dirname(shot), 'smoke-result.json'), `${JSON.stringify({ checks, failed }, null, 2)}\n`);
-    app.exit(failed.length === 0 ? 0 : 1);
+    // `app.exit` skips will-quit; the smoke ends cleanly all the same, and must leave nothing to recover.
+    endRecoverySession();
+    const leftOver = (await recoveryStore().listRecoverable('none')).some((session) => session.sessionId === recoverySessionId);
+    if (leftOver) console.error('[smoke] FAILED: a clean exit left the autosaves of this run behind');
+    app.exit(failed.length === 0 && !leftOver ? 0 : 1);
     return;
   }
 

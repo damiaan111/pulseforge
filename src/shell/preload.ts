@@ -30,6 +30,10 @@ const api: PulseforgeApi = {
   analyzeAudio: (path, settings) => ipcRenderer.invoke(IPC.audioAnalyze, path, settings) as ReturnType<PulseforgeApi['analyzeAudio']>,
   separateStems: (path, settings) => ipcRenderer.invoke(IPC.stemsSeparate, path, settings) as ReturnType<PulseforgeApi['separateStems']>,
   cancelStems: () => ipcRenderer.invoke(IPC.stemsCancel) as Promise<void>,
+  writeRecovery: (snapshot) => ipcRenderer.invoke(IPC.recoveryWrite, snapshot) as Promise<void>,
+  clearRecovery: () => ipcRenderer.invoke(IPC.recoveryClear) as Promise<void>,
+  listRecovery: () => ipcRenderer.invoke(IPC.recoveryList) as ReturnType<PulseforgeApi['listRecovery']>,
+  discardRecovery: (sessionId) => ipcRenderer.invoke(IPC.recoveryDiscard, sessionId) as Promise<void>,
   onStemsProgress(listener) {
     const handler = (_event: unknown, progress: Parameters<typeof listener>[0]) => listener(progress);
     ipcRenderer.on(IPC.stemsProgress, handler);

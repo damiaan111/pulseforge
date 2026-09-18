@@ -33,7 +33,7 @@ import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
-import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing, RenderJob, StemProgressEvent } from '../shell/ipc.ts';
+import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing, RecoveryCandidate, RenderJob, StemProgressEvent } from '../shell/ipc.ts';
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
@@ -206,7 +206,18 @@ export interface StudioState {
   setPreviewScale(scale: number): void;
   notify(toast: Toast | null): void;
   newProject(): void;
-  adopt(file: { path: string; text: string }): void;
+  /**
+   * Opens a project from its text. `recovered` marks an autosave being restored (M1): it opens as
+   * unsaved, under the file it came from, and the toast says what happened.
+   */
+  adopt(file: { path: string | null; text: string }, options?: { readonly recovered?: string }): void;
+  /** Snapshots the project for crash recovery if it has unsaved changes (M1). */
+  autosave(reason: string): Promise<void>;
+  /** Earlier runs that crashed with an autosave; shown on start (M1). */
+  recovery: readonly RecoveryCandidate[];
+  loadRecovery(): Promise<void>;
+  restoreRecovery(candidate: RecoveryCandidate): Promise<void>;
+  discardRecovery(sessionId: string): Promise<void>;
   openProject(): Promise<void>;
   save(): Promise<void>;
   saveAs(): Promise<void>;
@@ -239,6 +250,9 @@ function fromHistory() {
     redoLabel: history.redoLabel,
   };
 }
+
+/** The store version last written as an autosave; -1 when none has been this session. */
+let lastAutosaveVersion = -1;
 
 /** Increments per `loadAudio` call; a response for an older call is dropped. */
 let audioRequest = 0;
@@ -705,6 +719,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   newProject() {
     if (!discardOk('Start a new project')) return;
     history.reset(createDocument({ name: 'Untitled' }), 'New project');
+    void window.pulseforge.clearRecovery().catch(() => undefined);
+    lastAutosaveVersion = -1;
     audioRequest += 1;
     const previous = get().audio;
     if (previous !== null) URL.revokeObjectURL(previous.url);
@@ -730,13 +746,19 @@ export const useStudio = create<StudioState>((set, get) => ({
     }));
   },
 
-  adopt(file) {
+  adopt(file, options = {}) {
     const loaded = loadDocument(file.text);
     // The studio holds absolute paths and writes them relative again on save, against whichever
     // file it saves to (asset-paths.ts) — so "Save as" into another folder cannot break links.
     const document = withAbsolutePaths(loaded.document, file.path);
-    // Opening replaces the history: the previous project's undo steps do not apply here.
-    history.reset(document, 'Opened');
+    // Opening replaces the history: the previous project's undo steps do not apply here. A restored
+    // autosave is not what the file on disk holds, so it opens as unsaved.
+    if (options.recovered === undefined) history.reset(document, 'Opened');
+    else history.resetUnsaved(document, 'Recovered');
+    // This run's own autosaves belonged to the project being left behind. (A restore writes its own
+    // snapshot straight after; clearing here too would race it.)
+    if (options.recovered === undefined) void window.pulseforge.clearRecovery().catch(() => undefined);
+    lastAutosaveVersion = -1;
     set((state) => ({
       ...fromHistory(),
       version: state.version + 1,
@@ -744,9 +766,11 @@ export const useStudio = create<StudioState>((set, get) => ({
       issues: loaded.issues,
       migratedFrom: loaded.migratedFrom,
       selectedLayerId: null,
-      toast: loaded.migratedFrom === null
-        ? { text: `Opened ${file.path}`, kind: 'ok' as const }
-        : { text: `Migrated from schema v${loaded.migratedFrom}. The original is backed up on the first save.`, kind: 'warn' as const },
+      toast: options.recovered !== undefined
+        ? { text: options.recovered, kind: 'warn' as const }
+        : loaded.migratedFrom === null
+          ? { text: `Opened ${file.path}`, kind: 'ok' as const }
+          : { text: `Migrated from schema v${loaded.migratedFrom}. The original is backed up on the first save.`, kind: 'warn' as const },
     }));
     const audioPath = document.audio.path;
     if (audioPath !== '') {
@@ -785,6 +809,8 @@ export const useStudio = create<StudioState>((set, get) => ({
         ...(migratedFrom === null ? {} : { backupFromVersion: migratedFrom }),
       });
       history.markSaved();
+      // Saved: the file is now the newest state, so this run's autosaves are no longer needed.
+      void window.pulseforge.clearRecovery().catch(() => undefined);
       set((state) => ({
         ...fromHistory(),
         version: state.version + 1,
@@ -864,6 +890,49 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   reportPreview(transport, timelineSeconds, stats) {
     set({ transport, timelineSeconds, stats });
+  },
+
+  async autosave(reason) {
+    const { version, path, document } = get();
+    // Only unsaved work, and only once per state: an idle studio writes nothing.
+    if (!history.dirty || version === lastAutosaveVersion) return;
+    lastAutosaveVersion = version;
+    try {
+      // Absolute paths, as the studio holds them: a restore needs no folder to resolve against.
+      await window.pulseforge.writeRecovery({ text: stringifyDocument(history.current), projectPath: path, projectName: document.name, reason });
+    } catch (error) {
+      // Worth saying once, not a reason to stop working: the project itself is untouched.
+      lastAutosaveVersion = -1;
+      set({ toast: { text: describeError(error, 'Autosaving'), kind: 'warn' } });
+    }
+  },
+
+  recovery: [],
+
+  async loadRecovery() {
+    try {
+      set({ recovery: await window.pulseforge.listRecovery() });
+    } catch {
+      set({ recovery: [] });
+    }
+  },
+
+  async restoreRecovery(candidate) {
+    if (!discardOk('Restore the recovered project')) return;
+    const when = new Date(candidate.savedAt).toLocaleString();
+    get().adopt({ path: candidate.projectPath, text: candidate.text }, {
+      recovered: `Restored the autosave from ${when}. It is not saved yet — save it to keep it.`,
+    });
+    // Snapshot it into this run at once, then let the old run go: from here on, a crash recovers
+    // from this session instead.
+    await get().autosave('restored from a crash');
+    await window.pulseforge.discardRecovery(candidate.sessionId).catch(() => undefined);
+    set({ recovery: get().recovery.filter((c) => c.sessionId !== candidate.sessionId) });
+  },
+
+  async discardRecovery(sessionId) {
+    await window.pulseforge.discardRecovery(sessionId).catch(() => undefined);
+    set({ recovery: get().recovery.filter((c) => c.sessionId !== sessionId) });
   },
 
   stems: NO_STEMS,

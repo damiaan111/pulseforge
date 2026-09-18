@@ -9,18 +9,19 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 866 tests, `npm run golden` 21/21 identical,
-> `--smoke` 20/20.
+> any aspect. Last full verification: `npm run check` 877 tests, `npm run golden` 21/21 identical,
+> `--smoke` 21/21.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
 > ranges, and the audio clip's trim, padding, fades and gain are all editable and rendered (§4.47);
 > and **stems work end to end** — Demucs from the studio through the supervised sidecar and a
 > global GPU queue, every stem analysed and cached, stem sources live in the preview and exports
-> (§4.48).
+> (§4.48); and **autosave with crash recovery** — rolling snapshots every minute and before a
+> preset is applied, offered back after a crash with a summary of what they hold (§4.49).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): autosave and crash recovery
-> (M1); lyrics (P6) and the auto-director (P7) are not started beyond analysis and classification;
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): lyrics (P6) and the
+> auto-director (P7) are not started beyond analysis and classification;
 > operability (cache management M33, logs M34, settings M36).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
@@ -80,6 +81,7 @@
 | 4.46 | Modulation in the studio — M13, modulation-spec §10–§11, ui-spec §4, §6 |
 | 4.47 | Blend modes, layer editing and the audio clip — M7, M9, M29 |
 | 4.48 | Stems end to end — M5, M27, M28 |
+| 4.49 | Autosave and crash recovery — M1 |
 
 ---
 
@@ -185,7 +187,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 866 tests in 68 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 877 tests in 69 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -498,7 +500,7 @@ Also here: `pulseforge song.pvproj` opens a project from the command line (the f
 path), and `FFPROBE_EXE` moved to `setup/lib/paths.ts` so the vendored tools have one definition.
 
 Not yet: undo/commands, autosave and crash recovery, the React studio, menus and shortcuts.
-*Since: undo §4.15, the studio and its shortcuts §4.27; autosave and crash recovery (M1) are still open.*
+*Since: undo §4.15, the studio and its shortcuts §4.27, autosave and crash recovery §4.49.*
 
 ### 4.15 Commands and undo (P3 step 2) — M8, ui-spec §10
 - `src/project/history.ts` — **the document is immutable, so history is a list of documents, not
@@ -535,7 +537,7 @@ and drives one real edit through the command stack. **That gate was added becaus
 disagreed with the checks**: they were racing the renderer's async startup and passing against an
 empty project. Anything driving the window from outside must wait on that flag.
 
-Not yet: autosave, crash recovery, multi-select editing, keyframes.
+Not yet: autosave, crash recovery, multi-select editing, keyframes. *(Autosave and crash recovery since §4.49.)*
 
 ### 4.16 Preview clock (P3 step 4) — M31, PROJECT.md §8.12, export-spec §3
 `src/ui/clock.ts`, 17 tests in `tests/ui/clock.test.ts`. A pure state machine: no DOM, no audio
@@ -2028,6 +2030,57 @@ the 6-stem model (S6); the CLI shares no cache with the studio (see §7); cache 
 stems (M33). An earlier assumption worth recording: a test first asserted which stem Demucs files a
 synthetic sound under (a pure-sine "kick" went to *other*, not *drums*); that is Demucs' business,
 so the test checks reconstruction and energy split instead.
+
+### 4.49 Autosave and crash recovery — M1
+
+ui-spec §10: autosave on an interval and before risky operations, into a rolling set of recovery
+files; on the next launch, offer the recovered state with a timestamp and a summary of what it holds.
+
+**Sessions** — `src/project/recovery-store.ts`, plain Node, used by main. Each run of the studio is a
+session with its own folder, `%APPDATA%/Electron/recovery/<sessionId>/` (`PULSEFORGE_RECOVERY`
+overrides): `session.json` (project path and name, started, last snapshot and why) and rolling
+`<n>.pvproj` snapshots, the newest **5** kept, each written atomically (temp + rename). A clean quit
+deletes the session's folder (`endRecoverySession`, from `will-quit`, and from the smoke's
+`app.exit`, which skips `will-quit`), and so does a successful save or save-as, since the file is
+then the newest state. **A folder still there at the next start is a run that ended without either**
+— a crash, a killed process, a power cut — and is offered back. Session ids are checked against
+`newId`'s alphabet before they become folder names; a damaged session is skipped, not fatal to the
+list; the running session is never offered and cannot be discarded.
+
+**When it writes** — `store.autosave(reason)`: every 60 s (`App`), and **before applying a preset**
+(a preset can rewrite the whole project). Only when the history is dirty and the state changed since
+the last snapshot, so an idle or saved studio writes nothing. Snapshots hold absolute asset paths,
+as the studio does, so a restore needs no folder to resolve against. A failed write is a warning
+toast, never a stop. Opening or starting a project clears this run's snapshots (they belonged to the
+project left behind).
+
+**Recovery** — at start the studio lists crashed sessions (main also reads the saved file at the
+session's project path, if any) and `RecoveryDialog` offers the newest: project name, path or "never
+saved", when and why it was autosaved, and a summary from `src/project/recovery-diff.ts`
+`summarizeRecovery(saved, recovered)` — layers added / removed / edited, by name (compared by id; a
+group is not "edited" because a child was), palette, audio clip, canvas, global effects, rename; or
+"never saved, with N layers", or "the same as the saved file" (ignoring `modifiedAt`). **Restore**
+opens it under its original path **as unsaved** (`History.resetUnsaved`, so closing asks first),
+immediately snapshots it into this session and only then deletes the crashed one — a crash from there
+on recovers the restored work. **Discard** asks, then deletes. **Later** keeps it for the next start:
+nothing is dropped without being asked. More than one crashed session: offered one at a time, newest
+first.
+
+Verified here: `npm run check` **877 tests in 69 files** (`tests/project/recovery.test.ts`, 11: newest
+snapshot offered, the running and cleared sessions not, pruning to 5, newest-first with a damaged
+session skipped, path-like ids refused, stray files ignored, a missing folder is empty; the summary's
+added/removed/edited names, palette/audio/rename lines, never-saved and unchanged; a recovered
+document dirty until saved). `npm run golden` **21/21 identical**. `--smoke` **21/21** with a new
+`recoveryDialog` check: the smoke seeds a "crashed" session in its own folder; the dialog must offer
+it with its summary, Restore must open its layer, and main then checks the crashed folder is gone and
+this run holds a fresh snapshot. The smoke exit also fails if this run's folder survives a clean exit
+(which caught that `app.exit` skips `will-quit`).
+
+**Not done:** the interval is fixed at a minute until the settings screen (M36; PROJECT.md §8 lists
+"autosave interval"); the other risky operations ui-spec §10 names — auto-generate and re-align
+lyrics — must call `autosave` when they are built (P7, P6); no "browse older snapshots" (five are
+kept, only the newest is offered); an autosave whose audio or assets were moved since restores with
+the usual missing-asset reporting, nothing more.
 
 ---
 

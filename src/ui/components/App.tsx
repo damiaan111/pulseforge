@@ -10,6 +10,7 @@ import { SavePresetDialog } from './SavePresetDialog.tsx';
 import { RenderQueue } from './RenderQueue.tsx';
 import { ModulationMatrix } from './Modulation.tsx';
 import { Inspector } from './Inspector.tsx';
+import { RecoveryDialog } from './RecoveryDialog.tsx';
 import { LeftRail } from './LeftRail.tsx';
 import { Timeline } from './Timeline.tsx';
 import { TopBar } from './TopBar.tsx';
@@ -52,6 +53,16 @@ export function App(): React.JSX.Element {
     void loadModules();
     return window.pulseforge.onModulesChanged(() => void loadModules());
   }, [loadModules]);
+
+  // Autosave (M1): once a minute, and only when there is unsaved work to keep. Crashed runs'
+  // autosaves are offered once, at start.
+  const autosave = useStudio((s) => s.autosave);
+  const loadRecovery = useStudio((s) => s.loadRecovery);
+  useEffect(() => {
+    void loadRecovery();
+    const handle = setInterval(() => void autosave('every minute'), 60_000);
+    return () => clearInterval(handle);
+  }, [autosave, loadRecovery]);
 
   // The bundled typeface, once: text layers need it before they can draw anything (§8.13).
   useEffect(() => {
@@ -118,6 +129,7 @@ export function App(): React.JSX.Element {
       <ModulationMatrix />
       <ExportDialog />
       <SavePresetDialog />
+      <RecoveryDialog />
       {toast === null ? null : (
         <button type="button" className={`toast ${toast.kind}`} onClick={() => notify(null)}>
           {toast.text}

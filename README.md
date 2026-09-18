@@ -268,10 +268,13 @@ shows every connection in the project in one place.
 minutes), and from then on any layer or connection can listen to one of them — the kick drives the
 scale while the vocal drives the glow.
 
-**The gaps that matter most:** there is no autosave yet, and lyrics and the auto director are still
-to come.
+**Autosave:** unsaved work is snapshotted every minute and before a preset is applied. If the app
+ever dies, the next start offers the work back, says when it was saved and what differs from the
+file on disk, and lets you restore or discard it.
 
-**Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me, autosave,
+**The gaps that matter most:** lyrics and the auto director are still to come.
+
+**Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me,
 and the settings and cache screens.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest

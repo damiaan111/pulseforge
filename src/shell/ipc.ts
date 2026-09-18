@@ -33,6 +33,10 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  recoveryWrite: 'pf:recovery:write',
+  recoveryClear: 'pf:recovery:clear',
+  recoveryList: 'pf:recovery:list',
+  recoveryDiscard: 'pf:recovery:discard',
   stemsSeparate: 'pf:stems:separate',
   stemsCancel: 'pf:stems:cancel',
   /** Main → renderer: how far the running separation has got. */
@@ -120,6 +124,19 @@ export interface AnalysisPayload {
   readonly stems: readonly { readonly name: string; readonly container: Uint8Array }[];
   /** Every stem's state in the cache: ready, pending (being separated) or failed with why. */
   readonly stemStatus: Readonly<Record<string, { readonly state: 'ready' | 'pending' | 'failed'; readonly error?: string }>>;
+}
+
+/** A session that ended without a clean quit and left an autosave behind (M1). */
+export interface RecoveryCandidate {
+  readonly sessionId: string;
+  readonly projectPath: string | null;
+  readonly projectName: string;
+  readonly savedAt: string;
+  readonly reason: string;
+  /** The newest autosave, as project text. */
+  readonly text: string;
+  /** The project file as it is on disk now, for the diff summary; null if never saved or unreadable. */
+  readonly savedText: string | null;
 }
 
 /** Stem separation progress, pushed while it runs (M5). */
@@ -325,6 +342,16 @@ export interface PulseforgeApi {
    */
   separateStems(path: string, settings: ProjectAnalysisSettings): Promise<{ readonly stems: readonly string[]; readonly seconds: number }>;
   cancelStems(): Promise<void>;
+  /**
+   * Autosave (M1): a snapshot of the project for this run of the studio, kept until a clean quit or
+   * a save clears it. `reason` says why it was taken ("every minute", "before applying a preset").
+   */
+  writeRecovery(snapshot: { readonly text: string; readonly projectPath: string | null; readonly projectName: string; readonly reason: string }): Promise<void>;
+  /** Everything is saved: drop this run's autosaves. */
+  clearRecovery(): Promise<void>;
+  /** Earlier runs that ended without a clean quit and left an autosave, newest first. */
+  listRecovery(): Promise<readonly RecoveryCandidate[]>;
+  discardRecovery(sessionId: string): Promise<void>;
   onStemsProgress(listener: (progress: StemProgressEvent) => void): () => void;
   /** The drop-in modules folder, scanned now: loadable modules and per-folder problems (M35). */
   listModules(): Promise<ModuleScan>;

@@ -144,6 +144,7 @@ function PresetCard(props: {
 }): React.JSX.Element {
   const { entry, lookup, hasSelection, open, onToggle } = props;
   const run = useStudio((s) => s.run);
+  const autosave = useStudio((s) => s.autosave);
   const select = useStudio((s) => s.select);
   const notify = useStudio((s) => s.notify);
   const setFavourite = useStudio((s) => s.setPresetFavourite);
@@ -159,6 +160,9 @@ function PresetCard(props: {
         manifests: lookup,
         newId,
       });
+      // A preset can rewrite the whole project: snapshot the work first (ui-spec §10), so even a
+      // crash straight after the apply cannot take it.
+      void autosave('before applying a preset');
       run(applied.command);
       if (applied.select !== null) select(applied.select);
       notify(applied.notes.length > 0

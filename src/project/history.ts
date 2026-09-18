@@ -185,6 +185,15 @@ export class History {
     this.sealed = true;
   }
 
+  /**
+   * Replaces the whole history with a document that is **not** what the file on disk holds — a
+   * recovered autosave (M1). It reads as unsaved until saved, so closing it asks first.
+   */
+  resetUnsaved(document: ProjectDocument, label = 'Recovered'): void {
+    this.reset(document, label);
+    this.savedAt = -1;
+  }
+
   private stamp(document: ProjectDocument): ProjectDocument {
     return { ...document, modifiedAt: this.now() };
   }

@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-18, after stems end to end (M5, M27, M28).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-18, after autosave and crash recovery (M1).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -25,7 +25,7 @@
 | P7 — Auto-director | 🔶 | analysis, sections and classification only |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 29 done, 5 partly done, 6 not started.** By count that is about 79%; by
+**Must-haves (M1–M40): 30 done, 4 partly done, 6 not started.** By count that is about 80%; by
 effort — the not-started items include the whole lyrics phase and the auto-director's templates,
 both large — the v1 must-have work is **roughly two-thirds done**.
 
@@ -37,7 +37,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M1 | Shell; new/open/save/save-as; autosave + crash recovery; versioned schema with migrations | 🔶 | 4.7, 4.14 | **autosave and crash recovery** |
+| M1 | Shell; new/open/save/save-as; autosave + crash recovery; versioned schema with migrations | ✅ | 4.7, 4.14, 4.49 | the autosave interval is fixed at 1 min until the settings screen (M36); auto-generate and lyrics re-align must autosave first when built |
 | M2 | One-command setup with checksums; fully offline after | 🔶 | 4.2 | lyrics/extras tiers (Whisper models), `htdemucs_ft`, an offline-rebuild check. Offline at runtime is enforced (network requests are blocked and logged, 4.14) |
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
@@ -127,7 +127,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 2. ✅ **Layer and clip editing gaps (M9, M29, M7)** — done (STATUS 4.47). Timeline dragging of
    time ranges and clip edges is still open.
 3. ✅ **Stems end to end (M5, M27, M28)** — done (STATUS 4.48). Per-stem waveform rows are still open.
-4. **Autosave and crash recovery (M1)** — before the app is trusted with long sessions.
+4. ✅ **Autosave and crash recovery (M1)** — done (STATUS 4.49).
 5. **Lyrics (P6: M18–M20, M26)** — editor, tap-to-sync, the lyrics track, karaoke word-fill (built
    on the text engine's per-word boxes), then WhisperX once stems and the queue exist.
 6. **Auto-director (P7: M21, M22)** — templates, slot filling against the now-complete module
@@ -160,7 +160,7 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 866 tests — unit tests, and GPU tests that render through Electron |
+| `npm run check` | typecheck, lint (including the engine boundary) and 877 tests — unit tests, and GPU tests that render through Electron |
 | `npm run golden` | 21 reference frames (bars, layered, 3D scenes at 16:9, 9:16, 1:1) are byte-identical |
 | `npm run dev -- --smoke` | 20 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |
