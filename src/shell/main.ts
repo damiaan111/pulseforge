@@ -30,6 +30,7 @@ import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODULES_DIR, PYTHON_EXE, RO
 import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
+import { analysisOptionsFor, parseProjectAnalysisSettings } from '../analysis/project-settings.ts';
 import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
@@ -323,8 +324,9 @@ function registerHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC.audioAnalyze, async (_event, path: unknown): Promise<AnalysisPayload> => {
+  ipcMain.handle(IPC.audioAnalyze, async (_event, path: unknown, rawSettings: unknown): Promise<AnalysisPayload> => {
     if (typeof path !== 'string') throw new Error('analyzeAudio needs a path');
+    const settings = parseProjectAnalysisSettings(rawSettings);
     if (!existsSync(FFMPEG_EXE)) {
       throw new Error('The vendored FFmpeg is missing.\n\nTry:\n• Run `npm run setup` to provision vendor/');
     }
@@ -333,7 +335,7 @@ function registerHandlers(): void {
       // the numbers the export will — not to Chromium's decoder (ipc.ts, AnalysisPayload).
       const decoded = await decodeMono48k(FFMPEG_EXE, path);
       const cache = new AnalysisCache({ root: analysisCacheRoot() });
-      const result = await analyzeCached(decoded.pcm, cache, { audioHash: decoded.pcmSha256 });
+      const result = await analyzeCached(decoded.pcm, cache, { ...analysisOptionsFor(settings), audioHash: decoded.pcmSha256 });
       const source = result.analysis.sources.get('mix');
       if (source === undefined) throw new Error('the analyser produced no mix source');
       return {

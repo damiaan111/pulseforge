@@ -58,18 +58,17 @@ describe('cache keys', () => {
     expect(hashPcm(a)).not.toBe(hashPcm(Float32Array.from([0, 0.5, -0.5, 0.999])));
   });
 
-  it('ignores band names but not band edges', () => {
-    const renamed = {
-      ...DEFAULT_SPECTRUM_SETTINGS,
-      bands: [{ name: 'low', minHz: 40, maxHz: 160 }],
-    };
-    const moved = {
-      ...DEFAULT_SPECTRUM_SETTINGS,
-      bands: [{ name: 'bass', minHz: 50, maxHz: 160 }],
-    };
-    // A rename must not throw away a valid cache; moving an edge must (data-formats §4.3).
-    expect(hashAnalysisSettings({ settings: renamed })).toBe(hashAnalysisSettings({ settings: DEFAULT_SPECTRUM_SETTINGS }));
-    expect(hashAnalysisSettings({ settings: moved })).not.toBe(hashAnalysisSettings({ settings: DEFAULT_SPECTRUM_SETTINGS }));
+  it('keys on band names and edges, but not on their order', () => {
+    const one = { ...DEFAULT_SPECTRUM_SETTINGS, bands: [{ name: 'bass', minHz: 40, maxHz: 160 }] };
+    const renamed = { ...DEFAULT_SPECTRUM_SETTINGS, bands: [{ name: 'low', minHz: 40, maxHz: 160 }] };
+    const moved = { ...DEFAULT_SPECTRUM_SETTINGS, bands: [{ name: 'bass', minHz: 50, maxHz: 160 }] };
+    // Cached tracks are stored under their names, so a rename must not be a cache hit: the hit
+    // would hold no track under the new name, and a binding on it would read as missing.
+    expect(hashAnalysisSettings({ settings: renamed })).not.toBe(hashAnalysisSettings({ settings: one }));
+    expect(hashAnalysisSettings({ settings: moved })).not.toBe(hashAnalysisSettings({ settings: one }));
+    const two = { ...DEFAULT_SPECTRUM_SETTINGS, bands: [{ name: 'a', minHz: 1, maxHz: 2 }, { name: 'b', minHz: 3, maxHz: 4 }] };
+    const swapped = { ...two, bands: [...two.bands].reverse() };
+    expect(hashAnalysisSettings({ settings: swapped })).toBe(hashAnalysisSettings({ settings: two }));
   });
 
   it('separates every other input that changes the numbers', () => {

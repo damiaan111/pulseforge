@@ -33,13 +33,28 @@ export interface SpectrumSettings {
   readonly bands: readonly BandDefinition[];
 }
 
+/**
+ * The seven bands every project starts with (data-formats §1, `analysisSettings.bands`). One list,
+ * used both as the analyser's default and as a new document's default, so a binding on "bass" in
+ * a fresh project reads exactly the band the analyser computed under that name.
+ */
+export const STANDARD_BANDS: readonly (BandDefinition & { readonly label: string })[] = [
+  { name: 'sub', label: 'Sub', minHz: 20, maxHz: 60 },
+  { name: 'bass', label: 'Bass', minHz: 60, maxHz: 250 },
+  { name: 'lowMid', label: 'Low mid', minHz: 250, maxHz: 500 },
+  { name: 'mid', label: 'Mid', minHz: 500, maxHz: 2000 },
+  { name: 'highMid', label: 'High mid', minHz: 2000, maxHz: 4000 },
+  { name: 'presence', label: 'Presence', minHz: 4000, maxHz: 6000 },
+  { name: 'brilliance', label: 'Brilliance', minHz: 6000, maxHz: 20_000 },
+];
+
 export const DEFAULT_SPECTRUM_SETTINGS: SpectrumSettings = {
   fftSize: 2048,
   bins: 64,
   minHz: 30,
   maxHz: 16_000,
   floorDb: -72,
-  bands: [{ name: 'bass', minHz: 40, maxHz: 160 }],
+  bands: STANDARD_BANDS.map(({ name, minHz, maxHz }) => ({ name, minHz, maxHz })),
 };
 
 export interface AnalysedSource extends SourceAnalysis {

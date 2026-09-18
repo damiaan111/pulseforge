@@ -14,6 +14,7 @@ import type { JobStatus, RenderJob } from '../export/queue.ts';
 import type { RenderRequest } from './render-service.ts';
 import type { ModuleScan } from '../modules-folder/scan.ts';
 import type { Preset } from '../project/presets.ts';
+import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
 
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
 export const IPC = {
@@ -297,7 +298,11 @@ export interface PulseforgeApi {
   /** Raw file bytes, for a Blob URL the `<audio>` element can play. */
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */
-  analyzeAudio(path: string): Promise<AnalysisPayload>;
+  /**
+   * `settings` is the project's `analysisSettings` (bands, onset sensitivity, tempo override): the
+   * same mapping the exporter uses (analysis/project-settings.ts), so preview and export agree.
+   */
+  analyzeAudio(path: string, settings: ProjectAnalysisSettings): Promise<AnalysisPayload>;
   /** The drop-in modules folder, scanned now: loadable modules and per-folder problems (M35). */
   listModules(): Promise<ModuleScan>;
   /** Opens the modules folder in the file manager, creating it if needed. */

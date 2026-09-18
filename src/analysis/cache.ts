@@ -102,9 +102,12 @@ export function hashPcm(pcm: Float32Array): string {
 /**
  * The settings half of the key.
  *
- * Bands contribute their **semantics, not their labels**: renaming "bass" to "low" must not throw
- * away a valid cache, while moving its edges must (data-formats §4.3). So band names are dropped
- * and the ranges sorted before hashing.
+ * Bands contribute their names **and** their edges. data-formats §4.3 wanted a rename to keep
+ * the cache, but the cached tracks are stored under the names they were computed with (the
+ * container has no edges to re-match them by), so a renamed band would hit the cache and then find
+ * no track under its new name — a binding on it would read as missing. A rename costs one
+ * re-analysis, which is seconds; a silently dead binding is not worth saving them. Sorted by name,
+ * so the order bands are listed in does not matter.
  */
 export function hashAnalysisSettings(inputs: AnalysisKeyInputs = {}): string {
   return createHash('sha256').update(JSON.stringify(analysisKeyInputs(inputs))).digest('hex');
@@ -123,9 +126,9 @@ export function analysisKeyInputs(inputs: AnalysisKeyInputs = {}): Record<string
     maxHz: settings.maxHz,
     floorDb: settings.floorDb,
     bands: settings.bands
-      .map((band) => [band.minHz, band.maxHz] as const)
+      .map((band) => [band.name, band.minHz, band.maxHz] as const)
       .slice()
-      .sort((a, b) => a[0] - b[0] || a[1] - b[1]),
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
     onsetSensitivity: inputs.onsetSensitivity ?? null,
     bpmOverride: inputs.bpmOverride ?? null,
     stemModel: inputs.stemModel ?? null,

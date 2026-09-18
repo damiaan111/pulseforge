@@ -14,17 +14,13 @@ import {
 } from './document.ts';
 import { newId } from './ids.ts';
 import { rational } from '../engine/core/time.ts';
+import { STANDARD_BANDS } from '../analysis/spectrum.ts';
 
 /** The default bands (PROJECT.md §8.1), used until the user edits them. */
-export const DEFAULT_BANDS: AnalysisSettings['bands'] = [
-  { id: 'sub', label: 'Sub', minHz: 20, maxHz: 60, gain: 1, extra: {} },
-  { id: 'bass', label: 'Bass', minHz: 60, maxHz: 250, gain: 1, extra: {} },
-  { id: 'lowMid', label: 'Low mid', minHz: 250, maxHz: 500, gain: 1, extra: {} },
-  { id: 'mid', label: 'Mid', minHz: 500, maxHz: 2000, gain: 1, extra: {} },
-  { id: 'highMid', label: 'High mid', minHz: 2000, maxHz: 4000, gain: 1, extra: {} },
-  { id: 'presence', label: 'Presence', minHz: 4000, maxHz: 6000, gain: 1, extra: {} },
-  { id: 'brilliance', label: 'Brilliance', minHz: 6000, maxHz: 20_000, gain: 1, extra: {} },
-];
+/** The analyser's standard bands, as a document stores them (one list: spectrum.ts). */
+export const DEFAULT_BANDS: AnalysisSettings['bands'] = STANDARD_BANDS.map((band) => ({
+  id: band.name, label: band.label, minHz: band.minHz, maxHz: band.maxHz, gain: 1, extra: {},
+}));
 
 export const DEFAULT_CANVAS: CanvasSettings = {
   width: 1920,

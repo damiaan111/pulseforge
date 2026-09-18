@@ -783,7 +783,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       url = URL.createObjectURL(new Blob([file.bytes as unknown as BlobPart]));
 
       set({ analysisMessage: 'Analysing...' });
-      const payload = await window.pulseforge.analyzeAudio(path);
+      const payload = await window.pulseforge.analyzeAudio(path, history.current.analysisSettings);
       if (request !== audioRequest) {
         URL.revokeObjectURL(url);
         return;
