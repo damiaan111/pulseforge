@@ -14,6 +14,7 @@ import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
 import { PresetsPanel } from './PresetsPanel.tsx';
 import { ClipControls } from './ClipControls.tsx';
+import { StemsControls } from './StemsControls.tsx';
 import { useModules } from '../modules.ts';
 import { useState } from 'react';
 
@@ -88,6 +89,7 @@ export function LeftRail(): React.JSX.Element {
         </dl>
       )}
       <ClipControls />
+      <StemsControls />
       {analysisMessage !== null && (
         <p className={analysisState === 'error' ? 'bad' : analysisState === 'working' ? 'dim' : 'ok'}>
           {analysisMessage}

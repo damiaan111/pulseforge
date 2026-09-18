@@ -264,8 +264,12 @@ a frequency band, loudness, brightness, an LFO…) or a one-click recipe like "k
 it with amount, curve, attack and release, and watch the slider move with the track. A matrix panel
 shows every connection in the project in one place.
 
-**The gaps that matter most:** stems separate fine but are not yet wired into the studio, so every
-connection listens to the full mix for now. There is no autosave yet.
+**Stems:** one click splits the track into drums, bass, vocals and other on your GPU (seconds, not
+minutes), and from then on any layer or connection can listen to one of them — the kick drives the
+scale while the vocal drives the glow.
+
+**The gaps that matter most:** there is no autosave yet, and lyrics and the auto director are still
+to come.
 
 **Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me, autosave,
 and the settings and cache screens.

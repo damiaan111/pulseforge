@@ -44,6 +44,16 @@ function createContext(): WebGL2RenderingContext {
 }
 
 /** Raw image files → the map the engine registers; sizes are checked, not trusted. */
+/** The mix's analysis with each extra source (a stem) merged in, one container file per source. */
+function withSources(analysis: AnalysisSet, files: readonly string[]): AnalysisSet {
+  if (files.length === 0) return analysis;
+  const sources = new Map(analysis.sources);
+  for (const file of files) {
+    for (const [name, source] of decodeAnalysis(readFileSync(file)).analysis.sources) sources.set(name, source);
+  }
+  return { ...analysis, sources };
+}
+
 function loadImages(files: readonly ImageFile[] | undefined): Map<string, DecodedImage> {
   const images = new Map<string, DecodedImage>();
   for (const entry of files ?? []) {
@@ -241,7 +251,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
     electronVersion: process.versions['electron'] ?? 'unknown',
   };
   try {
-    const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
+    const analysis = withSources(decodeAnalysis(readFileSync(config.analysisFile)).analysis, config.sourceFiles ?? []);
     mkdirSync(config.scratchDir, { recursive: true });
     let lastProgress = 0;
     // The engine the export builds is not ours, so the feeder is attached through `prepareFrame`

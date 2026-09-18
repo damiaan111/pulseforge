@@ -28,6 +28,15 @@ const api: PulseforgeApi = {
   pickAudio: () => ipcRenderer.invoke(IPC.audioPick) as ReturnType<PulseforgeApi['pickAudio']>,
   readAudio: (path) => ipcRenderer.invoke(IPC.audioRead, path) as ReturnType<PulseforgeApi['readAudio']>,
   analyzeAudio: (path, settings) => ipcRenderer.invoke(IPC.audioAnalyze, path, settings) as ReturnType<PulseforgeApi['analyzeAudio']>,
+  separateStems: (path, settings) => ipcRenderer.invoke(IPC.stemsSeparate, path, settings) as ReturnType<PulseforgeApi['separateStems']>,
+  cancelStems: () => ipcRenderer.invoke(IPC.stemsCancel) as Promise<void>,
+  onStemsProgress(listener) {
+    const handler = (_event: unknown, progress: Parameters<typeof listener>[0]) => listener(progress);
+    ipcRenderer.on(IPC.stemsProgress, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.stemsProgress, handler);
+    };
+  },
   listModules: () => ipcRenderer.invoke(IPC.modulesList) as ReturnType<PulseforgeApi['listModules']>,
   revealModules: () => ipcRenderer.invoke(IPC.modulesReveal) as Promise<void>,
   listPresets: () => ipcRenderer.invoke(IPC.presetsList) as ReturnType<PulseforgeApi['listPresets']>,

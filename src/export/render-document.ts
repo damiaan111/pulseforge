@@ -22,7 +22,7 @@ import { resolveAssetPath } from '../assets/load-images.ts';
 import { extractSequence, sequenceDir } from '../assets/video-cache.ts';
 import { videoFramesNeeded } from '../engine/modules/video.ts';
 import { analyzeCached } from '../analysis/cached.ts';
-import { analysisOptionsFor } from '../analysis/project-settings.ts';
+import { cacheOptionsFor } from '../analysis/project-settings.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
 import { frameCount, rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
@@ -158,7 +158,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   // analysed once, ever.
   const cache = new AnalysisCache({ root: options.cacheRoot });
   // The project's bands and onset settings, through the same mapping the studio uses.
-  const analysed = await analyzeCached(decoded.pcm, cache, { ...analysisOptionsFor(document.analysisSettings), force: options.noCache === true });
+  const analysed = await analyzeCached(decoded.pcm, cache, { ...cacheOptionsFor(document.analysisSettings), force: options.noCache === true });
   say(analysed.fromCache
     ? `Analysis: cache hit (${analysed.audioHash.slice(0, 12)}…)`
     : `Analysis: computed and cached (${analysed.audioHash.slice(0, 12)}…)`);

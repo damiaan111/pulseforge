@@ -90,6 +90,14 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
   const analysisFile = join(options.workDir, `${options.name}.analysis.bin`);
   const analysed = options.analysis ?? analyzeMix(options.analysisPcm);
   await writeFile(analysisFile, encodeAnalysis(analysed.analysis.sources.get('mix')!, { source: 'mix', beatGrid: analysed.beatGrid }));
+  // Every other ready source — the stems — as its own container, beside the mix's.
+  const sourceFiles: string[] = [];
+  for (const [source, analysis] of analysed.analysis.sources) {
+    if (source === 'mix') continue;
+    const file = join(options.workDir, `${options.name}.analysis.${source}.bin`);
+    await writeFile(file, encodeAnalysis(analysis, { source }));
+    sourceFiles.push(file);
+  }
 
   const runs: ExportRun[] = [];
   for (let run = 1; run <= options.runs; run++) {
@@ -100,6 +108,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
     const config: ExportConfig = {
       mode: 'export',
       analysisFile,
+      ...(sourceFiles.length > 0 ? { sourceFiles } : {}),
       resultFile: join(options.workDir, `${options.name}-run${run}.result.json`),
       audioPath: options.audioPath,
       audioLabel: options.audioLabel,

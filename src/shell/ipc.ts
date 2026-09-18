@@ -33,6 +33,10 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  stemsSeparate: 'pf:stems:separate',
+  stemsCancel: 'pf:stems:cancel',
+  /** Main → renderer: how far the running separation has got. */
+  stemsProgress: 'pf:stems:progress',
   modulesList: 'pf:modules:list',
   modulesReveal: 'pf:modules:reveal',
   /** Main → renderer: something in modules/ changed on disk; list again. */
@@ -112,13 +116,19 @@ export interface AnalysisPayload {
   readonly sections: readonly { readonly startSeconds: number; readonly endSeconds: number; readonly label: string }[];
   readonly durationSeconds: number;
   readonly fromCache: boolean;
+  /** The ready stems (M5), one container each — merged into the mix's analysis by the studio. */
+  readonly stems: readonly { readonly name: string; readonly container: Uint8Array }[];
+  /** Every stem's state in the cache: ready, pending (being separated) or failed with why. */
+  readonly stemStatus: Readonly<Record<string, { readonly state: 'ready' | 'pending' | 'failed'; readonly error?: string }>>;
 }
 
-/**
- * A decoded image, from the main process. Decoded there, by the vendored FFmpeg, for the same
- * reason as the analysis: the export decodes the same way, so preview and export see the same
- * pixels. RGBA8, straight alpha, sRGB, top row first.
- */
+/** Stem separation progress, pushed while it runs (M5). */
+export interface StemProgressEvent {
+  readonly stage: 'queued' | 'decoding' | 'separating' | 'analysing';
+  readonly fraction: number;
+  readonly detail?: string;
+}
+
 /** One preset as the browser shows it (S8). */
 export interface PresetListing {
   readonly slug: string;
@@ -142,6 +152,11 @@ export interface PresetLibraryListing {
   readonly folder: string;
 }
 
+/**
+ * A decoded image, from the main process. Decoded there, by the vendored FFmpeg, for the same
+ * reason as the analysis: the export decodes the same way, so preview and export see the same
+ * pixels. RGBA8, straight alpha, sRGB, top row first.
+ */
 export interface ImageBytes {
   readonly path: string;
   /** SHA-256 of the file bytes: the asset hash. */
@@ -303,6 +318,14 @@ export interface PulseforgeApi {
    * same mapping the exporter uses (analysis/project-settings.ts), so preview and export agree.
    */
   analyzeAudio(path: string, settings: ProjectAnalysisSettings): Promise<AnalysisPayload>;
+  /**
+   * Separates the track into stems with Demucs and analyses each (M5), through the GPU queue (M28).
+   * Minutes on a long track the first time; the result lands in the analysis cache, so
+   * `analyzeAudio` returns the stems from then on. Rejects with a sentence on failure or cancel.
+   */
+  separateStems(path: string, settings: ProjectAnalysisSettings): Promise<{ readonly stems: readonly string[]; readonly seconds: number }>;
+  cancelStems(): Promise<void>;
+  onStemsProgress(listener: (progress: StemProgressEvent) => void): () => void;
   /** The drop-in modules folder, scanned now: loadable modules and per-folder problems (M35). */
   listModules(): Promise<ModuleScan>;
   /** Opens the modules folder in the file manager, creating it if needed. */

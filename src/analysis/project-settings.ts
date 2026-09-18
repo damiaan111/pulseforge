@@ -7,12 +7,24 @@
 
 import { DEFAULT_SPECTRUM_SETTINGS } from './spectrum.ts';
 import type { AnalyzeOptions } from './analyze.ts';
+import type { CachedAnalyzeOptions } from './cached.ts';
 
 /** The fields of a document's `analysisSettings` the analyser reads. Structural, so this file stays free of the document model. */
 export interface ProjectAnalysisSettings {
   readonly bands: readonly { readonly id: string; readonly minHz: number; readonly maxHz: number }[];
   readonly onsetSensitivity: number;
   readonly bpmOverride: number | null;
+  /** Which Demucs model makes the stems (D8). Part of the cache key, so a model change re-separates. */
+  readonly stemModel: string;
+}
+
+/**
+ * The same, plus the cache-key inputs the analyser itself does not read — the stem model. Every
+ * caller that reads or writes the analysis cache uses this, so the mix and the stems of one project
+ * land in one cache entry.
+ */
+export function cacheOptionsFor(settings: ProjectAnalysisSettings): CachedAnalyzeOptions {
+  return { ...analysisOptionsFor(settings), stemModel: settings.stemModel };
 }
 
 export function analysisOptionsFor(settings: ProjectAnalysisSettings): AnalyzeOptions {
@@ -50,5 +62,8 @@ export function parseProjectAnalysisSettings(raw: unknown): ProjectAnalysisSetti
   if (typeof sensitivity !== 'number' || !(sensitivity >= 0 && sensitivity <= 1)) return fail('onsetSensitivity');
   const bpm = value['bpmOverride'];
   if (bpm !== null && (typeof bpm !== 'number' || !(bpm > 0 && bpm < 400))) return fail('bpmOverride');
-  return { bands, onsetSensitivity: sensitivity, bpmOverride: bpm as number | null };
+  const model = value['stemModel'];
+  // A model name becomes a path under vendor/models/demucs: letters, digits, dashes, underscores.
+  if (typeof model !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(model)) return fail('stemModel');
+  return { bands, onsetSensitivity: sensitivity, bpmOverride: bpm as number | null, stemModel: model };
 }

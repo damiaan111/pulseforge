@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-18, after the layer and clip editing step (M7, M9, M29).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-18, after stems end to end (M5, M27, M28).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -25,7 +25,7 @@
 | P7 — Auto-director | 🔶 | analysis, sections and classification only |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 25 done, 8 partly done, 7 not started.** By count that is about 73%; by
+**Must-haves (M1–M40): 29 done, 5 partly done, 6 not started.** By count that is about 79%; by
 effort — the not-started items include the whole lyrics phase and the auto-director's templates,
 both large — the v1 must-have work is **roughly two-thirds done**.
 
@@ -41,12 +41,12 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M2 | One-command setup with checksums; fully offline after | 🔶 | 4.2 | lyrics/extras tiers (Whisper models), `htdemucs_ft`, an offline-rebuild check. Offline at runtime is enforced (network requests are blocked and logged, 4.14) |
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
-| M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | 🔶 | 4.6, 4.24 | separation works through the supervised sidecar (8.6 s for 4 min); **not wired**: running it from the studio, per-stem analysis into the cache, stem status in the UI, per-stem waveform rows |
+| M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | ✅ | 4.6, 4.24, 4.48 | per-stem waveform rows and stem solo in the preview are not built |
 | M6 | Determinism contract from commit one; golden frames | ✅ | 4.3, 4.12 | golden frames run locally (`npm run golden`); the repo is on GitHub but no CI is configured (the golden set needs the RTX GPU, so a hosted runner could not run it) |
 | M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | ✅ | 4.3, 4.39, 4.47 | thirteen modes (normal, add, screen and the ten separable ones); the HSL family is not implemented and not offered |
 | M8 | Undo/redo for every mutation | ✅ | 4.15 | |
-| M27 | ML sidecar lifecycle: spawn/supervise/restart, JSON-lines, progress, cancel, health check | 🔶 | 4.24 | built and tested; nothing in the studio uses it yet (arrives with M5) |
-| M28 | Global GPU job queue: renderer / Demucs / WhisperX never contend for VRAM | ⬜ | — | the whole item; needed before stems run from the studio while a render is going |
+| M27 | ML sidecar lifecycle: spawn/supervise/restart, JSON-lines, progress, cancel, health check | ✅ | 4.24, 4.48 | a health check on start-up (surfaced in a settings screen) comes with M36 |
+| M28 | Global GPU job queue: renderer / Demucs / WhisperX never contend for VRAM | ✅ | 4.48 | WhisperX joins it when M26 is built |
 
 ### Creative core
 
@@ -56,7 +56,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
-| M13 | Modulation matrix: all sources incl. per-stem bands, curves, attack/release, per-parameter binding UI with live values | 🔶 | 4.10, 4.46 | the studio UI is done — ∿ on every control, recipes, editor, live values, matrix; **per-stem sources are offered but inactive until stems are wired (M5)**; not built: source sparkline, copy/paste of bindings, global-chain bindings |
+| M13 | Modulation matrix: all sources incl. per-stem bands, curves, attack/release, per-parameter binding UI with live values | ✅ | 4.10, 4.46, 4.48 | per-stem sources work once a track's stems are separated; not built: source sparkline, copy/paste of bindings, global-chain bindings |
 | M14 | Background: solid, gradient, image, video; fit modes; Ken Burns | ✅ | 4.35, 4.41 | |
 | M15 | Logo/watermark with reactive pulse | ✅ | 4.40 | |
 | M16 | Text layer with styling and animation | ✅ | 4.38 | |
@@ -126,10 +126,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 1. ✅ **Modulation binding UI (M13)** — done (STATUS 4.46), with the analysis bands fix (4.45).
 2. ✅ **Layer and clip editing gaps (M9, M29, M7)** — done (STATUS 4.47). Timeline dragging of
    time ranges and clip edges is still open.
-3. **Stems end to end (M5, M27, M28)** — the GPU job queue, running Demucs from the studio with
-   progress and cancel, per-stem analysis into the cache, stem status and waveform rows, and stem
-   sources in the binding UI. This is what makes "the kick drives scale, the vocal drives glow"
-   real, and it is the prerequisite for lyrics alignment.
+3. ✅ **Stems end to end (M5, M27, M28)** — done (STATUS 4.48). Per-stem waveform rows are still open.
 4. **Autosave and crash recovery (M1)** — before the app is trusted with long sessions.
 5. **Lyrics (P6: M18–M20, M26)** — editor, tap-to-sync, the lyrics track, karaoke word-fill (built
    on the text engine's per-word boxes), then WhisperX once stems and the queue exist.
@@ -163,7 +160,7 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 856 tests — unit tests, and GPU tests that render through Electron |
+| `npm run check` | typecheck, lint (including the engine boundary) and 866 tests — unit tests, and GPU tests that render through Electron |
 | `npm run golden` | 21 reference frames (bars, layered, 3D scenes at 16:9, 9:16, 1:1) are byte-identical |
 | `npm run dev -- --smoke` | 20 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |

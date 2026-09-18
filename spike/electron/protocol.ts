@@ -53,6 +53,11 @@ export interface DeterminismConfig {
 export interface ExportConfig {
   mode: 'export';
   analysisFile: string;
+  /**
+   * The other analysed sources — the stems (M5) — one container each, merged into the mix's set.
+   * A project that binds to `drums` renders against the drums, not against silence.
+   */
+  sourceFiles?: string[];
   resultFile: string;
   audioPath: string;
   audioLabel: string;

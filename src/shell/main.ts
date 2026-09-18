@@ -26,18 +26,18 @@ import { existsSync, watch } from 'node:fs';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
 import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
-import { analysisOptionsFor, parseProjectAnalysisSettings } from '../analysis/project-settings.ts';
+import { cacheOptionsFor, parseProjectAnalysisSettings } from '../analysis/project-settings.ts';
 import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -50,6 +50,11 @@ import {
 import { loadDocument } from '../project/load.ts';
 import { scanModules, type ModuleScan } from '../modules-folder/scan.ts';
 import { BUILTIN_MODULES, ENGINE_VERSION } from '../engine/engine.ts';
+import { SidecarSupervisor, spawnPythonSidecar } from '../ml/supervisor.ts';
+import { StemsCancelledError, separateStems } from '../ml/stems.ts';
+import { GpuJobCancelledError, GpuQueue } from '../node/gpu-queue.ts';
+import { newId } from '../project/ids.ts';
+import { pythonEnv } from '../../setup/lib/env.ts';
 import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
@@ -64,6 +69,31 @@ const THUMBNAIL_SIDE = 160;
 function analysisCacheRoot(): string {
   return join(app.getPath('userData'), 'cache', 'analysis');
 }
+
+/**
+ * The ML sidecar (M27): one resident Python, started on first use, stopped when idle so torch hands
+ * its VRAM back, and stopped before every render by the GPU queue.
+ */
+let sidecarInstance: SidecarSupervisor | null = null;
+function sidecar(): SidecarSupervisor {
+  sidecarInstance ??= new SidecarSupervisor({
+    spawn: spawnPythonSidecar(PYTHON_EXE, join(ROOT, 'python'), pythonEnv()),
+    newId,
+    idleTimeoutMs: 60_000,
+    onLog: (message) => console.log(`[sidecar] ${message}`),
+  });
+  return sidecarInstance;
+}
+
+/**
+ * The global GPU job queue (M28): renders and ML jobs take turns, renders first, and the sidecar's
+ * models are freed before each render.
+ */
+const gpuQueue = new GpuQueue({
+  beforeRender: async () => {
+    await sidecarInstance?.stop();
+  },
+});
 
 /** Where the bundled renderer lives, relative to the compiled main bundle. */
 const RENDERER_DIR = join(import.meta.dirname, 'renderer');
@@ -335,19 +365,73 @@ function registerHandlers(): void {
       // the numbers the export will — not to Chromium's decoder (ipc.ts, AnalysisPayload).
       const decoded = await decodeMono48k(FFMPEG_EXE, path);
       const cache = new AnalysisCache({ root: analysisCacheRoot() });
-      const result = await analyzeCached(decoded.pcm, cache, { ...analysisOptionsFor(settings), audioHash: decoded.pcmSha256 });
+      const result = await analyzeCached(decoded.pcm, cache, { ...cacheOptionsFor(settings), audioHash: decoded.pcmSha256 });
       const source = result.analysis.sources.get('mix');
       if (source === undefined) throw new Error('the analyser produced no mix source');
+      // Stems (M5) that have been separated live in the same cache entry, so a hit brings them.
+      const stems = [...result.analysis.sources]
+        .filter(([name]) => name !== 'mix')
+        .map(([name, analysis]) => ({ name, container: encodeAnalysis(analysis, { source: name }) }));
+      const readiness = await cache.readiness(result.audioHash, result.settingsHash);
+      const stemStatus = Object.fromEntries(Object.entries(readiness)
+        .filter(([name]) => name !== 'mix')
+        .map(([name, entry]) => [name, { state: entry.state, ...(entry.error === undefined ? {} : { error: entry.error }) }]));
       return {
         container: encodeAnalysis(source, { source: 'mix', beatGrid: result.beatGrid, meta: { audioHash: result.audioHash } }),
         peaks: encodePeaks(result.peaks),
         sections: result.sections.map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, label: s.label })),
         durationSeconds: decoded.pcm.length / 48_000,
         fromCache: result.fromCache,
+        stems,
+        stemStatus,
       };
     } catch (error) {
       throw describe(error);
     }
+  });
+
+  // Stems (M5): Demucs through the supervised sidecar (M27), taking its turn on the GPU (M28).
+  // One separation at a time; a second request while one runs is refused rather than queued twice.
+  let stemsController: AbortController | null = null;
+  ipcMain.handle(IPC.stemsSeparate, async (event, path: unknown, rawSettings: unknown) => {
+    if (typeof path !== 'string') throw new Error('separateStems needs a path');
+    const settings = parseProjectAnalysisSettings(rawSettings);
+    if (stemsController !== null) throw new Error('A stem separation is already running.');
+    const missing = [FFMPEG_EXE, PYTHON_EXE, join(MODELS, 'demucs', `${settings.stemModel}.yaml`)].filter((p) => !existsSync(p));
+    if (missing.length > 0) {
+      throw new Error(`Stem separation needs the stems part of setup, which is not installed here:\n${missing.join('\n')}\n\nTry:\n• Run \`npm run setup\` (the stems tier) and restart the studio`);
+    }
+    const controller = new AbortController();
+    stemsController = controller;
+    const send = (progress: StemProgressEvent) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC.stemsProgress, progress);
+    };
+    send({ stage: 'queued', fraction: 0 });
+    const started = performance.now();
+    try {
+      const result = await gpuQueue.run('ml', `Stems: ${basename(path)}`, () => separateStems({
+        ffmpegExe: FFMPEG_EXE,
+        sidecar: sidecar(),
+        cacheRoot: analysisCacheRoot(),
+        stemsRoot: join(ROOT, 'cache', 'stems'),
+        scratchDir: join(ROOT, 'cache', 'scratch'),
+        modelRepo: join(MODELS, 'demucs'),
+        audioPath: path,
+        settings,
+        signal: controller.signal,
+        onProgress: send,
+      }), controller.signal);
+      return { stems: result.stems, seconds: (performance.now() - started) / 1000 };
+    } catch (error) {
+      throw error instanceof StemsCancelledError || error instanceof GpuJobCancelledError || controller.signal.aborted
+        ? new Error('Stem separation was cancelled.')
+        : describe(error);
+    } finally {
+      stemsController = null;
+    }
+  });
+  ipcMain.handle(IPC.stemsCancel, async (): Promise<void> => {
+    stemsController?.abort();
   });
 
   const decodeForRenderer = async (path: string): Promise<ImageBytes> => {
@@ -734,6 +818,7 @@ app.whenReady().then(async () => {
       workRoot: join(ROOT, 'out', 'studio-render', 'work'),
       cacheRoot: analysisCacheRoot(),
       videoCacheRoot: join(ROOT, 'cache'),
+      gpu: gpuQueue,
       onChange: (jobs) => {
         for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.renderChanged, jobs);
       },
@@ -748,6 +833,10 @@ app.whenReady().then(async () => {
   // A render runs in its own Electron process, which would outlive the app if the app simply
   // quit. Cancel it first; the queue records it as cancelled and the child is killed.
   let quitting = false;
+  // The sidecar is a child process too; it must not outlive the app either.
+  app.on('will-quit', () => {
+    void sidecarInstance?.stop();
+  });
   app.on('before-quit', (event) => {
     if (quitting || !renders.list().some((job) => job.status === 'running')) return;
     event.preventDefault();
@@ -1077,6 +1166,20 @@ app.whenReady().then(async () => {
       await pressUndo();
       await pressUndo();
 
+      // Stems (M5), end to end, when the smoke is run with a project that has audio
+      // (npm run dev -- <project> --smoke): Separate stems → Demucs on the GPU → the Audio panel
+      // lists all four. Not reported without audio, where there is nothing to separate.
+      let stemsUi;
+      const stemsPanel = document.querySelector('#app [data-testid="stems-controls"]');
+      if (stemsPanel !== null) {
+        if (stemsPanel.getAttribute('data-state') !== 'ready') {
+          stemsPanel.querySelector('[data-action="stems-separate"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        }
+        const ready = await waitFor(() => document.querySelector('#app [data-testid="stems-controls"]')?.getAttribute('data-state') === 'ready', 2400);
+        const text = document.querySelector('#app [data-testid="stems-controls"]')?.textContent ?? '';
+        stemsUi = ready === true && ['drums', 'bass', 'vocals', 'other'].every((stem) => text.includes(stem));
+      }
+
       // Modulation (M13), end to end in the studio: ∿ beside a control → a recipe → a binding row in
       // the inspector, the preview reporting the rendered value (the slider's live marker) and the
       // binding's signal (its level meter), and the matrix listing it. "Breathing" is an LFO, so it
@@ -1137,6 +1240,7 @@ app.whenReady().then(async () => {
         presetSave,
         modulationUi,
         layerEditing,
+        ...(stemsUi === undefined ? {} : { stemsUi }),
         exportDialog,
       };
     })()`) as Record<string, boolean>;

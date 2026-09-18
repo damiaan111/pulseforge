@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { findExportPreset } from '../export/export-presets.ts';
 import { ProgressTracker } from '../export/progress.ts';
 import { RenderQueue, type RenderJob } from '../export/queue.ts';
+import type { GpuQueue } from '../node/gpu-queue.ts';
 import { renderDocument } from '../export/render-document.ts';
 import { aspectBucket } from '../project/document.ts';
 import { newId } from '../project/ids.ts';
@@ -29,6 +30,8 @@ export interface RenderServiceOptions {
   readonly onChange?: (jobs: readonly RenderJob[]) => void;
   /** How often a running job checks for cancellation. */
   readonly cancelPollMs?: number;
+  /** The global GPU queue (M28): a render waits its turn behind ML work, and goes ahead of queued ML. */
+  readonly gpu?: GpuQueue;
 }
 
 export interface RenderRequest {
@@ -77,7 +80,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
       }, options.cancelPollMs ?? 200);
       let tracker: ProgressTracker | undefined;
       try {
-        const result = await renderDocument({
+        const render = () => renderDocument({
           documentText: documentJson,
           projectPath: job.projectPath,
           size: preset.size ?? undefined,
@@ -94,6 +97,9 @@ export async function createRenderService(options: RenderServiceOptions): Promis
             report(tracker.snapshot);
           },
         });
+        const result = options.gpu === undefined
+          ? await render()
+          : await options.gpu.run('render', job.label, render, controller.signal);
         if (!result.report.verification.ok) {
           throw new Error(`The rendered file failed verification: ${result.report.verification.issues.join('; ')}`);
         }

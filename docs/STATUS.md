@@ -9,15 +9,17 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 856 tests, `npm run golden` 21/21 identical,
+> any aspect. Last full verification: `npm run check` 866 tests, `npm run golden` 21/21 identical,
 > `--smoke` 20/20.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
-> ranges, and the audio clip's trim, padding, fades and gain are all editable and rendered (§4.47).
+> ranges, and the audio clip's trim, padding, fades and gain are all editable and rendered (§4.47);
+> and **stems work end to end** — Demucs from the studio through the supervised sidecar and a
+> global GPU queue, every stem analysed and cached, stem sources live in the preview and exports
+> (§4.48).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): stems are separated but not
-> wired into analysis or the studio (M5, with the GPU job queue M28); autosave and crash recovery
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): autosave and crash recovery
 > (M1); lyrics (P6) and the auto-director (P7) are not started beyond analysis and classification;
 > operability (cache management M33, logs M34, settings M36).
 
@@ -77,6 +79,7 @@
 | 4.45 | The project's own analysis bands — M4 |
 | 4.46 | Modulation in the studio — M13, modulation-spec §10–§11, ui-spec §4, §6 |
 | 4.47 | Blend modes, layer editing and the audio clip — M7, M9, M29 |
+| 4.48 | Stems end to end — M5, M27, M28 |
 
 ---
 
@@ -182,7 +185,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 856 tests in 65 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 866 tests in 68 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -1964,6 +1967,68 @@ project with audio is opened (`npm run dev -- <project> --smoke` with `PULSEFORG
 panel edit the same values); multi-select; the HSL blend family; a fade curve preview; export-spec
 §7's stream-copy of untouched audio.
 
+### 4.48 Stems end to end — M5, M27, M28
+
+Demucs worked since P0 (8.6 s for four minutes) and the supervised sidecar since §4.24, but nothing
+in the studio used either: every stem source read "not analysed". Now **Separate stems** in the
+Audio panel runs the whole chain, and a layer or binding set to `drums`, `bass`, `vocals` or
+`other` reacts to that stem in the preview and in exports.
+
+**The GPU job queue (M28)** — `src/node/gpu-queue.ts`: renders and ML jobs take turns; one at a
+time; a waiting **render goes ahead of waiting ML jobs**; a running job is never pre-empted (a
+separation takes seconds, and killing one throws away the model load); and before every render
+`beforeRender` **stops the sidecar so its models give their VRAM back**. A job cancelled while
+waiting never starts. The studio's render service now takes a GPU lease per render. The live
+preview is deliberately not in the queue — it is interactive and light.
+
+**The sidecar in the studio (M27)** — one `SidecarSupervisor` in main, started on first use, idle
+shutdown after 60 s, stopped before renders and on quit. Before separating, main checks the
+vendored FFmpeg, Python and the model file and, if the stems part of setup is missing, says so with
+the fix rather than failing inside Python.
+
+**The stem job (M5)** — `src/ml/stems.ts` `separateStems`, plain Node:
+1. decode to mono 48 kHz — the same decode and hash as the mix, so **the same cache entry** — and
+   make sure the mix is analysed;
+2. mark each stem `pending` in the cache (visible to anything reading readiness);
+3. decode to stereo 44.1 kHz float and ask the sidecar to separate (progress and cancellation via the
+   supervisor);
+4. per stem, one FFmpeg pass keeps it as **FLAC** (`ROOT/cache/stems/<audioHash>/<model>/<stem>.flac`,
+   for lyrics alignment and per-stem waveforms later) and produces mono 48 kHz for the analyser; the
+   stem is analysed with the project's settings and written to the cache. A stem's `beat` feature
+   is the **mix's** grid pulse — the grid belongs to the song (modulation-spec §2.1).
+Failures and cancels mark every unfinished stem `failed` with the reason — never pending for ever.
+Scratch is removed either way. Progress is one 0..1 across decoding, separating and analysing.
+The stem model is now part of every analysis cache key (`cacheOptionsFor`), so changing it
+re-separates.
+
+**Everywhere else, for free**: a cache hit already returned every ready source, so the studio's
+`analyzeAudio` now sends the stems (and each stem's state) and the store merges them into the
+preview's analysis; exports write one analysis container per source (`sourceFiles` in the export
+config) and the render child merges them.
+
+**Studio** — the Audio panel's **Stems** block: Separate stems, a progress bar with the stage
+(waiting for the GPU, decoding, separating, analysing *drums*…), Cancel, then the list of stems; a
+failure says why and offers to try again; an interrupted separation is noticed on the next open.
+
+Verified here: `npm run check` **866 tests** — `tests/node/gpu-queue.test.ts` (one at a time,
+renders first, no pre-emption, models freed before renders, failures do not stop the queue,
+cancel-while-waiting), `tests/ml/stems.test.ts` (with a fake sidecar and real FFmpeg, analyser and
+cache: five sources on the next hit, the mix's beat on every stem, FLACs kept, scratch cleaned,
+progress monotonic; cancel and failure marked with the reason), and **`tests/golden/stems-gpu.test.ts`
+running real Demucs on the GPU**: four stems cached with the mix, the kept stems **add back up to the
+original within 1% of its energy**, the energy is genuinely split, and the sidecar stays healthy and
+stops cleanly (about 5 s on an 8 s track, model load included). `npm run golden` **21/21**.
+`--smoke` **20/20** in the standard run; opened with a project that has audio, a `stemsUi` check
+presses Separate stems and waits for all four to be listed (passed). An export of a Bars layer set
+to `drums` renders against the drums (no "no analysis for stem" warning), and the same render with
+an empty cache warns — the control that shows the check means something.
+
+**Not done:** per-stem waveform rows in the timeline and stem solo in the preview (ui-spec §5);
+the 6-stem model (S6); the CLI shares no cache with the studio (see §7); cache size and pruning of
+stems (M33). An earlier assumption worth recording: a test first asserted which stem Demucs files a
+synthetic sound under (a pure-sine "kick" went to *other*, not *drums*); that is Demucs' business,
+so the test checks reconstruction and energy split instead.
+
 ---
 
 ## 5. Measured results
@@ -2028,8 +2093,10 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - `quality: 'preview'` plumbed but unused. Unknown modules warn instead of drawing a placeholder.
 - Export: the queue landed (§4.23); still no disk-space precheck, thumbnails, motion blur, SSAA or audio stream-copy.
 - Frame hashing runs on the render thread (fine for validation; move to a worker if used in long exports).
-- The supervised sidecar landed (§4.24) and its serve mode was verified on this machine (§9); nothing in
-  the studio calls it yet — that arrives with stems (M5) and the GPU job queue (M28).
+- The supervised sidecar (§4.24) now runs Demucs for the studio (§4.48). **The CLI's analysis cache is
+  `ROOT/cache`, the studio's (and its render queue's) is `%APPDATA%/Electron/cache/analysis`**, so stems
+  separated in the studio are used by the studio's renders but not by `npm run render`. One cache
+  root for both is part of M33.
 - **Flaky under load:** once, a full `npm run check` straight after a smoke run took 190 s and one GPU
   test failed with "Electron exited without writing a result" (`effects-gpu`, bloom). Two reruns of
   the suite and three of that file passed. Suspect too many concurrent Electron GPU children; if it

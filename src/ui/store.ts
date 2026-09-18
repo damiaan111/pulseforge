@@ -33,7 +33,7 @@ import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
-import type { ImageBytes, LibraryListing, PresetLibraryListing, RenderJob } from '../shell/ipc.ts';
+import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing, RenderJob, StemProgressEvent } from '../shell/ipc.ts';
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
@@ -60,6 +60,43 @@ export type AnalysisState = 'idle' | 'working' | 'ready' | 'error';
 export interface Toast {
   readonly text: string;
   readonly kind: 'ok' | 'warn' | 'bad';
+}
+
+/** The loaded track's stems (M5), as the Audio panel shows them. */
+export interface StemsState {
+  /** none: never separated · running: separating now · ready: all four · failed: last attempt failed. */
+  readonly state: 'none' | 'running' | 'ready' | 'failed';
+  readonly ready: readonly string[];
+  readonly fraction: number;
+  readonly stage: StemProgressEvent['stage'] | null;
+  readonly detail: string | null;
+  /** Why the last attempt failed, or which stems are missing. */
+  readonly message: string | null;
+}
+
+const NO_STEMS: StemsState = { state: 'none', ready: [], fraction: 0, stage: null, detail: null, message: null };
+
+/** The mix's analysis with every ready stem merged in, so stem bindings and `source` params work. */
+function analysisFromPayload(payload: AnalysisPayload): AnalysisSet {
+  const { analysis } = decodeAnalysis(payload.container);
+  if (payload.stems.length === 0) return analysis;
+  const sources = new Map(analysis.sources);
+  for (const stem of payload.stems) {
+    for (const [name, source] of decodeAnalysis(stem.container).analysis.sources) sources.set(name, source);
+  }
+  return { ...analysis, sources };
+}
+
+function stemsFromPayload(payload: AnalysisPayload): StemsState {
+  const ready = payload.stems.map((s) => s.name);
+  const failed = Object.entries(payload.stemStatus).filter(([, entry]) => entry.state === 'failed');
+  const pending = Object.values(payload.stemStatus).some((entry) => entry.state === 'pending');
+  if (ready.length >= 4) return { ...NO_STEMS, state: 'ready', ready };
+  if (failed.length > 0) {
+    return { ...NO_STEMS, state: 'failed', ready, message: failed.map(([name, entry]) => `${name}: ${entry.error ?? 'failed'}`).join('; ') };
+  }
+  // "pending" in the cache with nothing running here means a separation was interrupted.
+  return { ...NO_STEMS, state: 'none', ready, message: pending ? 'A previous separation did not finish.' : null };
 }
 
 export interface StudioState {
@@ -175,6 +212,11 @@ export interface StudioState {
   saveAs(): Promise<void>;
   loadAudio(path: string): Promise<void>;
   reportPreview(transport: Transport, timelineSeconds: number, stats: PreviewStats): void;
+  /** Stem separation for the loaded track (M5): what exists, and what is running. */
+  stems: StemsState;
+  separateStems(): Promise<void>;
+  cancelStems(): Promise<void>;
+  reportStemsProgress(progress: StemProgressEvent): void;
   /** Live modulation from the preview (M13): rendered values, binding levels, compile issues. */
   liveModulation: LiveModulation;
   reportModulation(live: LiveModulation): void;
@@ -798,7 +840,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         URL.revokeObjectURL(url);
         return;
       }
-      const { analysis } = decodeAnalysis(payload.container);
+      const analysis = analysisFromPayload(payload);
       // Revoked only once the replacement is ready: revoking up front left a failed load with
       // the old track's element pointing at a dead URL.
       const previous = get().audio;
@@ -810,6 +852,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         sections: payload.sections,
         analysisState: 'ready',
         analysisMessage: payload.fromCache ? 'Analysis: cache hit' : 'Analysed and cached',
+        stems: stemsFromPayload(payload),
       });
     } catch (error) {
       if (url !== undefined) URL.revokeObjectURL(url);
@@ -821,6 +864,37 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   reportPreview(transport, timelineSeconds, stats) {
     set({ transport, timelineSeconds, stats });
+  },
+
+  stems: NO_STEMS,
+
+  async separateStems() {
+    const audio = get().audio;
+    if (audio === null || get().stems.state === 'running') return;
+    set({ stems: { ...get().stems, state: 'running', fraction: 0, stage: 'queued', message: null } });
+    try {
+      const done = await window.pulseforge.separateStems(audio.path, history.current.analysisSettings);
+      // The stems are in the cache now, so analysing again is a hit that brings them with it.
+      const payload = await window.pulseforge.analyzeAudio(audio.path, history.current.analysisSettings);
+      if (get().audio?.path !== audio.path) return;
+      set({
+        analysis: analysisFromPayload(payload),
+        stems: stemsFromPayload(payload),
+        toast: { text: `Stems ready: ${done.stems.join(', ')} (${done.seconds.toFixed(1)} s)`, kind: 'ok' },
+      });
+    } catch (error) {
+      const text = describeError(error, 'Separating the stems');
+      set({ stems: { ...get().stems, state: 'failed', message: text }, toast: { text, kind: /cancelled/i.test(text) ? 'warn' : 'bad' } });
+    }
+  },
+
+  async cancelStems() {
+    await window.pulseforge.cancelStems();
+  },
+
+  reportStemsProgress(progress) {
+    if (get().stems.state !== 'running') return;
+    set({ stems: { ...get().stems, fraction: progress.fraction, stage: progress.stage, detail: progress.detail ?? null } });
   },
 
   liveModulation: { values: new Map(), levels: new Map(), issues: [] },

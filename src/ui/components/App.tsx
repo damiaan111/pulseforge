@@ -38,6 +38,10 @@ export function App(): React.JSX.Element {
     };
   }, [setRenders]);
 
+  // Stem separation progress, pushed from the main process while Demucs runs (M5).
+  const reportStemsProgress = useStudio((s) => s.reportStemsProgress);
+  useEffect(() => window.pulseforge.onStemsProgress(reportStemsProgress), [reportStemsProgress]);
+
   // Video extraction progress, pushed from the main process while a clip's proxy is built (M39).
   const reportVideoProgress = useStudio((s) => s.reportVideoProgress);
   useEffect(() => window.pulseforge.onVideoProgress(reportVideoProgress), [reportVideoProgress]);
