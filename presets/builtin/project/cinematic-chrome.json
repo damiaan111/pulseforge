@@ -1,0 +1,179 @@
+{
+  "formatVersion": 1,
+  "scope": "project",
+  "name": "Cinematic chrome",
+  "tags": [
+    "cinematic",
+    "3d",
+    "dark"
+  ],
+  "palette": {
+    "colors": [
+      "#c9d4ff",
+      "#ff2d95",
+      "#05070f",
+      "#16213e"
+    ],
+    "roles": {
+      "primary": 0,
+      "accent": 1,
+      "background": 2,
+      "secondary": 3
+    },
+    "extra": {}
+  },
+  "layers": [
+    {
+      "formatVersion": 1,
+      "scope": "layer",
+      "name": "Backdrop",
+      "tags": [],
+      "module": {
+        "id": "core.source.background",
+        "version": "0.1.0",
+        "paramsSchemaVersion": 1
+      },
+      "values": {
+        "gradient": "radial",
+        "colorA": "@secondary",
+        "colorB": "@background"
+      },
+      "effects": [],
+      "modulations": [],
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min",
+        "extra": {}
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "aspectOverrides": {}
+    },
+    {
+      "formatVersion": 1,
+      "scope": "layer",
+      "name": "Dust",
+      "tags": [],
+      "module": {
+        "id": "core.visualizer.particles",
+        "version": "0.1.0",
+        "paramsSchemaVersion": 1
+      },
+      "values": {
+        "count": 300,
+        "fill": "@primary",
+        "size": 0.006,
+        "speed": 0.02
+      },
+      "effects": [],
+      "modulations": [],
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min",
+        "extra": {}
+      },
+      "blend": "normal",
+      "opacity": 0.6,
+      "aspectOverrides": {}
+    },
+    {
+      "formatVersion": 1,
+      "scope": "layer",
+      "name": "Subject",
+      "tags": [],
+      "module": {
+        "id": "core.scene3d.shapes",
+        "version": "0.1.0",
+        "paramsSchemaVersion": 1
+      },
+      "values": {
+        "shape": "knot",
+        "metalness": 0.85,
+        "roughness": 0.2,
+        "faceted": false,
+        "color": "@primary",
+        "rim": "@accent"
+      },
+      "effects": [
+        {
+          "module": "core.effect.dof",
+          "name": "",
+          "enabled": true,
+          "values": {
+            "focus": 5.2,
+            "range": 0.8,
+            "amount": 0.6
+          },
+          "paramsSchemaVersion": 1
+        }
+      ],
+      "modulations": [],
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min",
+        "extra": {}
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "aspectOverrides": {}
+    }
+  ],
+  "globalEffects": [
+    {
+      "module": "core.effect.bloom",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "threshold": 0.6
+      },
+      "paramsSchemaVersion": 1
+    },
+    {
+      "module": "core.effect.grade",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "contrast": 1.1,
+        "saturation": 0.9
+      },
+      "paramsSchemaVersion": 1
+    },
+    {
+      "module": "core.effect.grain",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "amount": 0.04
+      },
+      "paramsSchemaVersion": 1
+    },
+    {
+      "module": "core.effect.vignette",
+      "name": "",
+      "enabled": true,
+      "values": {},
+      "paramsSchemaVersion": 1
+    }
+  ]
+}

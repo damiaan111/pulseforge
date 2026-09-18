@@ -23,7 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, watch } from 'node:fs';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
@@ -36,7 +36,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -48,7 +48,9 @@ import {
 } from '../assets/video-cache.ts';
 import { loadDocument } from '../project/load.ts';
 import { scanModules, type ModuleScan } from '../modules-folder/scan.ts';
-import { BUILTIN_MODULES } from '../engine/engine.ts';
+import { BUILTIN_MODULES, ENGINE_VERSION } from '../engine/engine.ts';
+import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
+import { parsePreset } from '../project/presets.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
@@ -362,6 +364,69 @@ function registerHandlers(): void {
     await shell.openPath(MODULES_DIR);
   });
 
+  // Presets (S8). User presets live in Documents beside the asset library — they are the user's own
+  // work and belong in their backups; built-ins ship in the repo; thumbnails are a cache on the
+  // repo's drive. `PULSEFORGE_PRESETS` overrides the user folder, which the smoke check uses.
+  const presetsFolder = () => process.env['PULSEFORGE_PRESETS'] ?? join(app.getPath('documents'), 'Pulseforge', 'Presets');
+  const presetStore = () => new PresetStore({
+    root: presetsFolder(),
+    builtinRoot: join(ROOT, 'presets', 'builtin'),
+    thumbnailRoot: join(ROOT, 'cache', 'preset-thumbnails'),
+  });
+  const presetListing = async (): Promise<PresetLibraryListing> => {
+    const store = presetStore();
+    const [library, favourites] = await Promise.all([store.list(), store.favourites()]);
+    return {
+      entries: library.entries.map((entry) => ({
+        slug: entry.slug,
+        origin: entry.origin,
+        name: entry.name,
+        scope: entry.scope,
+        tags: entry.tags,
+        moduleId: entry.moduleId ?? null,
+        preset: entry.preset,
+        favourite: favourites.has(`${entry.scope}/${entry.slug}`),
+        thumbnailKey: presetThumbnailKey(entry.preset, ENGINE_VERSION),
+      })),
+      problems: library.problems,
+      folder: presetsFolder(),
+    };
+  };
+  const presetRef = (scope: unknown, slug: unknown): { scope: 'layer' | 'project'; slug: string } => {
+    // Both become part of a path: accept only what the store itself would have written.
+    if ((scope !== 'layer' && scope !== 'project') || typeof slug !== 'string' || !/^[a-z0-9-]{1,80}$/.test(slug)) {
+      throw new Error('That is not a preset this library can name.');
+    }
+    return { scope, slug };
+  };
+  ipcMain.handle(IPC.presetsList, async (): Promise<PresetLibraryListing> => presetListing());
+  ipcMain.handle(IPC.presetsSave, async (_event, raw: unknown) => {
+    const slug = await presetStore().save(parsePreset(raw));
+    return { slug, library: await presetListing() };
+  });
+  ipcMain.handle(IPC.presetsDelete, async (_event, scope: unknown, slug: unknown): Promise<PresetLibraryListing> => {
+    const ref = presetRef(scope, slug);
+    await presetStore().remove(ref.scope, ref.slug);
+    return presetListing();
+  });
+  ipcMain.handle(IPC.presetsFavourite, async (_event, scope: unknown, slug: unknown, on: unknown): Promise<PresetLibraryListing> => {
+    const ref = presetRef(scope, slug);
+    await presetStore().setFavourite(ref.scope, ref.slug, on === true);
+    return presetListing();
+  });
+  ipcMain.handle(IPC.presetsThumbnail, async (_event, key: unknown): Promise<Uint8Array | null> =>
+    typeof key === 'string' ? presetStore().readThumbnail(key) : null);
+  ipcMain.handle(IPC.presetsStoreThumbnail, async (_event, key: unknown, png: unknown): Promise<void> => {
+    if (typeof key !== 'string' || !(png instanceof Uint8Array) || png.length > 8 * 1024 * 1024) {
+      throw new Error('storePresetThumbnail needs a key and PNG bytes');
+    }
+    await presetStore().writeThumbnail(key, png);
+  });
+  ipcMain.handle(IPC.presetsReveal, async (): Promise<void> => {
+    await mkdir(presetsFolder(), { recursive: true });
+    await shell.openPath(presetsFolder());
+  });
+
   // Video (M39): extracted under the repo's drive, like the CLI's cache — a frame cache runs to
   // gigabytes and C: is nearly full on the build machine (STATUS §2). The studio and the CLI share
   // it, so a clip previewed here is already extracted when the queue renders it at the same size.
@@ -640,6 +705,12 @@ app.whenReady().then(async () => {
     }
     process.env['PULSEFORGE_LIBRARY'] = library;
 
+    // A fresh, empty user preset folder, so the preset checks start from the built-ins alone and
+    // never touch (or depend on) the owner's own presets.
+    const presets = join(ROOT, 'out', 'smoke-presets');
+    await rm(presets, { recursive: true, force: true });
+    process.env['PULSEFORGE_PRESETS'] = presets;
+
     // A two-second clip for the video bridge check, generated with the vendored FFmpeg's own
     // encoder (the LGPL build has no libx264).
     const clip = join(ROOT, 'out', 'smoke-clip.mp4');
@@ -913,6 +984,53 @@ app.whenReady().then(async () => {
           && document.querySelectorAll('#app .asset-row').length === 0;
       }
 
+      // The preset browser (S8), end to end. The smoke run has its own empty user folder, so the
+      // library is the built-ins alone. A thumbnail must actually draw (the stills engine on the
+      // preview's context → PNG → the main process's cache → back as a blob); a click must apply a
+      // preset as one undo step; Save must produce a card with its thumbnail drawn straight away
+      // (D45); Delete must remove it again.
+      const waitFor = async (test, tries = 100) => {
+        for (let i = 0; i < tries; i += 1) {
+          const value = test();
+          if (value) return value;
+          await new Promise((done) => setTimeout(done, 50));
+        }
+        return test();
+      };
+      const presetCards = await waitFor(() => document.querySelectorAll('#app .preset-card').length >= 14 && document.querySelectorAll('#app .preset-card').length);
+      const presetThumbnail = (await waitFor(() => document.querySelector('#app .preset-card .strip[data-thumbnail="ready"]') !== null, 200)) === true;
+      const presetBrowser = presetCards >= 14 && presetThumbnail;
+
+      let presetApply = false;
+      const neonCard = document.querySelector('#app .preset-card[data-preset="neon-bars"] [data-action="apply-preset"]');
+      if (neonCard !== null) {
+        const rowsBefore = document.querySelectorAll('#app .layer-row').length;
+        neonCard.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 100));
+        const applied = [...document.querySelectorAll('#app .layer-row .meta')].some((m) => m.textContent === 'core.visualizer.bars');
+        const undoLabel = document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '';
+        document.querySelector('#app header button[data-action="undo"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 100));
+        presetApply = applied && undoLabel.includes('Neon bars') && document.querySelectorAll('#app .layer-row').length === rowsBefore;
+      }
+
+      let presetSave = false;
+      document.querySelector('#app [data-action="save-preset"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const nameInput = await waitFor(() => document.querySelector('#app [data-action="preset-name"]'), 40);
+      if (nameInput) {
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setValue.call(nameInput, 'Smoke check preset');
+        nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+        document.querySelector('#app [data-action="preset-save-confirm"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const saved = await waitFor(() => document.querySelector('#app .preset-card[data-preset="smoke-check-preset"] .strip[data-thumbnail="ready"]') !== null, 200);
+        document.querySelector('#app .preset-card[data-preset="smoke-check-preset"] [data-action="preset-menu"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 50));
+        document.querySelector('#app .preset-card[data-preset="smoke-check-preset"] [data-action="preset-delete"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const gone = await waitFor(() => document.querySelector('#app .preset-card[data-preset="smoke-check-preset"]') === null, 60);
+        presetSave = saved === true && gone === true;
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -938,6 +1056,9 @@ app.whenReady().then(async () => {
         sceneLayer,
         videoBridge,
         libraryToAsset,
+        presetBrowser,
+        presetApply,
+        presetSave,
         exportDialog,
       };
     })()`) as Record<string, boolean>;

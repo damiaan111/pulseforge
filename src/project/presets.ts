@@ -217,6 +217,12 @@ export interface ApplyOptions {
   /** Apply only the look, leaving the target's modulations in place. */
   readonly styleOnly?: boolean;
   /**
+   * The opposite of `styleOnly` (ui-spec §5 "apply partially"): keep the target layer exactly as
+   * it is — module, values, effects, id — and take only the preset's modulations, rebound onto it.
+   * Effect targets stay positional, so "the first effect's intensity" means the target's first.
+   */
+  readonly modulationsOnly?: boolean;
+  /**
    * Keep the target layer's module and carry across only the values it shares by key
    * (module-spec §10). Without this, applying a preset replaces the module outright, which is
    * what "apply this preset" normally means; with it, "make my rings layer look like that".
@@ -246,6 +252,15 @@ export function applyLayerPreset(preset: LayerPreset, target: Layer, options: Ap
   }
   if (target.kind !== 'module') {
     throw new PresetError('A layer preset cannot be applied to a group.', ['Select a layer inside the group']);
+  }
+
+  if (options.modulationsOnly === true) {
+    const notes: string[] = [];
+    if (target.module !== preset.module.id) {
+      notes.push(`These modulations were made for ${preset.module.id}; on ${target.module}, any that aim at a parameter it does not have will not resolve.`);
+    }
+    const modulations = preset.modulations.map((binding) => resolveBinding(binding, target.id, target.effects, options.newId(), notes));
+    return { layer: { ...target, modulations }, notes };
   }
 
   const notes: string[] = [];

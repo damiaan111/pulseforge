@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CommandError, addEffect, addLayer, addModulation, clearAspectOverride, clearParamOverride,
   duplicateLayer, findLayer, groupLayers, moveEffect, moveLayer, removeEffect, removeLayer,
-  removeModulation, renameLayer, resetTransform, setEffectParam, setLayerBlend, setLayerFlag,
+  removeModulation, renameLayer, replaceLayer, replaceLook, resetTransform, setEffectParam, setLayerBlend, setLayerFlag,
   setLayerMask, setLayerParam, setLayerTransform, setPaletteColor, ungroupLayer, updateModulation,
 } from '../../src/project/commands.ts';
 import {
@@ -336,5 +336,30 @@ describe('grouping (M38)', () => {
     expect(() => ungroupLayer(K1).apply(document)).toThrow(CommandError);
     const grouped = groupLayers([K1, K2], createGroupLayer([], { id: G1 })).apply(document);
     expect(ungroupLayer(G1).apply(grouped).layers.map((l) => l.id)).toEqual([K1, K2]);
+  });
+});
+
+describe('applying presets (S8)', () => {
+  it('replaceLayer puts the new layer where the old one was, even inside a group', () => {
+    const document = projectWith([bars(K1), createGroupLayer([bars(K2)], { id: G1 })]);
+    const replacement = createModuleLayer('core.visualizer.orb', { id: M1, name: 'Orb' });
+    const next = replaceLayer(K2, replacement).apply(document);
+    expect(layerIds(next)).toEqual([K1, G1, M1]);
+    expect(findLayer(next, M1)?.name).toBe('Orb');
+    expect(() => replaceLayer('missing', replacement).apply(document)).toThrow(CommandError);
+  });
+
+  it('replaceLook swaps layers, global effects and palette and nothing else', () => {
+    const document = { ...base(), seed: 99 };
+    const look = {
+      layers: [bars(M1, 'From preset')],
+      globalEffects: [createEffect('core.effect.bloom', { id: E1 })],
+      palette: { ...document.palette, colors: ['#123456'] },
+    };
+    const next = replaceLook(look).apply(document);
+    expect(next.layers.map((l) => l.id)).toEqual([M1]);
+    expect(next.globalEffects.map((e) => e.id)).toEqual([E1]);
+    expect(next.palette.colors).toEqual(['#123456']);
+    expect({ ...next, layers: document.layers, globalEffects: document.globalEffects, palette: document.palette }).toEqual(document);
   });
 });

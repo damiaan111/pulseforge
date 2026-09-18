@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { useStudio } from '../store.ts';
 import { CanvasPane } from './CanvasPane.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
+import { SavePresetDialog } from './SavePresetDialog.tsx';
 import { RenderQueue } from './RenderQueue.tsx';
 import { Inspector } from './Inspector.tsx';
 import { LeftRail } from './LeftRail.tsx';
@@ -60,7 +61,8 @@ export function App(): React.JSX.Element {
       // so it works with focus in the dialog's own controls.
       if (event.key === 'Escape') {
         const state = useStudio.getState();
-        if (state.exportOpen) state.setExportOpen(false);
+        if (state.presetDialog !== null) state.setPresetDialog(null);
+        else if (state.exportOpen) state.setExportOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.toast !== null) state.notify(null);
         return;
@@ -108,6 +110,7 @@ export function App(): React.JSX.Element {
       </div>
       <RenderQueue />
       <ExportDialog />
+      <SavePresetDialog />
       {toast === null ? null : (
         <button type="button" className={`toast ${toast.kind}`} onClick={() => notify(null)}>
           {toast.text}

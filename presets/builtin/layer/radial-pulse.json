@@ -1,0 +1,99 @@
+{
+  "formatVersion": 1,
+  "scope": "layer",
+  "name": "Radial pulse",
+  "tags": [
+    "radial",
+    "club",
+    "neon"
+  ],
+  "module": {
+    "id": "core.visualizer.radial",
+    "version": "0.1.0",
+    "paramsSchemaVersion": 1
+  },
+  "values": {
+    "barCount": 128,
+    "radius": 0.2,
+    "length": 0.2,
+    "innerGlow": 0.5
+  },
+  "effects": [
+    {
+      "module": "core.effect.bloom",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "threshold": 0.5,
+        "intensity": 1
+      },
+      "paramsSchemaVersion": 1
+    },
+    {
+      "module": "core.effect.chromatic",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "amount": 0.006
+      },
+      "paramsSchemaVersion": 1
+    }
+  ],
+  "modulations": [
+    {
+      "enabled": true,
+      "label": null,
+      "source": {
+        "type": "beat",
+        "stem": "mix",
+        "band": null,
+        "shape": "sine",
+        "rateHz": 1,
+        "phase": 0,
+        "syncDivision": null,
+        "noiseScale": 1,
+        "octaves": 1,
+        "from": 0,
+        "to": 1,
+        "extra": {}
+      },
+      "inputRange": "auto",
+      "curve": {
+        "type": "linear",
+        "amount": 0,
+        "extra": {}
+      },
+      "envelope": {
+        "attackMs": 5,
+        "releaseMs": 120,
+        "mode": "peak",
+        "extra": {}
+      },
+      "quantise": null,
+      "lookAheadMs": 30,
+      "amount": 0.008,
+      "offset": 0,
+      "invert": false,
+      "mode": "add",
+      "order": 0,
+      "clampOutput": null,
+      "extra": {},
+      "target": "self.effects.1.params.amount"
+    }
+  ],
+  "transform": {
+    "x": 0.5,
+    "y": 0.5,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotationDeg": 0,
+    "skewXDeg": 0,
+    "skewYDeg": 0,
+    "anchor": "center",
+    "scaleReference": "min",
+    "extra": {}
+  },
+  "blend": "normal",
+  "opacity": 1,
+  "aspectOverrides": {}
+}

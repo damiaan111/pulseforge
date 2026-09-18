@@ -1,5 +1,6 @@
 // The top bar (ui-spec §1): project actions, undo/redo with labels, and the dirty marker.
 
+import { findLayer } from '../../project/commands.ts';
 import { useStudio } from '../store.ts';
 
 export function TopBar(): React.JSX.Element {
@@ -17,6 +18,8 @@ export function TopBar(): React.JSX.Element {
   const undo = useStudio((s) => s.undo);
   const redo = useStudio((s) => s.redo);
   const setExportOpen = useStudio((s) => s.setExportOpen);
+  const setPresetDialog = useStudio((s) => s.setPresetDialog);
+  const layerSelected = useStudio((s) => s.selectedLayerId !== null && findLayer(s.document, s.selectedLayerId)?.kind === 'module');
   const queueOpen = useStudio((s) => s.queueOpen);
   const setQueueOpen = useStudio((s) => s.setQueueOpen);
   const activeRenders = useStudio((s) => s.renders.filter((job) => job.status === 'queued' || job.status === 'running').length);
@@ -35,6 +38,10 @@ export function TopBar(): React.JSX.Element {
       </button>
       <button type="button" data-action="redo" disabled={!canRedo} onClick={redo} title={redoLabel ?? ''}>
         ↷ {redoLabel ?? 'Redo'}
+      </button>
+
+      <button type="button" data-action="topbar-save-preset" title="Save the selected layer, or the project, as a preset" onClick={() => setPresetDialog(layerSelected ? 'layer' : 'project')}>
+        Save preset…
       </button>
 
       <span className="spacer" />

@@ -229,6 +229,18 @@ export function setLayerBlend(layerId: string, blend: Layer['blend']): Command {
   };
 }
 
+/**
+ * Replaces a layer wholesale — applying a layer preset (S8). The replacement may carry a new id
+ * (a preset applied in full is a new layer); it takes the old one's place in the tree, inside
+ * whatever group held it.
+ */
+export function replaceLayer(layerId: string, layer: Layer, label = 'Apply preset'): Command {
+  return {
+    label,
+    apply: (document) => withLayer(document, layerId, () => layer),
+  };
+}
+
 export function setLayerTimeRange(layerId: string, inTicks: number, outTicks: number | null): Command {
   return {
     label: 'Set layer time range',
@@ -622,6 +634,21 @@ export function setAudio(patch: Partial<Omit<ProjectDocument['audio'], 'extra'>>
     label: keys.length === 1 ? `Set audio ${keys[0]}` : 'Change audio',
     mergeKey: `audio:${keys.sort().join(',')}`,
     apply: (document) => ({ ...document, audio: { ...document.audio, ...patch } }),
+  };
+}
+
+/**
+ * Replaces the project's look — its layers, global effects and palette — in one step: applying a
+ * project preset (S8). Everything else (audio, canvas, seed, timing, assets) is left alone, which
+ * is the contract `applyProjectPreset` keeps too.
+ */
+export function replaceLook(
+  look: Pick<ProjectDocument, 'layers' | 'globalEffects' | 'palette'>,
+  label = 'Apply project preset',
+): Command {
+  return {
+    label,
+    apply: (document) => ({ ...document, layers: look.layers, globalEffects: look.globalEffects, palette: look.palette }),
   };
 }
 

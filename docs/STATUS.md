@@ -13,8 +13,8 @@
 > waveform peaks, section detection, presets and their store, the render queue, the supervised
 > ML sidecar, and the auto-director's classification layer. A code audit (§4.22) fixed five bugs.
 >
-> **P3 is complete; P4 — Library is nearly done** (2026-09-18: steps 1–15 done, see §1). Remaining
-> for P4: the preset browser (S8) — §4.33.
+> **P3 and P4 are complete** (2026-09-18: P4 steps 1–16, see §1). Next: the documentation pass the
+> owner asked for, then P5 — Export polish, P6 — Lyrics, P7 — Auto-director (§4.33, PROJECT.md §10).
 
 ---
 
@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅ (§4.28–§4.43); remaining in §4.33 |
+| **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -49,7 +49,8 @@ P4 steps:
 | 12 | Logo layer (M15): sized image with aspect kept, tint and reactive pulse | ✅ | `1a42b07` |
 | 13 | Video layers (M39): deterministic frame cache, engine video store, export + preview | ✅ | `c81752b` |
 | 14 | `modules/` drop-in folder (M35): declarative shader modules, hot reload, authoring guide, `npm run modules:check` | ✅ | `64d1b36` |
-| 15 | Three.js scene layers (M37): shared-context host, camera rig, shape/terrain/city scenes, depth → depth of field | ✅ | (this commit) |
+| 15 | Three.js scene layers (M37): shared-context host, camera rig, shape/terrain/city scenes, depth → depth of field | ✅ | `c2561d0` |
+| 16 | Preset browser (S8): browser panel, animated thumbnails, save dialog, partial apply, 14 built-in presets | ✅ | (this commit) |
 
 P3 steps:
 
@@ -116,7 +117,7 @@ STATUS.md updated and commit after each step."*
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 720 tests in 58 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 813 tests in 61 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -124,6 +125,7 @@ STATUS.md updated and commit after each step."*
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
 | `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
 | `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
+| `npm run presets:builtin` | regenerate `presets/builtin/` from `scripts/make-builtin-presets.ts` (refuses unknown modules/keys); commit the diff | ~2 s |
 | `npm run modules:check` | conformance test for drop-in modules in `modules/` (params, compile, determinism, reflow) → `out/modules-check.json`; `-- <dir>` for another folder | ~15 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
 | `npm run spike:export` | real export ×2 with comparison + timings; `--4k`, `--seconds`, `--codec h264\|hevc`, `--conversion gpu-nv12\|swscale`, `--readback sync\|async`, `--depth`, `--no-hash`, `--runs`, `--audio` | ~1 min |
@@ -500,7 +502,9 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7). Blend
   modes beyond normal/add/screen fall back with a note. Group compositing (M38) landed in §4.39.
 - Two effects exist (bloom, vignette) against M12's target of ten.
-- Presets and their on-disk store landed (§4.19, §4.25); the *browser* UI and thumbnails (S8) have not.
+- Presets: the store (§4.19, §4.25) and the browser (§4.44) are done. A preset that uses an image,
+  font or video stores the project's asset **id**, not the file; applied to another project the
+  asset is missing and the layer says so (D6's "referenced" is not yet cross-project).
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
   single `scale`, because stretched backgrounds need non-uniform scale. Not a spec conflict —
   §7 sketches the shape, it does not pin field names.
@@ -1353,7 +1357,9 @@ suggested order:
 7. ✅ **Video layers** (M39) — §4.41.
 8. ✅ **Three.js scene layers** (M37) — §4.43.
 9. ✅ **`modules/` drop-in folder + authoring guide** (M35) — §4.42.
-10. **Preset browser UI** (S8): save-preset button, browser, thumbnails.
+10. ✅ **Preset browser** (S8) — §4.44.
+
+**P4 is complete.**
 
 ---
 
@@ -1860,3 +1866,78 @@ toward the camera covers the flight look); shadows; per-quality MSAA (preview an
 4×); the auto-director's budget does not yet drop scene layers at 4K (compositor-spec §7.4 — the
 auto-director is P7). Scene draw order relies on Three's sort, which is deterministic for a given
 scene but not a documented contract.
+
+### 4.44 Preset browser (P4 step 16) — S8, M25, ui-spec §5, module-spec §10, D16, D45
+
+The preset library as a first-class part of the studio: browse, preview, apply, save. Built on the
+store (§4.25) and the preset model (§4.19), which were already done and tested.
+
+**Where presets live** — user presets in `Documents/Pulseforge/Presets/user/{layer,project}/`
+(beside the asset library: they are the user's work and belong in their backups;
+`PULSEFORGE_PRESETS` overrides it, which the smoke uses), favourites in `favourites.json` there;
+built-ins in the repo at `presets/builtin/`; thumbnails are a **cache** at
+`ROOT/cache/preset-thumbnails/<key>.png`, keyed by `presetThumbnailKey(preset, ENGINE_VERSION)` — a
+changed preset or engine gets a new picture, never a stale one.
+
+**Browser** — `src/ui/components/PresetsPanel.tsx`, at the top of the left rail (ui-spec §5 lists
+Presets first): search, All/Layers/Projects, favourites-only, the ten most-used tag chips (tags
+narrow), favourites sorted first, one card per preset. A click does the obvious thing
+(`defaultApplyMode`): replace the selected layer, add a layer when none is selected, or replace the
+project's look. The card's ⋯ menu has the rest — add as layer, replace selected, **style only**
+(look, keep the layer's name and modulations), **modulations only** (new in `applyLayerPreset`:
+keep the layer, take the bindings, effect targets positional), use this look / add its layers for
+project presets, and delete for user presets. Built-ins cannot be deleted (the store says so).
+Every apply is **one undo step labelled with the preset's name**, via `src/project/preset-apply.ts`
+(pure, tested) and two new commands, `replaceLayer` and `replaceLook`. Notes from applying (a module
+not installed, a binding that will not resolve) arrive as a toast — nothing dropped silently.
+Unreadable preset files are listed under the grid with the reason.
+
+**Thumbnails** (D45: pre-rendered on save) — an 8-frame animation strip, 192×108 per frame, drawn by
+a **second engine on the preview's own context** (`PreviewHost.renderStills`), so it shares the
+fonts, decoded images and drop-in modules and draws exactly what the preview would, without
+touching the preview's engine. The preset is applied to a small dark blank project
+(`src/project/preset-thumbnail.ts`, pure) and rendered at eight moments of the **reference track**
+(`src/analysis/reference-track.ts`, moved from `spike/test-signal.ts`, which re-exports it) — never
+the loaded song, so a thumbnail is a property of the preset alone and caches cleanly. Strips are
+drawn one at a time, only when a card scrolls into view (IntersectionObserver), cached by the main
+process, and animate only under the pointer (ui-spec §13). Save draws the new preset's strip at once.
+
+**Save** — `SavePresetDialog.tsx`, from the top bar's "Save preset…" (PROJECT.md §8) or the panel's
+Save…: selected layer or whole project, name, comma-separated tags. Only non-defaults are stored;
+a taken name gets a suffix rather than overwriting.
+
+**Built-ins** — 11 layer presets (neon bars, cyan horizon, radial pulse, deep orb, retro tunnel,
+embers, heat map, soft waves, synthwave flight, chrome knot, night city) and 3 project presets
+(synthwave night, club bars, cinematic chrome), generated by `npm run presets:builtin`
+(`scripts/make-builtin-presets.ts`), which builds them with the Save dialog's own functions and
+refuses a module or parameter the build does not have. Layer presets use literal colours; project
+presets carry a palette and link to its roles (`@primary`), so they arrive reskinnable.
+
+**IPC** — `pf:presets:list|save|delete|favourite|thumbnail|store-thumbnail|reveal`. Everything the
+renderer sends is validated in main: presets through `parsePreset`, scope/slug against the store's
+own slug alphabet, thumbnail keys against `^[0-9a-f]{32}$` (a key is a filename, never a path),
+PNGs capped at 8 MB.
+
+**Found and fixed on the way:** `core.scene3d.city` declared `height` twice (tower height and the
+camera's), so one silently overrode the other; the tower's is now `towerHeight`, and
+`tests/engine/manifests.test.ts` checks every built-in for duplicate keys, unique ids and clean
+defaults.
+
+Verified here: `npm run check` **813 tests** — `tests/project/preset-apply.test.ts` (each apply
+mode, labels, refusals, project look/merge leaving audio/seed alone, the thumbnail document and
+frames), `tests/project/builtin-presets.test.ts` (all 14 load, apply with no notes and resolve every
+palette link), new cases in `presets.test.ts` (modulations only), `commands.test.ts` (replaceLayer
+in a group, replaceLook touches nothing else), `preset-store.test.ts` (favourites, deleting drops the
+star, corrupt favourites, thumbnail cache and key rejection, key follows content and engine), and
+`manifests.test.ts`. `npm run golden` **21/21**. `--smoke` **18/18** with three new checks:
+`presetBrowser` (14 built-ins listed and a real thumbnail drawn), `presetApply` (click applies, the
+undo label names the preset, undo restores), `presetSave` (Save → card with its thumbnail drawn at
+once → Delete removes it). The first smoke run caught two real bugs, both fixed: an "add" apply was
+labelled "Add layer" in the undo history, and a new card below the fold never showed the thumbnail
+Save had already drawn.
+
+**Not done:** live preview of a preset with the loaded song (D45's later refinement); module-declared
+starting presets inside manifests (D16's other half — built-ins live in `presets/builtin/` instead);
+presets that bring their assets across projects (see §7); drag-and-drop of presets onto layers; a
+rename action in the browser (the store has `rename`); thumbnails for video layers show the
+missing-clip checkerboard, because the stills engine has no video frames.

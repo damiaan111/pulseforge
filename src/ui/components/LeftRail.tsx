@@ -11,6 +11,7 @@ import { walkLayers, type Layer } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
+import { PresetsPanel } from './PresetsPanel.tsx';
 import { useModules } from '../modules.ts';
 
 const LAYER_KINDS = ['source', 'text', 'visualizer', 'scene3d'] as const;
@@ -57,6 +58,8 @@ export function LeftRail(): React.JSX.Element {
 
   return (
     <aside className="left-rail">
+      <PresetsPanel />
+
       <h2>Audio</h2>
       <button type="button" className="wide" onClick={() => void importAudio()}>
         {audio === null ? 'Import audio…' : 'Replace audio…'}

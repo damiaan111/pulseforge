@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { setCanvas } from '../../project/commands.ts';
 import { ASPECT_BUCKETS, aspectBucket, type AspectBucket } from '../../project/document.ts';
 import { PreviewHost } from '../preview/host.ts';
+import { setThumbnailHost } from '../preset-thumbnails.ts';
 import { shaderModuleDefinition } from '../../engine/modules/shader-module.ts';
 import { useStudio } from '../store.ts';
 
@@ -71,9 +72,12 @@ export function CanvasPane(): React.JSX.Element {
       onNotes: setNotes,
     });
     hostRef.current = host;
+    // Preset thumbnails draw on this host's context (S8), so they wait for it.
+    setThumbnailHost(host);
     activeHost = host;
     host.start();
     return () => {
+      setThumbnailHost(null);
       host.dispose();
       hostRef.current = null;
       if (activeHost === host) activeHost = null;

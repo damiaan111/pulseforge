@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "scope": "layer",
+  "name": "Heat map",
+  "tags": [
+    "spectrogram",
+    "analysis"
+  ],
+  "module": {
+    "id": "core.visualizer.spectrogram",
+    "version": "0.1.0",
+    "paramsSchemaVersion": 1
+  },
+  "values": {
+    "window": 6,
+    "fill": "#ff5a1f"
+  },
+  "effects": [],
+  "modulations": [],
+  "transform": {
+    "x": 0.5,
+    "y": 0.5,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotationDeg": 0,
+    "skewXDeg": 0,
+    "skewYDeg": 0,
+    "anchor": "center",
+    "scaleReference": "min",
+    "extra": {}
+  },
+  "blend": "normal",
+  "opacity": 1,
+  "aspectOverrides": {}
+}

@@ -30,6 +30,13 @@ const api: PulseforgeApi = {
   analyzeAudio: (path) => ipcRenderer.invoke(IPC.audioAnalyze, path) as ReturnType<PulseforgeApi['analyzeAudio']>,
   listModules: () => ipcRenderer.invoke(IPC.modulesList) as ReturnType<PulseforgeApi['listModules']>,
   revealModules: () => ipcRenderer.invoke(IPC.modulesReveal) as Promise<void>,
+  listPresets: () => ipcRenderer.invoke(IPC.presetsList) as ReturnType<PulseforgeApi['listPresets']>,
+  savePreset: (preset) => ipcRenderer.invoke(IPC.presetsSave, preset) as ReturnType<PulseforgeApi['savePreset']>,
+  deletePreset: (scope, slug) => ipcRenderer.invoke(IPC.presetsDelete, scope, slug) as ReturnType<PulseforgeApi['deletePreset']>,
+  setPresetFavourite: (scope, slug, on) => ipcRenderer.invoke(IPC.presetsFavourite, scope, slug, on) as ReturnType<PulseforgeApi['setPresetFavourite']>,
+  presetThumbnail: (key) => ipcRenderer.invoke(IPC.presetsThumbnail, key) as ReturnType<PulseforgeApi['presetThumbnail']>,
+  storePresetThumbnail: (key, png) => ipcRenderer.invoke(IPC.presetsStoreThumbnail, key, png) as Promise<void>,
+  revealPresets: () => ipcRenderer.invoke(IPC.presetsReveal) as Promise<void>,
   onModulesChanged(listener) {
     const handler = () => listener();
     ipcRenderer.on(IPC.modulesChanged, handler);

@@ -13,6 +13,7 @@
 import type { JobStatus, RenderJob } from '../export/queue.ts';
 import type { RenderRequest } from './render-service.ts';
 import type { ModuleScan } from '../modules-folder/scan.ts';
+import type { Preset } from '../project/presets.ts';
 
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
 export const IPC = {
@@ -35,6 +36,13 @@ export const IPC = {
   modulesReveal: 'pf:modules:reveal',
   /** Main → renderer: something in modules/ changed on disk; list again. */
   modulesChanged: 'pf:modules:changed',
+  presetsList: 'pf:presets:list',
+  presetsSave: 'pf:presets:save',
+  presetsDelete: 'pf:presets:delete',
+  presetsFavourite: 'pf:presets:favourite',
+  presetsThumbnail: 'pf:presets:thumbnail',
+  presetsStoreThumbnail: 'pf:presets:store-thumbnail',
+  presetsReveal: 'pf:presets:reveal',
   videoImport: 'pf:video:import',
   videoPrepare: 'pf:video:prepare',
   videoFrame: 'pf:video:frame',
@@ -110,6 +118,29 @@ export interface AnalysisPayload {
  * reason as the analysis: the export decodes the same way, so preview and export see the same
  * pixels. RGBA8, straight alpha, sRGB, top row first.
  */
+/** One preset as the browser shows it (S8). */
+export interface PresetListing {
+  readonly slug: string;
+  readonly origin: 'builtin' | 'user';
+  readonly name: string;
+  readonly scope: 'layer' | 'project';
+  readonly tags: readonly string[];
+  /** The module a layer preset is for; null for project presets. */
+  readonly moduleId: string | null;
+  readonly preset: Preset;
+  readonly favourite: boolean;
+  /** Names the cached animation strip; changes when the preset or the engine changes. */
+  readonly thumbnailKey: string;
+}
+
+export interface PresetLibraryListing {
+  readonly entries: readonly PresetListing[];
+  /** Files that could not be read, with why — shown, never silently skipped. */
+  readonly problems: readonly { readonly path: string; readonly message: string }[];
+  /** Where user presets are saved. */
+  readonly folder: string;
+}
+
 export interface ImageBytes {
   readonly path: string;
   /** SHA-256 of the file bytes: the asset hash. */
@@ -273,6 +304,19 @@ export interface PulseforgeApi {
   revealModules(): Promise<void>;
   /** Called when files in modules/ change, so the studio can reload without a restart. */
   onModulesChanged(listener: () => void): () => void;
+  /** Built-in and user presets, favourites marked (S8). */
+  listPresets(): Promise<PresetLibraryListing>;
+  /** Saves into the user library; a name already taken gets a suffix, never an overwrite. */
+  savePreset(preset: Preset): Promise<{ readonly slug: string; readonly library: PresetLibraryListing }>;
+  /** Deletes a user preset. Built-ins refuse with a message saying so. */
+  deletePreset(scope: 'layer' | 'project', slug: string): Promise<PresetLibraryListing>;
+  setPresetFavourite(scope: 'layer' | 'project', slug: string, on: boolean): Promise<PresetLibraryListing>;
+  /** A cached thumbnail strip (PNG), or null when it has not been rendered yet. */
+  presetThumbnail(key: string): Promise<Uint8Array | null>;
+  /** Caches a thumbnail strip the renderer drew. */
+  storePresetThumbnail(key: string, png: Uint8Array): Promise<void>;
+  /** Opens the user presets folder in the file manager. */
+  revealPresets(): Promise<void>;
   /** Shows an open dialog for a video and identifies it. Extraction is `prepareVideo`. */
   importVideo(): Promise<VideoFile | null>;
   /**

@@ -44,7 +44,7 @@ export const cityManifest: ModuleManifest = {
       ],
     },
     { key: 'size', label: 'Blocks per side', group: 'City', type: 'int', default: 20, min: 4, max: MAX_SIDE },
-    { key: 'height', label: 'Height', group: 'City', type: 'float', default: 5, min: 0.2, max: 30, softMax: 12, unit: 'units' },
+    { key: 'towerHeight', label: 'Height', group: 'City', type: 'float', default: 5, min: 0.2, max: 30, softMax: 12, unit: 'units' },
     { key: 'base', label: 'Base height', group: 'City', type: 'float', default: 0.15, min: 0, max: 5, unit: 'units' },
     { key: 'width', label: 'Tower width', group: 'City', type: 'float', default: 0.75, min: 0.1, max: 1 },
     { key: 'jitter', label: 'Variety', group: 'City', type: 'float', default: 0.35, min: 0, max: 1, description: 'Seeded differences between towers' },
@@ -100,7 +100,7 @@ gl_FragColor *= 1.0 - smoothstep(pf_fade * 0.6, pf_fade, length(vViewPosition));
     update({ ctx, params, spectrum, source, level }) {
       const side = Math.min(MAX_SIDE, Math.max(1, Math.round(num(params, 'size'))));
       const layout = str(params, 'layout');
-      const height = num(params, 'height');
+      const height = num(params, 'towerHeight');
       const base = num(params, 'base');
       const width = num(params, 'width') * SPACING;
       const jitter = num(params, 'jitter');

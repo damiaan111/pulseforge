@@ -1,0 +1,54 @@
+{
+  "formatVersion": 1,
+  "scope": "layer",
+  "name": "Retro tunnel",
+  "tags": [
+    "retro",
+    "tunnel",
+    "crt"
+  ],
+  "module": {
+    "id": "core.visualizer.tunnel",
+    "version": "0.1.0",
+    "paramsSchemaVersion": 1
+  },
+  "values": {
+    "rings": 9,
+    "twist": 0.6
+  },
+  "effects": [
+    {
+      "module": "core.effect.scanlines",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "lines": 180,
+        "depth": 0.5
+      },
+      "paramsSchemaVersion": 1
+    },
+    {
+      "module": "core.effect.bloom",
+      "name": "",
+      "enabled": true,
+      "values": {},
+      "paramsSchemaVersion": 1
+    }
+  ],
+  "modulations": [],
+  "transform": {
+    "x": 0.5,
+    "y": 0.5,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotationDeg": 0,
+    "skewXDeg": 0,
+    "skewYDeg": 0,
+    "anchor": "center",
+    "scaleReference": "min",
+    "extra": {}
+  },
+  "blend": "normal",
+  "opacity": 1,
+  "aspectOverrides": {}
+}

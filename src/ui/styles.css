@@ -123,7 +123,7 @@ h2 {
 
 /* --- left rail ----------------------------------------------------------- */
 
-.left-rail { background: var(--bg); padding: 8px 10px; overflow-y: auto; }
+.left-rail { background: var(--bg); padding: 8px 10px; overflow-y: auto; overflow-x: hidden; }
 .module-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 dl.compact { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 6px 0; font-size: 11.5px; }
 dl.compact dt { color: var(--text-dim); }
@@ -325,3 +325,33 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .job-meta { color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 .job-error { color: var(--bad); font-size: 12px; white-space: pre-wrap; }
 .job-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+/* --- preset browser (S8, ui-spec §5) --------------------------------------- */
+
+.presets-head { display: flex; align-items: center; gap: 6px; }
+.presets-head h2 { margin-right: auto; }
+.presets-filters { display: flex; gap: 4px; margin: 6px 0; }
+.presets-filters button { flex: 1; }
+.tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.chip { padding: 1px 7px; font-size: 11px; border-radius: 10px; }
+.preset-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 360px; overflow-y: auto; }
+.preset-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-raised); overflow: hidden; min-width: 0; }
+.preset-card.open { grid-column: 1 / -1; border-color: var(--accent); }
+.preset-thumb { display: block; width: 100%; padding: 0; border: 0; border-radius: 0; aspect-ratio: 16 / 9; background: #05060a; cursor: pointer; }
+/* The strip holds eight frames side by side; stepping the position through them animates it. */
+.preset-thumb .strip { display: block; width: 100%; height: 100%; background-size: 800% 100%; background-position: 0 0; background-repeat: no-repeat; }
+.preset-thumb .strip.loading { background: repeating-linear-gradient(135deg, #0b0c12 0 6px, #11131b 6px 12px); }
+.preset-thumb:hover .strip:not(.loading) { animation: pf-strip 1.4s steps(7, jump-none) infinite alternate; }
+@keyframes pf-strip { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+.presets-panel input[type="search"] { width: 100%; box-sizing: border-box; }
+.preset-visual { position: relative; }
+.preset-corner { position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; opacity: 0.35; transition: opacity 120ms; }
+.preset-card:hover .preset-corner, .preset-card.open .preset-corner, .preset-corner:has(.star.on) { opacity: 1; }
+.preset-corner button { padding: 0 5px; line-height: 16px; border: 0; background: rgba(5, 6, 10, 0.7); }
+.preset-name { padding: 3px 6px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.star.on { color: var(--warn); }
+.preset-sub { padding: 0 6px 4px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preset-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 6px 6px; }
+.preset-actions button.danger { color: var(--bad); }
+.preset-tags { width: 100%; font-size: 11px; }
+.save-preset-dialog { width: min(420px, 92vw); }

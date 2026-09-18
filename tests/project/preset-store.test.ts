@@ -7,6 +7,7 @@ import { createModuleLayer } from '../../src/project/create.ts';
 import { createLayerPreset, stringifyPreset, type ManifestLookup, type Preset } from '../../src/project/presets.ts';
 import {
   PresetStore,
+  presetThumbnailKey,
   searchPresets,
   slugify,
   tagCounts,
@@ -213,5 +214,41 @@ describe('delete messages distinguish the two cases', () => {
 
     await expect(store.remove('layer', 'shipped')).rejects.toThrow(/built-in preset and cannot be deleted/);
     await expect(store.remove('layer', 'never-existed')).rejects.toThrow(/no preset "never-existed"/);
+  });
+});
+
+describe('favourites and thumbnails (S8)', () => {
+  it('stars and unstars presets, and a deleted preset stops being a favourite', async () => {
+    const store = new PresetStore({ root });
+    expect(await store.favourites()).toEqual(new Set());
+    const slug = await store.save(preset('Neon Pulse'));
+    await store.setFavourite('layer', slug, true);
+    expect(await store.favourites()).toEqual(new Set(['layer/neon-pulse']));
+    await store.remove('layer', slug);
+    expect(await store.favourites()).toEqual(new Set());
+  });
+
+  it('a corrupt favourites file is no favourites, not a crash', async () => {
+    const store = new PresetStore({ root });
+    await writeFile(join(root, 'favourites.json'), '{not json');
+    expect(await store.favourites()).toEqual(new Set());
+  });
+
+  it('caches thumbnails by key and refuses a key that could name a path', async () => {
+    const store = new PresetStore({ root });
+    const key = presetThumbnailKey(preset('A'), '1.0');
+    expect(await store.readThumbnail(key)).toBeNull();
+    await store.writeThumbnail(key, new Uint8Array([1, 2, 3]));
+    expect([...(await store.readThumbnail(key))!]).toEqual([1, 2, 3]);
+    await expect(store.writeThumbnail('../escape', new Uint8Array([1]))).rejects.toThrow();
+    expect(await store.readThumbnail('../escape')).toBeNull();
+  });
+
+  it('the thumbnail key follows the look and the engine', () => {
+    const a = preset('A');
+    expect(presetThumbnailKey(a, '1.0')).toBe(presetThumbnailKey(preset('A'), '1.0'));
+    expect(presetThumbnailKey(a, '1.0')).not.toBe(presetThumbnailKey(a, '1.1'));
+    expect(presetThumbnailKey(a, '1.0')).not.toBe(presetThumbnailKey({ ...a, values: { glow: 0.1 } } as Preset, '1.0'));
+    expect(presetThumbnailKey(a, '1.0')).toMatch(/^[0-9a-f]{32}$/);
   });
 });

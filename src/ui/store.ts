@@ -33,7 +33,7 @@ import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
-import type { ImageBytes, LibraryListing, RenderJob } from '../shell/ipc.ts';
+import type { ImageBytes, LibraryListing, PresetLibraryListing, RenderJob } from '../shell/ipc.ts';
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
@@ -133,6 +133,16 @@ export interface StudioState {
   moduleProblems: readonly ModuleFolderProblem[];
   modulesFolder: string | null;
   loadModules(): Promise<void>;
+
+  /** The preset library (S8): built-ins and the user's own, favourites marked; null until listed. */
+  presets: PresetLibraryListing | null;
+  /** The Save preset dialog, open for a scope, or closed. */
+  presetDialog: 'layer' | 'project' | null;
+  loadPresets(): Promise<void>;
+  setPresets(listing: PresetLibraryListing): void;
+  setPresetDialog(scope: 'layer' | 'project' | null): void;
+  deletePreset(scope: 'layer' | 'project', slug: string): Promise<void>;
+  setPresetFavourite(scope: 'layer' | 'project', slug: string, on: boolean): Promise<void>;
 
   /** The managed library folder (M40, D6); null until first listed. */
   library: LibraryListing | null;
@@ -484,6 +494,41 @@ export const useStudio = create<StudioState>((set, get) => ({
       set({ userModules: scan.modules, moduleProblems: scan.problems, modulesFolder: scan.root });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Reading the modules folder'), kind: 'bad' } });
+    }
+  },
+
+  presets: null,
+  presetDialog: null,
+
+  async loadPresets() {
+    try {
+      set({ presets: await window.pulseforge.listPresets() });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the presets'), kind: 'bad' } });
+    }
+  },
+
+  setPresets(listing) {
+    set({ presets: listing });
+  },
+
+  setPresetDialog(scope) {
+    set({ presetDialog: scope });
+  },
+
+  async deletePreset(scope, slug) {
+    try {
+      set({ presets: await window.pulseforge.deletePreset(scope, slug) });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Deleting the preset'), kind: 'bad' } });
+    }
+  },
+
+  async setPresetFavourite(scope, slug, on) {
+    try {
+      set({ presets: await window.pulseforge.setPresetFavourite(scope, slug, on) });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Starring the preset'), kind: 'bad' } });
     }
   },
 

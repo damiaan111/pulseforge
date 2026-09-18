@@ -1,0 +1,47 @@
+{
+  "formatVersion": 1,
+  "scope": "layer",
+  "name": "Soft waves",
+  "tags": [
+    "calm",
+    "waves",
+    "ambient"
+  ],
+  "module": {
+    "id": "core.visualizer.waves",
+    "version": "0.1.0",
+    "paramsSchemaVersion": 1
+  },
+  "values": {
+    "lines": 12,
+    "amplitude": 0.09,
+    "fill": "#8ea4d2"
+  },
+  "effects": [
+    {
+      "module": "core.effect.blur",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "radius": 0.003
+      },
+      "paramsSchemaVersion": 1
+    }
+  ],
+  "modulations": [],
+  "transform": {
+    "x": 0.5,
+    "y": 0.5,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotationDeg": 0,
+    "skewXDeg": 0,
+    "skewYDeg": 0,
+    "anchor": "center",
+    "scaleReference": "min",
+    "extra": {}
+  },
+  "blend": "normal",
+  "opacity": 1,
+  "aspectOverrides": {}
+}

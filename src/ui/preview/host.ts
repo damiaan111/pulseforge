@@ -68,6 +68,8 @@ export class PreviewHost {
   private videoSequences: readonly { hash: string; frameCount: number }[] = [];
   private fetching: Promise<void> | null = null;
   private userModules: readonly ModuleDefinition[] = [];
+  /** A second engine on the same context for stills — preset thumbnails (S8). Created on first use. */
+  private stills: Engine | null = null;
 
   private running = false;
   private rafHandle = 0;
@@ -121,6 +123,8 @@ export class PreviewHost {
     this.rafHandle = 0;
     this.feeder?.dispose();
     this.feeder = null;
+    this.stills?.dispose();
+    this.stills = null;
     this.engine?.dispose();
     this.engine = null;
     this.gl = null;
@@ -210,6 +214,7 @@ export class PreviewHost {
   setModules(definitions: readonly ModuleDefinition[]): void {
     this.userModules = definitions;
     this.engine?.addModules(definitions);
+    this.stills?.addModules(definitions);
     this.needsRedraw = true;
   }
 
@@ -341,6 +346,40 @@ export class PreviewHost {
       this.callbacks.onStatus(clock.transport, clock.timelineSeconds, clock.stats);
     }
   };
+
+  /**
+   * Renders frames of a separate project on this host's context — preset thumbnails (S8).
+   *
+   * A second engine, so nothing about the preview changes: its output, its compiled bindings and
+   * its layer instances stay as they were. It shares what makes a picture right — the context, the
+   * fonts, the decoded images and the drop-in modules — so a thumbnail draws exactly what the
+   * preview would. Final quality, no dither, rows top-down. Null before the context exists.
+   */
+  renderStills(project: RenderProject, analysis: AnalysisSet, frames: readonly number[]): Uint8Array[] | null {
+    if (this.gl === null || this.failed) return null;
+    if (this.stills === null) {
+      this.stills = createEngine(this.gl, {
+        quality: 'final',
+        text: this.text,
+        output: { transfer: 'srgb', dither: false, flipY: true, bitDepth: 8 },
+      });
+      this.stills.addModules(this.userModules);
+    }
+    const stills = this.stills;
+    for (const [hash, image] of this.images) {
+      if (!stills.hasImage(hash)) stills.setImage(hash, image);
+    }
+    const out: Uint8Array[] = [];
+    for (const frame of frames) {
+      stills.renderFrame(project, analysis, frame);
+      const bytes = new Uint8Array(project.canvas.width * project.canvas.height * 4);
+      stills.readOutputSync(bytes);
+      out.push(bytes);
+    }
+    // The preview's own picture is untouched, but its canvas may need presenting again.
+    this.needsRedraw = true;
+    return out;
+  }
 
   private renderFrame(engine: Engine, gl: WebGL2RenderingContext, project: RenderProject, frameIndex: number): void {
     // Preview resolution is the project's, scaled. Even dimensions keep it comparable with the

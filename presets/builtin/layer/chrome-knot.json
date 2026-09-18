@@ -1,0 +1,61 @@
+{
+  "formatVersion": 1,
+  "scope": "layer",
+  "name": "Chrome knot",
+  "tags": [
+    "3d",
+    "cinematic",
+    "shape"
+  ],
+  "module": {
+    "id": "core.scene3d.shapes",
+    "version": "0.1.0",
+    "paramsSchemaVersion": 1
+  },
+  "values": {
+    "shape": "knot",
+    "metalness": 0.85,
+    "roughness": 0.2,
+    "faceted": false,
+    "color": "#c9d4ff",
+    "glow": 0.3
+  },
+  "effects": [
+    {
+      "module": "core.effect.dof",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "focus": 5.2,
+        "range": 0.8,
+        "amount": 0.6
+      },
+      "paramsSchemaVersion": 1
+    },
+    {
+      "module": "core.effect.bloom",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "threshold": 0.6
+      },
+      "paramsSchemaVersion": 1
+    }
+  ],
+  "modulations": [],
+  "transform": {
+    "x": 0.5,
+    "y": 0.5,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotationDeg": 0,
+    "skewXDeg": 0,
+    "skewYDeg": 0,
+    "anchor": "center",
+    "scaleReference": "min",
+    "extra": {}
+  },
+  "blend": "normal",
+  "opacity": 1,
+  "aspectOverrides": {}
+}

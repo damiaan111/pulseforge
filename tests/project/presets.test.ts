@@ -164,6 +164,32 @@ describe('applyLayerPreset', () => {
     expect(applied.layer.params).toEqual({ barCount: 96, mode: 'radial' });
   });
 
+  it('modulationsOnly keeps the layer and takes only the bindings, rebound onto it', () => {
+    const preset = createLayerPreset(barsLayer(), manifests);
+    const target = {
+      ...createModuleLayer('core.visualizer.bars', { id: 'target1', params: { glow: 0.9 } }),
+      effects: [createEffect('core.fx.bloom', { id: 'mine' })],
+    };
+    const applied = applyLayerPreset(preset, target, { newId, manifests, modulationsOnly: true });
+    expect(applied.layer.id).toBe('target1');
+    expect(applied.layer.params).toEqual({ glow: 0.9 });
+    expect(applied.layer.effects.map((e) => e.id)).toEqual(['mine']);
+    // "The first effect" in the preset is the target's first effect.
+    expect(applied.layer.modulations.map((m) => m.target)).toEqual([
+      'layers.target1.params.barCount',
+      'layers.target1.effects.mine.params.intensity',
+    ]);
+    expect(applied.notes).toEqual([]);
+  });
+
+  it('modulationsOnly says so when the target is a different module', () => {
+    const preset = createLayerPreset(barsLayer(), manifests);
+    const target = createModuleLayer('core.visualizer.rings', { id: 'rings1' });
+    const applied = applyLayerPreset(preset, target, { newId, manifests, modulationsOnly: true });
+    expect(applied.layer.module).toBe('core.visualizer.rings');
+    expect(applied.notes.join(' ')).toContain('core.visualizer.bars');
+  });
+
   it('keepName preserves the layer’s name', () => {
     const preset = createLayerPreset(barsLayer(), manifests);
     const target = createModuleLayer('core.visualizer.bars', { id: 't', name: 'My layer' });

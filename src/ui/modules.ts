@@ -7,8 +7,10 @@
 import { useMemo } from 'react';
 
 import type { ModuleDefinition, ModuleManifest } from '../engine/core/module.ts';
+import { resolveParams } from '../engine/core/params.ts';
 import { BUILTIN_MODULES } from '../engine/engine.ts';
 import { shaderModuleDefinition, type ShaderModuleSource } from '../engine/modules/shader-module.ts';
+import type { ManifestLookup } from '../project/presets.ts';
 import { useStudio } from './store.ts';
 
 const cache = new WeakMap<readonly ShaderModuleSource[], readonly ModuleDefinition[]>();
@@ -28,4 +30,23 @@ export function useModules(): { all: readonly ModuleDefinition[]; manifests: Rea
     const all = moduleDefinitions(userModules);
     return { all, manifests: new Map(all.map((m) => [m.manifest.id, m.manifest])) };
   }, [userModules]);
+}
+
+/**
+ * Module defaults in the shape the preset code wants (src/project/presets.ts keeps itself free of
+ * the engine by taking this as a function). Defaults are resolved once per module.
+ */
+export function manifestLookup(manifests: ReadonlyMap<string, ModuleManifest>): ManifestLookup {
+  const resolved = new Map<string, ReturnType<ManifestLookup>>();
+  return (id) => {
+    if (!resolved.has(id)) {
+      const manifest = manifests.get(id);
+      resolved.set(id, manifest === undefined ? undefined : {
+        version: manifest.version,
+        paramsSchemaVersion: manifest.paramsSchemaVersion,
+        defaults: resolveParams(manifest.params, {}).values,
+      });
+    }
+    return resolved.get(id);
+  };
 }

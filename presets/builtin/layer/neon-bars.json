@@ -1,0 +1,89 @@
+{
+  "formatVersion": 1,
+  "scope": "layer",
+  "name": "Neon bars",
+  "tags": [
+    "neon",
+    "bars",
+    "glow",
+    "club"
+  ],
+  "module": {
+    "id": "core.visualizer.bars",
+    "version": "0.1.0",
+    "paramsSchemaVersion": 1
+  },
+  "values": {
+    "barCount": 72,
+    "maxHeight": 0.55
+  },
+  "effects": [
+    {
+      "module": "core.effect.bloom",
+      "name": "",
+      "enabled": true,
+      "values": {
+        "threshold": 0.45,
+        "intensity": 1.1
+      },
+      "paramsSchemaVersion": 1
+    }
+  ],
+  "modulations": [
+    {
+      "enabled": true,
+      "label": null,
+      "source": {
+        "type": "onset",
+        "stem": "mix",
+        "band": null,
+        "shape": "sine",
+        "rateHz": 1,
+        "phase": 0,
+        "syncDivision": null,
+        "noiseScale": 1,
+        "octaves": 1,
+        "from": 0,
+        "to": 1,
+        "extra": {}
+      },
+      "inputRange": "auto",
+      "curve": {
+        "type": "linear",
+        "amount": 0,
+        "extra": {}
+      },
+      "envelope": {
+        "attackMs": 5,
+        "releaseMs": 120,
+        "mode": "peak",
+        "extra": {}
+      },
+      "quantise": null,
+      "lookAheadMs": 30,
+      "amount": 0.8,
+      "offset": 0,
+      "invert": false,
+      "mode": "add",
+      "order": 0,
+      "clampOutput": null,
+      "extra": {},
+      "target": "self.effects.0.params.intensity"
+    }
+  ],
+  "transform": {
+    "x": 0.5,
+    "y": 0.5,
+    "scaleX": 1,
+    "scaleY": 1,
+    "rotationDeg": 0,
+    "skewXDeg": 0,
+    "skewYDeg": 0,
+    "anchor": "center",
+    "scaleReference": "min",
+    "extra": {}
+  },
+  "blend": "normal",
+  "opacity": 1,
+  "aspectOverrides": {}
+}
