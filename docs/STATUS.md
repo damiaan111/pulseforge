@@ -150,7 +150,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 
 ## 2. Environment (the RTX machine)
 
-- Repo: `D:\pulseforge` (must stay on D:, C: has ~19 GB free). Git branch `main`, no remote.
+- Repo: `D:\pulseforge` (must stay on D:, C: has ~19 GB free). Git branch `main`, remote `origin` = `github.com/damiaan111/pulseforge` (push with `git push origin main`; `gh` is logged in). No CI is configured.
 - Hardware: Ryzen 7 3800X (16 threads), 16 GB RAM, RTX 3060 12 GB, driver 616.92, PCIe Gen3 x16, Windows 11 (10.0.26200).
 - Node 24.19. Node-side scripts run TypeScript directly (type stripping); Electron-side code is bundled with esbuild.
 - System-wide Python 3.11 and `C:\ffmpeg` exist on PATH — **never use them**; everything goes through `vendor/` by absolute path.

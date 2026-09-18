@@ -42,7 +42,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17 | |
 | M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | 🔶 | 4.6, 4.24 | separation works through the supervised sidecar (8.6 s for 4 min); **not wired**: running it from the studio, per-stem analysis into the cache, stem status in the UI, per-stem waveform rows |
-| M6 | Determinism contract from commit one; golden frames | ✅ | 4.3, 4.12 | golden frames run locally (`npm run golden`); there is no CI server — the repo has no remote |
+| M6 | Determinism contract from commit one; golden frames | ✅ | 4.3, 4.12 | golden frames run locally (`npm run golden`); the repo is on GitHub but no CI is configured (the golden set needs the RTX GPU, so a hosted runner could not run it) |
 | M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | 🔶 | 4.3, 4.39 | **`multiply` and `overlay` blend modes**: offered in the UI, rendered as normal with a note (only normal/add/screen are implemented) |
 | M8 | Undo/redo for every mutation | ✅ | 4.15 | |
 | M27 | ML sidecar lifecycle: spawn/supervise/restart, JSON-lines, progress, cancel, health check | 🔶 | 4.24 | built and tested; nothing in the studio uses it yet (arrives with M5) |
