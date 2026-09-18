@@ -29,6 +29,7 @@ export interface EffectSpec {
 }
 
 export interface LayerSpec {
+  readonly kind?: 'module';
   readonly id: string;
   readonly module: string;
   readonly enabled: boolean;
@@ -45,6 +46,44 @@ export interface LayerSpec {
   readonly modulations?: readonly ModulationBinding[];
   /** Post-process chain on this layer alone, bottom of the list first. */
   readonly effects?: readonly EffectSpec[];
+}
+
+/**
+ * A group (M38): children composite into one target, then the group's own transform, opacity,
+ * blend and effect chain apply to that result — which is exactly what makes "fade the whole
+ * scene" or "blur these three layers together" a single control rather than three copies.
+ * Nesting is unlimited in the document; the engine bounds it (see `MAX_GROUP_DEPTH`).
+ */
+export interface GroupSpec {
+  readonly kind: 'group';
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly opacity: number;
+  readonly blend: BlendMode;
+  readonly timeRange?: LayerTimeRange;
+  readonly transform?: LayerTransform;
+  readonly effects?: readonly EffectSpec[];
+  /** Bottom → top, like the project's own list. */
+  readonly children: readonly AnyLayerSpec[];
+}
+
+export type AnyLayerSpec = LayerSpec | GroupSpec;
+
+export function isGroupSpec(layer: AnyLayerSpec): layer is GroupSpec {
+  return layer.kind === 'group';
+}
+
+/** Every layer in the tree, groups included, depth first and bottom → top. */
+export function* walkRenderLayers(layers: readonly AnyLayerSpec[]): Generator<AnyLayerSpec> {
+  for (const layer of layers) {
+    yield layer;
+    if (isGroupSpec(layer)) yield* walkRenderLayers(layer.children);
+  }
+}
+
+/** Just the module layers — for counting, reporting and collecting their bindings. */
+export function* walkRenderModules(layers: readonly AnyLayerSpec[]): Generator<LayerSpec> {
+  for (const layer of walkRenderLayers(layers)) if (!isGroupSpec(layer)) yield layer;
 }
 
 /** Frame-start-tick membership; the one place the range rule is spelled out. */
@@ -70,8 +109,8 @@ export interface RenderProject {
     readonly leadInTicks: number;
     readonly clipInTicks: number;
   };
-  /** Bottom → top. */
-  readonly layers: readonly LayerSpec[];
+  /** Bottom → top. Entries may be groups, whose children are composited first (M38). */
+  readonly layers: readonly AnyLayerSpec[];
   /**
    * Timeline length. Modulation needs it: `progress` and `ramp` are fractions of it, and
    * auto-calibration and precomputed envelopes are computed across it (modulation-spec §5, §7).

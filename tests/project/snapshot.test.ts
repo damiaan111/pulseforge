@@ -8,8 +8,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { layerIsLive } from '../../src/engine/core/project.ts';
-import { createDocument, createGroupLayer, createModuleLayer } from '../../src/project/create.ts';
+import {
+  isGroupSpec, layerIsLive, walkRenderLayers, walkRenderModules, type RenderProject,
+} from '../../src/engine/core/project.ts';
+import { createDocument, createEffect, createGroupLayer, createModuleLayer } from '../../src/project/create.ts';
 import { loadDocument } from '../../src/project/load.ts';
 import { timelineDurationTicks, toRenderProject } from '../../src/project/snapshot.ts';
 
@@ -17,9 +19,11 @@ const fixtureDocument = () =>
   loadDocument(readFileSync(fileURLToPath(new URL('./fixtures/v1-full.pvproj', import.meta.url)), 'utf8')).document;
 
 const layer = (id: string, options = {}) => createModuleLayer('core.visualizer.bars', { id, ...options });
+/** Module layers anywhere in the tree — most checks here are about a module's own resolution. */
+const modules = (project: RenderProject) => [...walkRenderModules(project.layers)];
 
 describe('toRenderProject', () => {
-  it('flattens groups into the engine layer list, bottom to top', () => {
+  it('keeps groups as groups, so the engine can composite them (M38)', () => {
     const document = {
       ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }),
       layers: [
@@ -30,8 +34,10 @@ describe('toRenderProject', () => {
       ],
     };
     const { project } = toRenderProject(document);
-    expect(project.layers.map((l) => l.id)).toEqual([
-      '0000000000K000000000000001',
+    expect(project.layers.map((l) => l.id)).toEqual(['0000000000K000000000000001', '0000000000G000000000000001']);
+    const group = project.layers[1]!;
+    expect(isGroupSpec(group)).toBe(true);
+    expect(isGroupSpec(group) ? group.children.map((c) => c.id) : []).toEqual([
       '0000000000K000000000000002',
       '0000000000K000000000000003',
     ]);
@@ -56,6 +62,24 @@ describe('toRenderProject', () => {
     expect(enabled).toEqual([false, true]);
   });
 
+  it('keeps a group alive when one of its children is soloed', () => {
+    const document = {
+      ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }),
+      layers: [
+        layer('0000000000K000000000000001'),
+        createGroupLayer(
+          [layer('0000000000K000000000000002'), { ...layer('0000000000K000000000000003'), soloed: true }],
+          { id: '0000000000G000000000000001' },
+        ),
+      ],
+    };
+    const { project } = toRenderProject(document);
+    const group = project.layers[1]!;
+    expect(project.layers[0]?.enabled).toBe(false);
+    expect(group.enabled).toBe(true); // it has to draw, or the soloed child cannot be seen
+    expect(isGroupSpec(group) ? group.children.map((c) => c.enabled) : []).toEqual([false, true]);
+  });
+
   it('carries time ranges into the snapshot', () => {
     const document = {
       ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }),
@@ -65,7 +89,7 @@ describe('toRenderProject', () => {
   });
 
   it('carries the layer effect chain into the snapshot', () => {
-    const effects = toRenderProject(fixtureDocument()).project.layers[0]?.effects;
+    const effects = modules(toRenderProject(fixtureDocument()).project)[0]?.effects;
     expect(effects).toEqual([{
       id: '0000000000E000000000000001',
       module: 'core.effect.bloom',
@@ -86,7 +110,7 @@ describe('toRenderProject', () => {
 
   it('carries modulation bindings and the timeline duration into the snapshot', () => {
     const { project } = toRenderProject(fixtureDocument());
-    const bindings = project.layers[0]?.modulations;
+    const bindings = modules(project)[0]?.modulations;
     expect(bindings).toHaveLength(1);
     expect(bindings?.[0]).toMatchObject({
       id: '0000000000M000000000000001',
@@ -104,13 +128,13 @@ describe('toRenderProject', () => {
     const landscape = fixtureDocument();
     const inLandscape = toRenderProject(landscape);
     expect(inLandscape.aspect).toBe('16:9');
-    expect(inLandscape.project.layers[0]?.transform).toMatchObject({ y: 0.75, anchor: 'bottom-center', scaleReference: 'width' });
+    expect(modules(inLandscape.project)[0]?.transform).toMatchObject({ y: 0.75, anchor: 'bottom-center', scaleReference: 'width' });
 
     const vertical = { ...landscape, canvas: { ...landscape.canvas, width: 1080, height: 1920 } };
     const inVertical = toRenderProject(vertical);
     expect(inVertical.aspect).toBe('9:16');
     // Only the overridden property changes; everything else still inherits the base.
-    expect(inVertical.project.layers[0]?.transform).toMatchObject({ y: 0.62, anchor: 'bottom-center', scaleReference: 'width' });
+    expect(modules(inVertical.project)[0]?.transform).toMatchObject({ y: 0.62, anchor: 'bottom-center', scaleReference: 'width' });
   });
 
   it('applies overridden params over the base params, leaving the rest alone', () => {
@@ -118,18 +142,25 @@ describe('toRenderProject', () => {
       const d = fixtureDocument();
       return { ...d, canvas: { ...d.canvas, width: 1080, height: 1920 } };
     })();
-    const params = toRenderProject(vertical).project.layers[0]?.params;
+    const params = modules(toRenderProject(vertical).project)[0]?.params;
     expect(params).toMatchObject({ barCount: 24, source: 'drums', glow: 0.4 });
-    expect(toRenderProject(fixtureDocument()).project.layers[0]?.params).toMatchObject({ barCount: 64 });
+    expect(modules(toRenderProject(fixtureDocument()).project)[0]?.params).toMatchObject({ barCount: 64 });
   });
 
-  it('notes a group transform, which does not yet compose onto its children', () => {
+  it('carries a group transform, opacity, blend and effects to the engine (M38)', () => {
     const child = layer('0000000000K000000000000002');
-    const group = createGroupLayer([child], { id: '0000000000G000000000000001', transform: { x: 0.25 } });
+    const group = {
+      ...createGroupLayer([child], { id: '0000000000G000000000000001', transform: { x: 0.25 }, opacity: 0.5, blend: 'add' as const }),
+      effects: [createEffect('core.effect.bloom', { id: '0000000000E000000000000009' })],
+    };
     const document = { ...createDocument({ timestamp: '2026-09-14T00:00:00.000Z' }), layers: [group] };
-    const text = toRenderProject(document).notes.map((n) => n.detail).join('\n');
-    expect(text).toContain('group compositing (M38) is not implemented');
-    expect(text).toContain('do not yet compose onto their children');
+    const { project, notes } = toRenderProject(document);
+    const spec = project.layers[0]!;
+    expect(spec.transform).toMatchObject({ x: 0.25 });
+    expect(spec.opacity).toBe(0.5);
+    expect(spec.blend).toBe('add');
+    expect(spec.effects?.[0]?.module).toBe('core.effect.bloom');
+    expect(notes.map((n) => n.detail).join(' ')).not.toContain('M38');
   });
 
   it('falls back on a blend mode the compositor lacks, and says which', () => {
@@ -203,36 +234,22 @@ describe('groups clip and solo their children', () => {
     layers,
   });
 
-  it('a group time range clips its children', () => {
-    // A group scoped to a section must scope everything inside it, or a layer keeps drawing
-    // after the section it belongs to has ended.
-    const child = layer('0000000000K000000000000001', { timeRange: { inTicks: 0, outTicks: null } });
-    const group = createGroupLayer([child], {
-      id: '0000000000G000000000000001',
-      timeRange: { inTicks: 48_000, outTicks: 96_000 },
-    });
-    const { project } = toRenderProject(doc([group]));
-    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 48_000, outTicks: 96_000 });
-  });
-
-  it('intersects rather than replaces, so the tighter bound wins on each side', () => {
+  it('keeps the group’s range and the child’s as written; the engine applies both (M38)', () => {
+    // A group scoped to a section still scopes everything inside it — but the engine does that
+    // by skipping the whole subtree when the group is not live, so the snapshot no longer has to
+    // fold the parent's bounds into each child (and could not, now that groups render as one).
     const child = layer('0000000000K000000000000001', { timeRange: { inTicks: 60_000, outTicks: 200_000 } });
     const group = createGroupLayer([child], {
       id: '0000000000G000000000000001',
       timeRange: { inTicks: 48_000, outTicks: 96_000 },
     });
     const { project } = toRenderProject(doc([group]));
-    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 60_000, outTicks: 96_000 });
+    const spec = project.layers[0]!;
+    expect(spec.timeRange).toEqual({ inTicks: 48_000, outTicks: 96_000 });
+    expect(isGroupSpec(spec) ? spec.children[0]?.timeRange : undefined).toEqual({ inTicks: 60_000, outTicks: 200_000 });
   });
 
-  it('an open-ended parent leaves the child’s own bound alone', () => {
-    const child = layer('0000000000K000000000000001', { timeRange: { inTicks: 10, outTicks: 20 } });
-    const group = createGroupLayer([child], { id: '0000000000G000000000000001' });
-    const { project } = toRenderProject(doc([group]));
-    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 10, outTicks: 20 });
-  });
-
-  it('nests through several groups', () => {
+  it('nests, each level keeping its own range', () => {
     const child = layer('0000000000K000000000000001');
     const inner = createGroupLayer([child], {
       id: '0000000000G000000000000002',
@@ -243,7 +260,10 @@ describe('groups clip and solo their children', () => {
       timeRange: { inTicks: 48_000, outTicks: null },
     });
     const { project } = toRenderProject(doc([outer]));
-    expect(project.layers[0]!.timeRange).toEqual({ inTicks: 48_000, outTicks: 150_000 });
+    const outerSpec = project.layers[0]!;
+    expect(outerSpec.timeRange).toEqual({ inTicks: 48_000, outTicks: null });
+    const innerSpec = isGroupSpec(outerSpec) ? outerSpec.children[0]! : undefined;
+    expect(innerSpec?.timeRange).toEqual({ inTicks: 0, outTicks: 150_000 });
   });
 
   it('soloing a group shows its children, not nothing', () => {
@@ -252,7 +272,8 @@ describe('groups clip and solo their children', () => {
     const group = { ...createGroupLayer([child], { id: '0000000000G000000000000001' }), soloed: true };
     const other = layer('0000000000K000000000000002');
     const { project } = toRenderProject(doc([group, other as never]));
-    expect(project.layers.find((l) => l.id === '0000000000K000000000000001')!.enabled).toBe(true);
-    expect(project.layers.find((l) => l.id === '0000000000K000000000000002')!.enabled).toBe(false);
+    const all = [...walkRenderLayers(project.layers)];
+    expect(all.find((l) => l.id === '0000000000K000000000000001')!.enabled).toBe(true);
+    expect(all.find((l) => l.id === '0000000000K000000000000002')!.enabled).toBe(false);
   });
 });

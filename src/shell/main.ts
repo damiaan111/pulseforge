@@ -670,6 +670,20 @@ app.whenReady().then(async () => {
         await new Promise((done) => setTimeout(done, 50));
       }
 
+      // Groups (M38): grouping the selected layer must give a group row that the inspector
+      // recognises, and undo must put the layer back where it was.
+      let grouping = false;
+      const rowsBeforeGrouping = document.querySelectorAll('#app .layer-row').length;
+      document.querySelector('#app .layer-actions [data-action="group"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 80));
+      const rows = [...document.querySelectorAll('#app .layer-row .meta')].map((m) => m.textContent ?? '');
+      const ungroup = document.querySelector('#app .layer-actions [data-action="ungroup"]');
+      if (ungroup !== null) {
+        ungroup.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+      }
+      grouping = rows.some((text) => text.startsWith('group')) && document.querySelectorAll('#app .layer-row').length === rowsBeforeGrouping;
+
       // The text layer (M16), end to end: adding it must give a generated text box in the
       // inspector, and the preview must actually rasterise — the engine notes would otherwise say
       // "no text rasteriser" or "fonts are still loading", which is what a missing font bundle or
@@ -736,6 +750,7 @@ app.whenReady().then(async () => {
         effectChain,
         imageControl,
         textLayer,
+        grouping,
         libraryToAsset,
         exportDialog,
       };

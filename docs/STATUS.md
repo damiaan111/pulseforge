@@ -27,7 +27,7 @@
 | P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
-| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅ (§4.28–§4.38); remaining in §4.33 |
+| **P4 — Library** | 🔶 in progress — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅ (§4.28–§4.39); remaining in §4.33 |
 | P5 … P8 | ⬜ not started |
 
 P4 steps:
@@ -44,7 +44,8 @@ P4 steps:
 | 8 | Background layer (M14): solid/gradient/image, fit modes, Ken Burns; image assets end to end | ✅ | `e20d14c` |
 | — | Code and UI audit (§4.36) | ✅ | `96520b9` |
 | 9 | Asset library (M40): status, relink, find-in-folder, collect files, relative paths, library folder | ✅ | `daaea3b` |
-| 10 | Text layer (M16, M32): deterministic rasterisation, per-word metrics, styling, animation, bundled fonts | ✅ | (this commit) |
+| 10 | Text layer (M16, M32): deterministic rasterisation, per-word metrics, styling, animation, bundled fonts | ✅ | `5472289` |
+| 11 | Layer groups (M38): real group compositing, group/ungroup in the studio | ✅ | (this commit) |
 
 P3 steps:
 
@@ -483,10 +484,8 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - `htdemucs_ft` not provisioned or measured (manifest entry needed: it is a bag of 4 models, each weight file pinned).
 - HEVC 10-bit export is ~2× slower than H.264 because it reads RGBA10 and converts on the CPU; a GPU P010 path
   (16-bit samples packed like NV12) would likely close the gap.
-- Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7) and
-  **group compositing** (M38 — a group's own transform, opacity, blend and effects applied to its
-  composited children). Blend modes beyond normal/add/screen fall back with a note. What a group
-  says about *visibility* — enabled, soloed, time range — does now reach its children (§4.20).
+- Still not rendered, and noted by `toRenderProject` rather than dropped: **masks** (S7). Blend
+  modes beyond normal/add/screen fall back with a note. Group compositing (M38) landed in §4.39.
 - Two effects exist (bloom, vignette) against M12's target of ten.
 - Presets and their on-disk store landed (§4.19, §4.25); the *browser* UI and thumbnails (S8) have not.
 - Schema choice worth flagging: `transform` stores `scaleX`/`scaleY` rather than PROJECT.md §7's
@@ -1333,7 +1332,7 @@ suggested order:
 3. ✅ **Asset library** (M40) — §4.37. Fonts join it with the text layer; video with M39.
 4. ✅ **Text layer** (M16, M32) — §4.38.
 5. **Logo layer** (M15) — an image layer with reactive pulse, cheap once 2–3 exist.
-6. **Group compositing** (M38): group transform/opacity/blend/effects over composited children.
+6. ✅ **Group compositing** (M38) — §4.39.
 7. **Video layers** (M39): frame cache at project fps.
 8. **Three.js scene layers** (M37): shared context, state save/restore, depth output.
 9. **Preset browser UI** (S8) and **`modules/` drop-in folder + authoring guide** (M35).
@@ -1601,3 +1600,37 @@ a CLI render of background + bars + animated title wrote a verified 1080p60 MP4 
 boundary is where that lands); per-line and per-role overrides, background-plate blur, and
 keyframed text (S1) belong with the lyrics work (P6); no font picker browsing the system font
 folder yet — you choose a file.
+
+
+---
+
+### 4.39 Layer groups (P4 step 11) — M38, compositor-spec §1
+
+A group is now a real thing in the engine, not a flattening step. Its children composite into the
+group's own target, and the group's transform, opacity, blend and effect chain then apply to that
+**result** — the difference between fading a scene and fading three layers, which is the whole
+reason groups exist.
+
+- `Compositor.drawInto(target, layers)` is the per-layer loop, extracted. `composite()` calls it for
+  the frame; a group's `draw` calls it for its children. One code path, so a group behaves exactly
+  like a layer at every level.
+- `RenderProject.layers` is now a tree: `GroupSpec` (`kind: 'group'`, `children`) alongside
+  `LayerSpec`, with `walkRenderLayers` / `walkRenderModules` for callers that want them flat (the
+  render report's layer list, the modulation bindings collector, tests).
+- `engine.ts` builds layers recursively; a group's `enabled` and time range skip the whole subtree,
+  and nesting is capped at **8 deep** with a warning, since a document arrives from disk and each
+  level costs a render target.
+- `toRenderProject` keeps the nesting instead of flattening it, so `clipToParents` is gone: the
+  engine applies a group's time range to its subtree directly. Solo now has one extra rule — a group
+  containing a soloed layer stays enabled, or soloing a child would hide it with its group.
+- Studio: **Group** / **Ungroup** in the layer actions (`groupLayers`, `ungroupLayer` commands —
+  siblings only, order preserved, the group lands where the topmost of them was), and the inspector
+  says what a group controls rather than "groups have no parameters".
+
+Verified here: `npm run check` **666 tests** — new `tests/golden/groups-gpu.test.ts` proves the
+distinction directly (two opaque children in a 50 % group show only the top one at 50 %; flattening
+would bleed the lower one through), plus group transform, group effects, time range and the depth
+cap; `tests/project/commands.test.ts` covers group/ungroup, nesting and the different-parents
+refusal; `npm run golden` **15/15 identical**; `--smoke` **12/12** with a new `grouping` check.
+
+Not included: dragging layers into a group in the list (use Group/Ungroup for now), and masks (S7).

@@ -3,11 +3,11 @@
 import { BUILTIN_MODULES } from '../../engine/engine.ts';
 import { secondsToTicks } from '../../engine/core/time.ts';
 import {
-  addLayer, addPaletteColor, duplicateLayer, moveLayer, removeLayer, removePaletteColor, setAudio,
-  setLayerFlag, setPaletteColor, setPaletteRole,
+  addLayer, addPaletteColor, duplicateLayer, findLayer, groupLayers, moveLayer, removeLayer,
+  removePaletteColor, setAudio, setLayerFlag, setPaletteColor, setPaletteRole, ungroupLayer,
 } from '../../project/commands.ts';
 import { PALETTE_ROLES } from '../../project/palette.ts';
-import { createModuleLayer } from '../../project/create.ts';
+import { createGroupLayer, createModuleLayer } from '../../project/create.ts';
 import { walkLayers, type Layer } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
@@ -116,6 +116,23 @@ export function LeftRail(): React.JSX.Element {
           <button type="button" onClick={() => run(moveLayer(selectedLayerId, { index: Number.MAX_SAFE_INTEGER }))}>
             To top
           </button>
+          {/* Groups composite their children into one image, so the group's transform, opacity,
+              blend and effects apply to the result (M38). */}
+          {findLayer(document, selectedLayerId)?.kind === 'group' ? (
+            <button type="button" data-action="ungroup" onClick={() => run(ungroupLayer(selectedLayerId))}>Ungroup</button>
+          ) : (
+            <button
+              type="button"
+              data-action="group"
+              onClick={() => {
+                const group = createGroupLayer([], { id: newId(), name: 'Group' });
+                run(groupLayers([selectedLayerId], group));
+                select(group.id);
+              }}
+            >
+              Group
+            </button>
+          )}
         </div>
       )}
 

@@ -159,7 +159,12 @@ export function Inspector(): React.JSX.Element {
 
       {manifest === undefined ? (
         layer.kind === 'group'
-          ? <p className="empty">Groups have no module parameters.</p>
+          ? (
+            <p className="empty">
+              A group has no parameters of its own. Its children are composited first, then this
+              group’s transform, opacity, blend and effects apply to the result.
+            </p>
+          )
           : <p className="bad">Module “{layer.module}” is not installed. Its settings are preserved.</p>
       ) : (
         [...groups.entries()].map(([group, specs]) => {

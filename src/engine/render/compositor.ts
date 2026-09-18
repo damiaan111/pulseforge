@@ -1,9 +1,14 @@
-// The compositor (compositor-spec §1–3), P0 subset: a stack of layers without effects,
-// masks or groups.
+// The compositor (compositor-spec §1–3): a stack of layers with effects and groups; masks are
+// still to come (S7).
 //
-//   per layer: acquire RGBA16F target → module draws (linear, premultiplied) →
-//              opacity + blend into the composite target → release
+//   per layer: acquire RGBA16F target → module draws (linear, premultiplied) → effect chain →
+//              transform + opacity + blend into the composite target → release
 //   → output pass: tone map → OETF → dither → quantise to RGBA8, flipped top-down
+//
+// A **group** (M38) is the same thing one level down: its children composite into its own target,
+// and the group's transform, opacity, blend and effects then apply to that result exactly as they
+// would to a module's. That is why `drawInto` exists as a public entry point — the engine hands a
+// group a `draw` that calls back into the compositor with the group's children.
 //
 // The two decisions that change every project's appearance are fixed here: linear-light
 // compositing and premultiplied alpha throughout.
@@ -167,45 +172,7 @@ export class Compositor {
     gl.clearColor(background.r, background.g, background.b, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    for (const layer of layers) {
-      if (!(layer.opacity > 0)) continue;
-      let target = this.pool.acquire(width, height, 'rgba16f');
-      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
-      resetState(gl, width, height);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      // Modules draw premultiplied "over" by default; they may change blend state themselves.
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-      layer.draw(target);
-
-      // Effects run on the layer alone, before its transform and blend (compositor-spec §1).
-      // runEffectChain consumes `target` and hands back one to release.
-      if (layer.effects !== undefined && layer.effects.length > 0) {
-        target = runEffectChain(gl, this.pool, target, layer.effects);
-      }
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, composite.framebuffer);
-      resetState(gl, width, height);
-      gl.enable(gl.BLEND);
-      setBlend(gl, layer.blend);
-      gl.useProgram(this.layerProgram);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, target.texture);
-      const transformed = layer.inverseTransform !== undefined;
-      // Pooled targets default to NEAREST (targets.ts); a resampled layer needs bilinear,
-      // and the filter is set every time because the pool hands the same texture around.
-      const filter = transformed ? gl.LINEAR : gl.NEAREST;
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
-      gl.uniform1i(this.layerUniforms.layer, 0);
-      gl.uniform1f(this.layerUniforms.opacity, Math.min(1, layer.opacity));
-      gl.uniform1i(this.layerUniforms.transformed, transformed ? 1 : 0);
-      gl.uniformMatrix3fv(this.layerUniforms.inverse, false, layer.inverseTransform ?? IDENTITY_MAT3);
-      drawFullscreenTriangle(gl, this.vao);
-      gl.bindTexture(gl.TEXTURE_2D, null);
-      this.pool.release(target);
-    }
+    this.drawInto(composite, layers);
 
     if (globalEffects.length > 0) {
       composite = runEffectChain(gl, this.pool, composite, globalEffects);
@@ -228,6 +195,55 @@ export class Compositor {
     gl.useProgram(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.pool.release(composite);
+  }
+
+  /**
+   * Composites `layers` into `into`, which must already hold what they draw over (the background,
+   * or nothing for a group). Used for the frame itself and, recursively, for each group.
+   */
+  drawInto(into: RenderTarget, layers: readonly CompositeLayer[]): void {
+    const gl = this.gl;
+    const { width, height } = into;
+
+    for (const layer of layers) {
+      if (!(layer.opacity > 0)) continue;
+      let target = this.pool.acquire(width, height, 'rgba16f');
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      resetState(gl, width, height);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      // Modules draw premultiplied "over" by default; they may change blend state themselves.
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      layer.draw(target);
+
+      // Effects run on the layer alone, before its transform and blend (compositor-spec §1).
+      // runEffectChain consumes `target` and hands back one to release.
+      if (layer.effects !== undefined && layer.effects.length > 0) {
+        target = runEffectChain(gl, this.pool, target, layer.effects);
+      }
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, into.framebuffer);
+      resetState(gl, width, height);
+      gl.enable(gl.BLEND);
+      setBlend(gl, layer.blend);
+      gl.useProgram(this.layerProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      const transformed = layer.inverseTransform !== undefined;
+      // Pooled targets default to NEAREST (targets.ts); a resampled layer needs bilinear,
+      // and the filter is set every time because the pool hands the same texture around.
+      const filter = transformed ? gl.LINEAR : gl.NEAREST;
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+      gl.uniform1i(this.layerUniforms.layer, 0);
+      gl.uniform1f(this.layerUniforms.opacity, Math.min(1, layer.opacity));
+      gl.uniform1i(this.layerUniforms.transformed, transformed ? 1 : 0);
+      gl.uniformMatrix3fv(this.layerUniforms.inverse, false, layer.inverseTransform ?? IDENTITY_MAT3);
+      drawFullscreenTriangle(gl, this.vao);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      this.pool.release(target);
+    }
   }
 
   dispose(): void {

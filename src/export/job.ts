@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
-import type { RenderProject } from '../engine/core/project.ts';
+import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
 import { frameCount } from '../engine/core/time.ts';
 import { ENGINE_VERSION, createEngine } from '../engine/engine.ts';
 import { prepareExportAudio, samplesForFrames, type AudioPlacement, type AudioSource, type PreparedAudio } from './audio.ts';
@@ -170,7 +170,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
       project: {
         sha256: createHash('sha256').update(JSON.stringify(project)).digest('hex'),
         seed: project.seed,
-        layers: project.layers.map((l) => ({ id: l.id, module: l.module })),
+        layers: [...walkRenderModules(project.layers)].map((l) => ({ id: l.id, module: l.module })),
       },
       canvas: { width, height, fps: `${fps.num}/${fps.den}` },
       frames: {

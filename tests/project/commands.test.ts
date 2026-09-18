@@ -8,9 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CommandError, addEffect, addLayer, addModulation, clearAspectOverride, clearParamOverride,
-  duplicateLayer, findLayer, moveEffect, moveLayer, removeEffect, removeLayer, removeModulation,
-  renameLayer, resetTransform, setEffectParam, setLayerBlend, setLayerFlag, setLayerMask,
-  setLayerParam, setLayerTransform, setPaletteColor, updateModulation,
+  duplicateLayer, findLayer, groupLayers, moveEffect, moveLayer, removeEffect, removeLayer,
+  removeModulation, renameLayer, resetTransform, setEffectParam, setLayerBlend, setLayerFlag,
+  setLayerMask, setLayerParam, setLayerTransform, setPaletteColor, ungroupLayer, updateModulation,
 } from '../../src/project/commands.ts';
 import {
   createBinding, createDocument, createEffect, createGroupLayer, createModuleLayer,
@@ -295,5 +295,46 @@ describe('immutability', () => {
     // Structural sharing is what makes a history of whole documents affordable.
     expect(after.layers[1]).toBe(before.layers[1]);
     expect(after.layers[0]).not.toBe(before.layers[0]);
+  });
+});
+
+
+describe('grouping (M38)', () => {
+  const K3 = '0000000000K000000000000003';
+  const G2 = '0000000000G000000000000002';
+
+  it('wraps layers in place, keeping their order, where the topmost of them was', () => {
+    const document = projectWith([bars(K1), bars(K2), bars(K3)]);
+    const grouped = groupLayers([K1, K3], createGroupLayer([], { id: G1 })).apply(document);
+    expect(grouped.layers.map((l) => l.id)).toEqual([K2, G1]);
+    const group = grouped.layers[1]!;
+    expect(group.kind === 'group' ? group.children.map((c) => c.id) : []).toEqual([K1, K3]);
+  });
+
+  it('groups inside a group, and leaves the rest of that group alone', () => {
+    const inner = createGroupLayer([bars(K1), bars(K2)], { id: G1 });
+    const document = projectWith([inner]);
+    const grouped = groupLayers([K2], createGroupLayer([], { id: G2 })).apply(document);
+    const outer = grouped.layers[0]!;
+    const children = outer.kind === 'group' ? outer.children : [];
+    expect(children.map((c) => c.id)).toEqual([K1, G2]);
+  });
+
+  it('refuses layers that live in different groups', () => {
+    const document = projectWith([createGroupLayer([bars(K1)], { id: G1 }), bars(K2)]);
+    expect(() => groupLayers([K1, K2], createGroupLayer([], { id: G2 })).apply(document)).toThrow(CommandError);
+  });
+
+  it('ungroup puts the children back where the group was, in order', () => {
+    const document = projectWith([bars(K1), createGroupLayer([bars(K2), bars(K3)], { id: G1 })]);
+    const flat = ungroupLayer(G1).apply(document);
+    expect(flat.layers.map((l) => l.id)).toEqual([K1, K2, K3]);
+  });
+
+  it('ungroup refuses a layer that is not a group, and grouping is undoable by round-trip', () => {
+    const document = projectWith([bars(K1), bars(K2)]);
+    expect(() => ungroupLayer(K1).apply(document)).toThrow(CommandError);
+    const grouped = groupLayers([K1, K2], createGroupLayer([], { id: G1 })).apply(document);
+    expect(ungroupLayer(G1).apply(grouped).layers.map((l) => l.id)).toEqual([K1, K2]);
   });
 });

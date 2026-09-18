@@ -8,6 +8,11 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { walkRenderModules, type RenderProject } from '../../src/engine/core/project.ts';
+
+/** Snapshot layers can now be groups (M38); these checks are about module params. */
+const moduleLayers = (project: RenderProject) => [...walkRenderModules(project.layers)];
+
 import { addPaletteColor, removePaletteColor, setPaletteRole } from '../../src/project/commands.ts';
 import { createDocument, createEffect, createModuleLayer } from '../../src/project/create.ts';
 import { linkedRole, resolveRole, roleLink } from '../../src/project/palette.ts';
@@ -58,9 +63,9 @@ describe('toRenderProject resolves the palette', () => {
       params: { fill: roleLink('primary'), barCount: 32 },
     });
     const { project, notes } = toRenderProject(document);
-    expect(project.layers[0]?.params['fill']).toBe('#ff2d95');
+    expect(moduleLayers(project)[0]?.params['fill']).toBe('#ff2d95');
     // Everything else is untouched, including values that are not colours at all.
-    expect(project.layers[0]?.params['barCount']).toBe(32);
+    expect(moduleLayers(project)[0]?.params['barCount']).toBe(32);
     expect(notes).toEqual([]);
   });
 
@@ -72,13 +77,13 @@ describe('toRenderProject resolves the palette', () => {
       effectParams: { tone: roleLink('secondary') },
     });
     const { project } = toRenderProject(document);
-    expect(project.layers[0]?.effects?.[0]?.params['tone']).toBe('#00e5ff');
+    expect(moduleLayers(project)[0]?.effects?.[0]?.params['tone']).toBe('#00e5ff');
   });
 
   it('drops an unassigned role so the module default applies, and notes it', () => {
     const document = documentWith({ colors: ['#101010'], roles: {}, params: { fill: roleLink('glow') } });
     const { project, notes } = toRenderProject(document);
-    expect(project.layers[0]?.params['fill']).toBeUndefined();
+    expect(moduleLayers(project)[0]?.params['fill']).toBeUndefined();
     expect(notes).toHaveLength(1);
     expect(notes[0]?.detail).toContain('glow');
   });
@@ -86,7 +91,7 @@ describe('toRenderProject resolves the palette', () => {
   it('leaves a project with no links alone', () => {
     const document = documentWith({ params: { fill: '#ff2d95' } });
     const { project } = toRenderProject(document);
-    expect(project.layers[0]?.params['fill']).toBe('#ff2d95');
+    expect(moduleLayers(project)[0]?.params['fill']).toBe('#ff2d95');
   });
 });
 

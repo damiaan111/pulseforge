@@ -5,19 +5,22 @@
 // rendering and golden-frame tests possible.
 //
 // Where the document asks for something this build's engine cannot yet draw — a mask, a blend
-// mode the compositor lacks, a group's own transform — the request is **reported as a note,
-// never dropped** (CLAUDE.md constraint 4). A caller that ignores the notes still gets a
-// correct render of everything that is implemented; a caller that surfaces them tells the user
-// exactly what is missing and why.
+// mode the compositor lacks — the request is **reported as a note, never dropped** (CLAUDE.md
+// constraint 4). A caller that ignores the notes still gets a correct render of everything that
+// is implemented; a caller that surfaces them tells the user exactly what is missing and why.
+//
+// Groups keep their shape here (M38): the engine composites children into the group's own target
+// and then applies the group's transform, opacity, blend and effects to that result. Flattening —
+// which is what this did before group compositing existed — could not express that.
 
-import { isIdentityTransform, type LayerTransform } from '../engine/core/layout.ts';
+import type { LayerTransform } from '../engine/core/layout.ts';
 import { hasPaletteLinks, resolvePaletteValue } from './palette.ts';
 import type { ModulationBinding } from '../engine/core/modulation.ts';
-import type { BlendMode, EffectSpec, LayerSpec, RenderProject } from '../engine/core/project.ts';
+import type { BlendMode, EffectSpec, GroupSpec as GroupLayerSpec, LayerSpec, RenderProject } from '../engine/core/project.ts';
 import {
-  aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type GroupLayer, type Layer,
+  aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer,
   type EffectSpec as DocumentEffect, type ModulationBinding as DocumentBinding,
-  type Palette, type ProjectDocument, type TimeRange,
+  type Palette, type ProjectDocument,
 } from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
@@ -130,33 +133,11 @@ function resolveParams(layer: Layer & { params: Readonly<Record<string, unknown>
 }
 
 /**
- * A layer's time range narrowed by every group above it. A group scoped to a section has to
- * scope what it contains, or a layer keeps drawing after the section it belongs to has ended.
+ * Document → engine snapshot. Layer order, nesting and everything resolved per aspect.
  *
- * Intersection, not replacement: the tighter bound wins on each side independently, and a
- * `null` out-point means "to the end" so it never narrows anything. An empty result (in ≥ out)
- * is kept as it is rather than clamped — the engine's liveness check already reads that as
- * never live, and rewriting it would hide the fact that the ranges do not overlap.
- */
-function clipToParents(range: TimeRange, parents: readonly GroupLayer[]): { inTicks: number; outTicks: number | null } {
-  let inTicks = range.inTicks;
-  let outTicks = range.outTicks;
-  for (const parent of parents) {
-    inTicks = Math.max(inTicks, parent.timeRange.inTicks);
-    if (parent.timeRange.outTicks !== null) {
-      outTicks = outTicks === null ? parent.timeRange.outTicks : Math.min(outTicks, parent.timeRange.outTicks);
-    }
-  }
-  return { inTicks, outTicks };
-}
-
-/**
- * Flattens groups into the engine's flat layer list. Group *compositing* (M38 — children
- * rendered into one target, then the group's own transform, opacity, blend and effects applied
- * to that result) is still to come; until then a group's children render in place and the
- * group's own settings are reported rather than silently ignored. What a group says about
- * *visibility* — enabled, soloed, time range — is applied to its children here, because
- * flattening would otherwise drop it.
+ * Solo is the one rule that cannot be decided locally (ui-spec §5): when anything is soloed, only
+ * soloed layers draw — and a group must still draw if it *contains* one, or soloing a layer inside
+ * a group would hide it along with its group.
  */
 export function toRenderProject(document: ProjectDocument): SnapshotResult {
   const notes: SnapshotNote[] = [];
@@ -164,33 +145,17 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
   const aspect = aspectBucket(canvas.width, canvas.height);
 
   const anySoloed = [...walkLayers(document.layers)].some(({ layer }) => layer.soloed);
+  const containsSolo = (layer: Layer): boolean =>
+    layer.soloed || (layer.kind === 'group' && layer.children.some(containsSolo));
 
-  const layers: LayerSpec[] = [];
   let index = 0;
-  for (const { layer, parents } of walkLayers(document.layers)) {
+  const convert = (layer: Layer, soloedAbove: boolean): LayerSpec | GroupLayerSpec => {
     const path = `layers[${index}]`;
     index += 1;
-
     const override = layer.aspectOverrides[aspect];
+    const soloed = soloedAbove || layer.soloed;
+    const enabled = layer.enabled && (!anySoloed || soloed || containsSolo(layer));
 
-    if (layer.kind === 'group') {
-      if (layer.opacity !== 1 || layer.blend !== 'normal' || layer.effects.length > 0
-        || !isIdentityTransform(resolveTransform(layer, override))) {
-        notes.push({ path, detail: `group "${layer.name || layer.id}" has its own transform, opacity, blend or effects; group compositing (M38) is not implemented yet, so its children render in place` });
-      }
-      continue;
-    }
-
-    // Flattening loses whatever a group said about its children unless it is applied here.
-    // A disabled group hides them; a soloed group *shows* them, or solo on a group would hide
-    // everything it contains — the opposite of what solo means.
-    const hiddenByParent = parents.some((parent) => !parent.enabled);
-    const soloed = layer.soloed || parents.some((parent) => parent.soloed);
-    const enabled = layer.enabled && !hiddenByParent && (!anySoloed || soloed);
-
-    if (parents.some((parent) => !isIdentityTransform(resolveTransform(parent, parent.aspectOverrides[aspect])))) {
-      notes.push({ path, detail: 'a parent group has a transform; group transforms do not yet compose onto their children (M38)' });
-    }
     if (layer.maskLayerId !== null) {
       notes.push({ path, detail: 'masking (S7) is not implemented; the layer renders unmasked' });
     }
@@ -201,19 +166,28 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       notes.push({ path, detail: `blend mode "${layer.blend}" is not implemented by the compositor; rendering as normal` });
     }
 
-    layers.push({
+    const common = {
       id: layer.id,
-      module: layer.module,
       enabled,
       opacity: layer.opacity,
       blend,
-      params: applyPalette(resolveParams(layer, override), document.palette, path, notes),
-      timeRange: clipToParents(layer.timeRange, parents),
+      timeRange: { inTicks: layer.timeRange.inTicks, outTicks: layer.timeRange.outTicks },
       transform: resolveTransform(layer, override),
-      modulations: layer.modulations.map(toEngineBinding),
       effects: layer.effects.map((effect) => toEngineEffect(effect, document.palette, `${path}.effects.${effect.id}`, notes)),
-    });
-  }
+    };
+
+    if (layer.kind === 'group') {
+      return { ...common, kind: 'group', children: layer.children.map((child) => convert(child, soloed)) };
+    }
+    return {
+      ...common,
+      module: layer.module,
+      params: applyPalette(resolveParams(layer, override), document.palette, path, notes),
+      modulations: layer.modulations.map(toEngineBinding),
+    };
+  };
+
+  const layers = document.layers.map((layer) => convert(layer, false));
 
   const project: RenderProject = {
     schemaVersion: 0,

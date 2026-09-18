@@ -362,6 +362,72 @@ export function moveLayer(layerId: string, position: InsertPosition): Command {
  * regenerated — ids are never reused (data-formats §1.4) — and modulation targets are rewritten
  * to point at the copy, so the duplicate reacts like the original instead of driving it.
  */
+/**
+ * Wraps layers in a new group, in place (M38). The group lands where the topmost of them was, and
+ * they keep their relative order — "group these three" must not reshuffle them.
+ *
+ * Only siblings can be grouped: layers from different parents have no single place the group could
+ * sit, and silently moving one out of its group would be a surprise.
+ */
+export function groupLayers(layerIds: readonly string[], group: GroupLayer): Command {
+  return {
+    label: layerIds.length === 1 ? 'Group layer' : `Group ${layerIds.length} layers`,
+    apply: (document) => {
+      if (layerIds.length === 0) throw new CommandError('Nothing to group');
+      if (findLayer(document, group.id) !== undefined) throw new CommandError(`A layer with id "${group.id}" is already in this project`);
+      const parents = new Set(layerIds.map((id) => parentIdOf(document, id)));
+      if (parents.size > 1) throw new CommandError('Those layers are in different groups; group layers that sit side by side');
+      const parentId = [...parents][0] ?? null;
+      const siblings = siblingsOf(document, parentId);
+      const chosen = siblings.filter((layer) => layerIds.includes(layer.id));
+      if (chosen.length !== layerIds.length) throw new CommandError('Some of those layers are no longer in the project');
+      const highest = Math.max(...chosen.map((layer) => siblings.indexOf(layer)));
+      const remaining = siblings.filter((layer) => !layerIds.includes(layer.id));
+      const insertAt = remaining.filter((layer) => siblings.indexOf(layer) < highest).length;
+      const replacement = [...remaining];
+      replacement.splice(insertAt, 0, { ...group, children: chosen });
+      return withSiblings(document, parentId, replacement);
+    },
+  };
+}
+
+/** Dissolves a group, leaving its children where it was, in order. */
+export function ungroupLayer(groupId: string): Command {
+  return {
+    label: 'Ungroup',
+    apply: (document) => {
+      const group = requireLayer(document, groupId);
+      if (group.kind !== 'group') throw new CommandError(`Layer "${groupId}" is not a group`);
+      const parentId = parentIdOf(document, groupId);
+      const siblings = siblingsOf(document, parentId);
+      const at = siblings.findIndex((layer) => layer.id === groupId);
+      const replacement = [...siblings];
+      replacement.splice(at, 1, ...group.children);
+      return withSiblings(document, parentId, replacement);
+    },
+  };
+}
+
+/** The id of the group a layer sits in, or null at the top level. */
+function parentIdOf(document: ProjectDocument, layerId: string): string | null {
+  for (const { layer, parents } of walkLayers(document.layers)) {
+    if (layer.id === layerId) return parents.at(-1)?.id ?? null;
+  }
+  throw new CommandError(`No layer with id "${layerId}" in this project`);
+}
+
+function siblingsOf(document: ProjectDocument, parentId: string | null): readonly Layer[] {
+  if (parentId === null) return document.layers;
+  const parent = requireLayer(document, parentId);
+  if (parent.kind !== 'group') throw new CommandError(`Layer "${parentId}" is not a group`);
+  return parent.children;
+}
+
+function withSiblings(document: ProjectDocument, parentId: string | null, layers: readonly Layer[]): ProjectDocument {
+  if (parentId === null) return { ...document, layers };
+  return withLayer(document, parentId, (parent) => ({ ...(parent as GroupLayer), children: layers }));
+}
+
 export function duplicateLayer(layerId: string, newIds: () => string): Command {
   return {
     label: 'Duplicate layer',

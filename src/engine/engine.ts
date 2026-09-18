@@ -15,7 +15,9 @@ import {
 } from './core/modulation.ts';
 import { resolveParams, type ParamIssue, type ResolveOptions } from './core/params.ts';
 import { createPrng, hash32 } from './core/prng.ts';
-import { layerIsLive, type EffectSpec, type RenderProject } from './core/project.ts';
+import {
+  isGroupSpec, layerIsLive, walkRenderModules, type AnyLayerSpec, type EffectSpec, type RenderProject,
+} from './core/project.ts';
 import type { EffectPass } from './render/effects.ts';
 import { frameStartTick, frameTimeSeconds, ticksToSeconds, timelineToSourceSeconds } from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
@@ -60,6 +62,12 @@ export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   grainModule, pixelateModule, scanlinesModule, kaleidoscopeModule, glitchModule,
   testPatternModule, flashModule,
 ];
+
+/**
+ * How deep groups may nest before the engine refuses (M38). Each level costs a render target and
+ * a recursion step, and a document can arrive from disk with anything in it.
+ */
+const MAX_GROUP_DEPTH = 8;
 
 /** Recorded in render reports. Bump when rendering output changes. */
 export const ENGINE_VERSION = '0.1.0-p0';
@@ -177,7 +185,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       return compiled.program;
     }
     const bindings = [
-      ...project.layers.flatMap((layer) => layer.modulations ?? []),
+      ...[...walkRenderModules(project.layers)].flatMap((layer) => layer.modulations ?? []),
       ...(project.globalModulations ?? []),
     ];
     const program = compileModulation({
@@ -320,48 +328,78 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
         return passes;
       };
 
-      const layers: CompositeLayer[] = [];
-      for (const layer of project.layers) {
-        if (!layer.enabled) continue;
-        if (!layerIsLive(layer.timeRange, tick)) continue;
-        const definition = registry.get(layer.module);
-        if (definition === undefined) {
-          // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).
-          warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
-          continue;
-        }
-        // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
-        // evaluator; everything else resolves exactly as it did before modulation existed.
-        const resolved = resolveParams(definition.manifest.params, layer.params, modulationFor(`layers.${layer.id}.params.`));
-        if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
-        const instance = instanceFor(layer.id, definition);
+      /**
+       * One level of the layer tree (M38). A group's children composite into the group's own
+       * target, so the group's transform, opacity, blend and effects apply to the result rather
+       * than to each child — the difference between fading a scene and fading three layers.
+       *
+       * Depth is bounded: a document is loaded from disk and could nest arbitrarily, and each
+       * level costs a render target.
+       */
+      const buildLayers = (specs: readonly AnyLayerSpec[], depth: number): CompositeLayer[] => {
+        const built: CompositeLayer[] = [];
+        for (const layer of specs) {
+          if (!layer.enabled) continue;
+          if (!layerIsLive(layer.timeRange, tick)) continue;
 
-        // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
-        // on 'min' and a full-bleed background on 'max' each get the number they need.
-        const transform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
-        const canvas = canvasFor(transform.scaleReference);
-        const layerTime = layerSeconds(layer.timeRange);
+          const transform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
+          const canvas = canvasFor(transform.scaleReference);
+          const layerTime = layerSeconds(layer.timeRange);
+          let inverseTransform: Mat3 | undefined;
+          if (!isIdentityTransform(transform)) {
+            const inverse = layerMatrix(transform, width, height).inverse;
+            if (inverse === null) {
+              // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
+              // out loud, because an invisible layer with no explanation is a long afternoon.
+              warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
+              continue;
+            }
+            inverseTransform = inverse;
+          }
+          const common = {
+            opacity: Math.min(1, Math.max(0, layer.opacity)),
+            blend: layer.blend,
+            ...(inverseTransform === undefined ? {} : { inverseTransform }),
+          };
 
-        let inverseTransform: Mat3 | undefined;
-        if (!isIdentityTransform(transform)) {
-          const inverse = layerMatrix(transform, width, height).inverse;
-          if (inverse === null) {
-            // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
-            // out loud, because an invisible layer with no explanation is a long afternoon.
-            warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
+          if (isGroupSpec(layer)) {
+            if (depth >= MAX_GROUP_DEPTH) {
+              warnings.push(`group ${layer.id}: groups are nested more than ${MAX_GROUP_DEPTH} deep; this one and its children are not rendered`);
+              continue;
+            }
+            const children = buildLayers(layer.children, depth + 1);
+            built.push({
+              ...common,
+              draw: (target) => compositor.drawInto(target, children),
+              effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `group ${layer.id}`, canvas, layerTime),
+            });
             continue;
           }
-          inverseTransform = inverse;
-        }
 
-        layers.push({
-          opacity: Math.min(1, Math.max(0, layer.opacity)),
-          blend: layer.blend,
-          draw: (target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, outputTarget: target }, resolved.values),
-          effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime),
-          ...(inverseTransform === undefined ? {} : { inverseTransform }),
-        });
-      }
+          const definition = registry.get(layer.module);
+          if (definition === undefined) {
+            // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).
+            warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
+            continue;
+          }
+          // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
+          // evaluator; everything else resolves exactly as it did before modulation existed.
+          // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
+          // on 'min' and a full-bleed background on 'max' each get the number they need.
+          const resolved = resolveParams(definition.manifest.params, layer.params, modulationFor(`layers.${layer.id}.params.`));
+          if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
+          const instance = instanceFor(layer.id, definition);
+
+          built.push({
+            ...common,
+            draw: (target) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, outputTarget: target }, resolved.values),
+            effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime),
+          });
+        }
+        return built;
+      };
+
+      const layers = buildLayers(project.layers, 0);
 
       const background = toLinearPremultiplied(parseHexColor(project.canvas.background) ?? { r: 0, g: 0, b: 0, a: 1 });
       if (parseHexColor(project.canvas.background) === undefined) {
