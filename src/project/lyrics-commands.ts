@@ -319,6 +319,31 @@ export function setWordTimes(lineId: string, wordIndex: number, startTicks: numb
   };
 }
 
+/**
+ * Writes line timings exactly as given — start, end and words together, for several lines as one
+ * undo step. What tap-to-sync applies per tap (and restores per Backspace): the tap logic has
+ * already decided every value, so nothing here rescales or infers.
+ */
+export function setLineTimings(
+  changes: readonly { readonly lineId: string; readonly startTicks: number | null; readonly endTicks: number | null; readonly words: readonly LyricWord[] }[],
+  label = 'Tap',
+): Command {
+  return {
+    label,
+    apply: (document) => {
+      const byId = new Map(changes.map((c) => [c.lineId, c]));
+      for (const id of byId.keys()) lineIndex(document.lyrics, id);
+      return withLyrics(document, mapLines(document.lyrics, new Set(byId.keys()), (line) => {
+        const c = byId.get(line.id) as (typeof changes)[number];
+        const start = c.startTicks === null ? null : clampTick(c.startTicks);
+        const end = c.endTicks === null ? null : Math.max(start ?? 0, clampTick(c.endTicks));
+        if (start === line.startTicks && end === line.endTicks && c.words === line.words) return line;
+        return { ...line, startTicks: start, endTicks: end, words: start === null || end === null ? [] : c.words };
+      }));
+    },
+  };
+}
+
 /** Clears timings (and word timings) of the given lines, or of every unlocked line. */
 export function clearLineTimes(lineIds?: readonly string[]): Command {
   return {

@@ -434,3 +434,99 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .stems-controls .progress { height: 5px; margin: 2px 0 4px; }
 .stems-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 2px 0 4px; font-size: 11.5px; }
 p.stems-line { display: block; }
+
+/* --- lyrics (P6: ui-spec §5 "Lyrics", lyrics-spec §3, §5, §9) -------------- */
+
+button.link { background: none; border: none; padding: 0; color: var(--accent); text-align: left; }
+button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+button.link.warn { color: var(--warn); }
+kbd { background: var(--panel-raised); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font: 11px/1.4 ui-monospace, Consolas, monospace; }
+input.short { width: 52px; }
+label.inline { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); }
+.check-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+
+.lyrics-section p { margin: 4px 0; }
+.lyrics-drawer { width: 460px; display: flex; flex-direction: column; gap: 8px; }
+.lyrics-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lyrics-tabs { margin: 0; }
+.lyrics-text { display: flex; flex-direction: column; gap: 4px; }
+.lyrics-textarea {
+  width: 100%;
+  min-height: 42vh;
+  resize: vertical;
+  background: var(--panel-raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+  font: 13px/1.55 "Segoe UI", system-ui, sans-serif;
+}
+.lyrics-text p, .lyrics-checks p { margin: 2px 0; }
+
+.lyrics-bulk { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.lyric-lines { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.lyric-line {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.lyric-line.selected { background: #22283a; }
+.lyric-line.locked .lyric-text { color: var(--ok); }
+.lyric-line[data-timed="no"] .lyric-text { color: var(--text-dim); }
+.lyric-index { text-align: right; font-size: 11px; }
+.lyric-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lyric-text.role-backing, .lyric-text.role-adlib { font-style: italic; }
+.lyric-text.role-instrumental-note { color: var(--text-dim); }
+.lyric-times { display: inline-flex; gap: 3px; }
+.time-field { width: 64px; font: 11.5px ui-monospace, Consolas, monospace; text-align: right; }
+.time-field.invalid { border-color: var(--bad); }
+.lyric-line button.lock { padding: 0 4px; background: none; border: none; opacity: 0.55; }
+.lyric-line button.lock.on { opacity: 1; }
+.lyric-marker { padding: 2px 6px; font-size: 11px; color: var(--accent); background: var(--panel-raised); border-bottom: 1px solid var(--line); }
+.lyric-detail { margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius); padding: 6px; }
+.lyric-detail-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.lyric-words { display: flex; flex-wrap: wrap; gap: 6px; }
+.lyric-word { display: inline-flex; align-items: center; gap: 3px; }
+.lyric-word.low .word-text { text-decoration: underline wavy var(--warn); }
+.lyric-word button.split { padding: 0 3px; font-size: 10px; opacity: 0.25; background: none; border-color: transparent; }
+.lyric-word button.split:hover { opacity: 1; border-color: var(--line); }
+
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.check button.link { color: var(--text); }
+.check.error button.link { color: var(--bad); }
+.check.warning button.link { color: var(--warn); }
+
+.tap-controls { border-top: 1px solid var(--line); padding-top: 8px; }
+.tap-controls h3 { margin: 0 0 6px; }
+.tap-controls p { margin: 3px 0; }
+.tap-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.tap-row .dim, .tap-row .warn { flex: 1; }
+
+.tap-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: 10px 14px 8px;
+  background: rgba(10, 10, 14, 0.82);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 5;
+}
+.tap-head { display: flex; align-items: center; gap: 8px; width: 100%; }
+.tap-lines { text-align: center; width: 100%; overflow-wrap: anywhere; }
+.tap-previous, .tap-next { color: var(--text-dim); font-size: 14px; min-height: 20px; }
+.tap-current { font-size: 26px; font-weight: 600; min-height: 36px; }
+.tap-words { font-size: 24px; font-weight: 600; }
+.tap-words .done { color: var(--text-dim); }
+.tap-words .next { text-decoration: underline; text-decoration-color: var(--accent); }
+.tap-button { font-size: 16px; padding: 8px 28px; }
+.tap-help { margin: 0; }
+.calibrate-dialog { width: min(440px, 92vw); }

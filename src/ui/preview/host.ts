@@ -102,6 +102,7 @@ export class PreviewHost {
    * change to the document, the analysis or the scale sets this.
    */
   private needsRedraw = true;
+  private rate = 1;
 
   constructor(canvas: HTMLCanvasElement, audio: HTMLAudioElement, callbacks: PreviewCallbacks) {
     this.canvas = canvas;
@@ -269,6 +270,22 @@ export class PreviewHost {
     this.audio.pause();
   }
 
+  /** Playback speed for tapping (lyrics-spec §3). Pitch is preserved by the element. */
+  setRate(rate: number): void {
+    this.rate = Math.min(4, Math.max(0.1, rate));
+    this.clock?.setRate(this.rate);
+    this.audio.playbackRate = this.rate;
+  }
+
+  get playbackRate(): number {
+    return this.rate;
+  }
+
+  /** The playhead now, unsnapped — what a tap measures against. */
+  positionNow(): number {
+    return this.clock?.positionAt({ positionSeconds: this.audio.currentTime, playing: !this.audio.paused }) ?? 0;
+  }
+
   stop(): void {
     this.applyAudio(this.clock?.stop());
     this.audio.pause();
@@ -289,6 +306,7 @@ export class PreviewHost {
       placement: { leadInTicks: document.audio.leadInTicks, clipInTicks: document.audio.clipInTicks },
       audioDurationTicks: Math.max(0, clipEnd - document.audio.clipInTicks),
     });
+    this.clock.setRate(this.rate);
     if (previous !== null) {
       // A new clock starts stopped at 0. Keep the playhead where it was; a clock that was playing
       // is paused, with the element, rather than left "stopped" while the audio plays on.

@@ -55,6 +55,7 @@ import { StemsCancelledError, separateStems } from '../ml/stems.ts';
 import { GpuJobCancelledError, GpuQueue } from '../node/gpu-queue.ts';
 import { newId } from '../project/ids.ts';
 import { RecoveryStore } from '../project/recovery-store.ts';
+import { SettingsStore, type Settings as UserSettings } from './settings-store.ts';
 import { pythonEnv } from '../../setup/lib/env.ts';
 import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
@@ -103,6 +104,11 @@ function endRecoverySession(): void {
   } catch (error) {
     console.error(`[recovery] could not clear this session's autosaves: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** User settings (data-formats §6). `PULSEFORGE_SETTINGS` points it elsewhere — the smoke check does. */
+function settingsStore(): SettingsStore {
+  return new SettingsStore(process.env['PULSEFORGE_SETTINGS'] ?? join(app.getPath('userData'), 'settings.json'));
 }
 
 function recoveryStore(): RecoveryStore {
@@ -468,6 +474,51 @@ function registerHandlers(): void {
       projectName: typeof snapshot.projectName === 'string' ? snapshot.projectName : 'Untitled',
       reason: typeof snapshot.reason === 'string' ? snapshot.reason.slice(0, 120) : 'autosave',
     });
+  });
+  ipcMain.handle(IPC.settingsGet, async () => {
+    const file = await settingsStore().read();
+    return { settings: file.settings, problems: file.problems };
+  });
+  ipcMain.handle(IPC.settingsUpdate, async (_event, raw: unknown): Promise<UserSettings> => {
+    const patch = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+    let next: Partial<UserSettings> = {};
+    if ('tapLatencyMs' in patch) {
+      const value = patch['tapLatencyMs'];
+      if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < -500 || value > 1000)) {
+        throw new Error('Tap latency must be a number of milliseconds between −500 and 1000, or not set.');
+      }
+      next = { ...next, tapLatencyMs: value as number | null };
+    }
+    return settingsStore().update(next);
+  });
+  ipcMain.handle(IPC.lyricsOpen, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import lyrics',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Lyrics', extensions: ['lrc', 'elrc', 'srt', 'vtt', 'ttml', 'dfxp', 'xml', 'txt'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    const path = result.canceled ? undefined : result.filePaths[0];
+    if (path === undefined) return null;
+    const info = await stat(path);
+    // Lyrics are text; anything this large is not what was meant.
+    if (info.size > 5 * 1024 * 1024) throw new Error(`${basename(path)} is ${(info.size / 1_048_576).toFixed(1)} MB — too large to be a lyrics file.`);
+    return { name: basename(path), text: await readFile(path, 'utf8') };
+  });
+  ipcMain.handle(IPC.lyricsSave, async (_event, suggestedName: unknown, text: unknown): Promise<string | null> => {
+    if (typeof text !== 'string' || text.length > 16 * 1024 * 1024) throw new Error('saveLyricsFile needs the exported text');
+    const name = typeof suggestedName === 'string' ? suggestedName : 'lyrics.lrc';
+    const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1] ?? 'lrc';
+    const result = await dialog.showSaveDialog({
+      title: 'Export lyrics',
+      defaultPath: name,
+      filters: [{ name: `.${extension}`, extensions: [extension] }, { name: 'All files', extensions: ['*'] }],
+    });
+    if (result.canceled || result.filePath === undefined) return null;
+    await writeFile(result.filePath, text, 'utf8');
+    return result.filePath;
   });
   ipcMain.handle(IPC.recoveryClear, async (): Promise<void> => {
     await recoveryStore().clear(recoverySessionId);
@@ -858,6 +909,11 @@ app.whenReady().then(async () => {
       spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'smptebars=s=320x180', '-frames:v', '1', image], { windowsHide: true });
     }
     process.env['PULSEFORGE_LIBRARY'] = library;
+
+    // Its own settings file, fresh each run: the smoke must not read or change the owner's tap latency.
+    const settingsFile = join(ROOT, 'out', 'smoke-settings.json');
+    await rm(settingsFile, { force: true });
+    process.env['PULSEFORGE_SETTINGS'] = settingsFile;
 
     // Its own recovery folder too: the smoke must not offer (or clear) the owner's autosaves.
     const recovery = join(ROOT, 'out', 'smoke-recovery');
@@ -1287,6 +1343,61 @@ app.whenReady().then(async () => {
           && document.querySelector('#app .modulation-section .binding') === null;
       }
 
+      // Lyrics (P6), end to end in the studio: the drawer from the top bar, pasted text becoming
+      // lines and a marker, the checklist noticing they are untimed, the left rail adding a lyrics
+      // layer, and tap-to-sync — three taps time three lines, Backspace undoes one, Esc ends it.
+      let lyricsUi = false;
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+        click('#app header [data-action="lyrics-drawer"]');
+        const area = await waitFor(() => document.querySelector('#app [data-testid="lyrics-textarea"]'), 40);
+        if (area !== null && area !== false) {
+          const setText = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+          area.focus();
+          // Backslashes doubled: this script sits in a template literal, which would turn a single
+          // one into a real line break inside the string.
+          setText.call(area, '[Verse]\\nFirst smoke line\\nSecond smoke line\\n(ooh)');
+          area.dispatchEvent(new Event('input', { bubbles: true }));
+          area.blur();
+          await pause(80);
+          click('#app [data-action="lyrics-tab-lines"]');
+          const listed = await waitFor(() => document.querySelectorAll('#app [data-testid="lyric-lines"] .lyric-line').length === 3, 40);
+          const marker = document.querySelector('#app [data-testid="lyric-lines"] .lyric-marker')?.textContent === 'Verse';
+          click('#app [data-action="lyrics-tab-checks"]');
+          const untimed = await waitFor(() => document.querySelector('#app [data-check="untimed"]') !== null, 40);
+          const layersBefore = document.querySelectorAll('#app .layer-list .layer-row').length;
+          click('#app [data-action="add-lyrics-layer"]');
+          const layerAdded = await waitFor(() => document.querySelectorAll('#app .layer-list .layer-row').length === layersBefore + 1, 40);
+
+          click('#app [data-action="tap-start"]');
+          const overlay = await waitFor(() => document.querySelector('#app [data-testid="tap-overlay"]'), 40);
+          // From the page, as a real key press is: the tap session catches it on the way down.
+          for (let i = 0; i < 3; i += 1) {
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
+            await pause(60);
+            document.body.dispatchEvent(new KeyboardEvent('keyup', { key: 't', bubbles: true }));
+            await pause(60);
+          }
+          click('#app [data-action="lyrics-tab-lines"]');
+          const timedAll = await waitFor(() => document.querySelectorAll('#app .lyric-line[data-timed="yes"]').length === 3, 40);
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+          const undone = await waitFor(() => document.querySelectorAll('#app .lyric-line[data-timed="yes"]').length === 2, 40);
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          const closed = await waitFor(() => document.querySelector('#app [data-testid="tap-overlay"]') === null, 40);
+          document.querySelector('#app .transport button[title="Stop"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          click('#app header [data-action="lyrics-drawer"]');
+          await pause(50);
+          const steps = {
+            listed: listed === true, marker, untimed: untimed === true, layerAdded: layerAdded === true, overlay: overlay !== null && overlay !== false,
+            timedAll: timedAll === true, undone: undone === true, closed: closed === true, drawerClosed: document.querySelector('#app [data-testid="lyrics-drawer"]') === null,
+          };
+          lyricsUi = Object.values(steps).every(Boolean);
+          // Which step, when it fails: the console reaches the smoke log.
+          if (!lyricsUi) console.error('[smoke] lyricsUi steps ' + JSON.stringify(steps));
+        }
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1333,6 +1444,7 @@ app.whenReady().then(async () => {
         modulationUi,
         layerEditing,
         ...(stemsUi === undefined ? {} : { stemsUi }),
+        lyricsUi,
         exportDialog,
         recoveryDialog,
       };
@@ -1457,6 +1569,31 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(click('#app header button[data-action="modulation-matrix"]'));
     await snap(`${label}-7c-modulation-matrix`);
     await js(click('#app header button[data-action="modulation-matrix"]'));
+    // Lyrics (P6): the drawer's three tabs, a selected line's words, and tap-to-sync running. The
+    // smoke's own lyrics are still in the project (three lines, two timed).
+    await js(click('#app header button[data-action="lyrics-drawer"]'));
+    // The recovery check replaced the project by now; the tour pastes lyrics of its own.
+    await js(click('#app [data-action="lyrics-tab-text"]'));
+    await js(`
+      const area = document.querySelector('#app [data-testid="lyrics-textarea"]');
+      if (area && area.value === '') {
+        const setText = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+        area.focus();
+        setText.call(area, ${JSON.stringify('[Verse 1]\nNeon lights are calling out my name tonight, and every one of them is burning\nHold on (x2)\n(ooh, yeah)\n\n[Chorus]\nWe are the pulse')});
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+        area.blur();
+      }
+    `);
+    await snap(`${label}-9a-lyrics-text`);
+    await js(click('#app [data-action="lyrics-tab-lines"]'));
+    await js(click('#app .lyric-line'));
+    await snap(`${label}-9b-lyrics-lines`);
+    await js(click('#app [data-action="lyrics-tab-checks"]'));
+    await snap(`${label}-9c-lyrics-checklist`);
+    await js(click('#app [data-action="tap-start"]'));
+    await snap(`${label}-9d-tapping`);
+    await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); ${click('#app .transport button[title="Stop"]')}`);
+    await js(click('#app header button[data-action="lyrics-drawer"]'));
     // The audio clip panel (M29) — only there when the project has audio (open one with the tour).
     await js(`document.querySelector('#app [data-testid="clip-controls"]')?.scrollIntoView({ block: 'center' })`);
     await snap(`${label}-8-audio-clip`);

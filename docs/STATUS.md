@@ -9,8 +9,8 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 950 tests, `npm run golden` 29/29 identical,
-> `--smoke` 21/21.
+> any aspect. Last full verification: `npm run check` 969 tests, `npm run golden` 29/29 identical,
+> `--smoke` 22/22.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -86,6 +86,7 @@
 | 4.50 | Lyrics data (P6 step 1) — M18 model, lyrics-spec §1–§2, §9, §10 |
 | 4.51 | The karaoke layer (P6 step 2) — M20, lyrics-spec §6–§8 |
 | 4.52 | Fix: audio modulation read the wrong moment with a lead-in or a trim — M13, M29 |
+| 4.53 | Lyrics in the studio (P6 step 3) — M18, M19 tap-to-sync, D33 |
 
 ---
 
@@ -100,7 +101,7 @@
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
-| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data, §4.50) and step 2 (the karaoke layer, §4.51) done; the studio editor, tap-to-sync, the timeline track and WhisperX follow |
+| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data, §4.50), step 2 (the karaoke layer, §4.51) and step 3 (the studio editor and tap-to-sync, §4.53) done; the timeline track and WhisperX follow |
 | P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
 | P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
@@ -191,7 +192,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 950 tests in 74 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 969 tests in 76 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -2348,6 +2349,109 @@ range slightly. References updated. Every other frame is byte-identical.
 lead-in it is negative and clamps to the file's first sample; past a trimmed out-point it keeps
 reading the file. A visualizer can therefore still react during a lead-out to music that is not
 playing.
+
+### 4.53 Lyrics in the studio (P6 step 3) — M18, M19 (tap-to-sync), lyrics-spec §2–§3, §5, §9, §10; D33
+
+**Where it lives.**
+- The ui-spec puts Lyrics in the left rail. The rail is a narrow single column, too tight for a text
+  editor plus a timing table, so the rail gets a **Lyrics section** (status, `Edit…`, and "Show
+  lyrics on the canvas" when the project has lyrics but no lyrics layer).
+- The editing happens in a **right-edge drawer** (`♪ Lyrics` in the top bar). It sits beside the
+  canvas rather than over it, because tapping needs both. One drawer at a time (queue, matrix,
+  lyrics); Esc closes it.
+
+**The drawer (`src/ui/components/LyricsPanel.tsx`).**
+- **Import…** `.lrc`/`.srt`/`.vtt`/`.ttml` replace the lines with timed ones, asking first when there
+  are lines. A `.txt` file is read like a paste. The toast states the counts and any format warnings,
+  and after an LRC import says that LRC timings are often 0.2–0.5 s off (D37: re-alignment is
+  offered, never forced — the offer itself arrives with WhisperX).
+- **Export…** writes LRC, LRC with word timings, SRT, WebVTT (with word timestamps) or ASS karaoke
+  through a save dialog. **Language** is stored for alignment. **Split long lines** (untimed lines
+  over 42 characters) goes through the text path, so every timed line keeps its timing.
+- **Text tab.** Paste or type. Every edit re-derives the lines through `setLyricsText` (§4.50), which
+  keeps timings, after a 250 ms pause; the textarea owns its text while focused, so the caret never
+  jumps. Typing merges into one undo step, sealed on blur.
+- **Lines tab.**
+  - Section markers (`Verse 1`, `×2`, `Chorus`) show between lines. Backing and ad-lib lines are in
+    italics, untimed lines dimmed, locked ones green.
+  - Start and end are typed as `m:ss.cc`: a forgiving reader (`src/lyrics/timecode.ts`: `1:02.35`,
+    `62,5`, `0:01:02.350`; empty clears), and invalid text is outlined and not applied.
+  - Selection: click, shift-click, ctrl-click. Clicking a timed line moves the playhead to it.
+    Selected lines can be given a role, locked, or have their times cleared in bulk.
+  - The selected line shows its **words**: explicit or interpolated, each word's start editable,
+    low-confidence words underlined. A split button before each word, and Merge ↓.
+- **Checklist tab.** `validateLyrics`, run continuously, with vocal segments from the vocal stem
+  when stems exist (and a note to separate them when they do not). A click selects the lines
+  concerned and moves the playhead there. The rail shows how many warnings are open.
+
+**Tap-to-sync (`src/lyrics/tap.ts`, `src/ui/components/TapOverlay.tsx`) — lyrics-spec §3.**
+- **Where a tap lands:** the playhead when the handler runs, read unsnapped from the audio element
+  (`PreviewHost.positionNow`, via the clock's new `positionAt`), minus the key event's age and the
+  calibrated latency. Both of those are wall time, so they are scaled by the playback speed.
+- **Snapping:** to the nearest **vocal-stem onset** within 100 ms (on by default when stems exist;
+  peaks from the vocal `onset` feature), or to the **beat grid** within 80 ms (off by default, §3).
+- **Passes:**
+  - *Line starts*: T stamps the next line's start. **Holding T through the line marks its end too**
+    (a hold of 0.35 s or more). Otherwise the end is estimated at about eight letters a second,
+    clamped to 1–8 s, and the next tap pulls it back if it comes sooner. A line tapped again keeps
+    its length and words, moved.
+  - *Line ends*: T ends the next timed line.
+  - *Words of the selected line*: T stamps each word's start and ends the word before; one more tap
+    ends the line.
+- **Backspace** restores exactly what the last tap changed and steps back. **Punch-in:** with one
+  line selected the session starts there; with several, it re-taps just those. The preview seeks to
+  the line before the range and plays.
+- **Speed** 1×, 0.75× or 0.5×. The clock gained a rate: the audio element plays at it, silent
+  stretches advance at it, and changing it re-anchors so the playhead does not jump. Tested.
+- Every tap is one undo step in the project history (`setLineTimings`: exact start, end and words
+  for several lines at once), so Ctrl+Z still works line by line afterwards.
+- The overlay sits over the top of the canvas: the line just tapped, the one to tap next (large),
+  and the one after. In words mode, the words with the next one underlined. There is a mouse tap
+  button and key help. While a session runs, its keys are caught in the capture phase.
+
+**Tap latency calibration (D33).** A click track of 16 clicks at 0.6 s. The taps are measured
+against when each click was actually **heard**: `AudioContext.getOutputTimestamp` maps the page's
+event time onto the audio clock, so output latency is not counted as the person's. The first four
+taps are ignored as warm-up, and taps more than 250 ms from a click are strays. The dialog reports
+the mean and spread, warns when the spread is over 60 ms, and saves the mean.
+
+**User settings file (`src/shell/settings-store.ts`)** — the seed of M36 (data-formats §6).
+- `settings.json` in the user data folder (`PULSEFORGE_SETTINGS` overrides; the smoke check uses a
+  fresh file of its own). It is versioned and written atomically.
+- A missing or damaged file gives defaults and reports the problem. A value with the wrong type is
+  dropped and reported.
+- Keys it does not know are **kept** through a save, and a file from a newer version is read but
+  **never written over**.
+- First field: `tapLatencyMs`. IPC: `getSettings` and `updateSettings`, validated in main.
+- Also new: `openLyricsFile` (5 MB limit) and `saveLyricsFile`.
+
+Verified here:
+- `npm run check`: **969 tests in 76 files**. New ones cover tap placement, onset peaks and
+  snapping, all three passes, hold-to-end, gaps, undo, punch-in and the refusals
+  (`tests/lyrics/tap.test.ts`); timecodes; the clock's rate and `positionAt`; and the settings file.
+- `npm run golden`: **29/29**.
+- `--smoke`: **22/22**, with a new `lyricsUi` check. It opens the drawer from the top bar, pastes
+  three lines and a marker, sees three lines and the marker, sees the checklist call them untimed,
+  adds a lyrics layer from the rail, starts tapping, and taps T three times (all three lines timed).
+  Backspace leaves two timed, and Esc ends the session and leaves the drawer open. The keys are
+  dispatched from the page, as real key presses are.
+- `PULSEFORGE_UI_TOUR=1` now also captures the drawer's tabs and a running tap session (`9a`–`9d`);
+  they were looked at before committing. That caught an overlay line that did not wrap and noisy
+  split buttons, both fixed.
+
+Getting the smoke script right took three tries, recorded here because the causes are easy to repeat:
+- The page script lives in a TypeScript **template literal** but runs as plain JavaScript, so
+  **type annotations** in it are a syntax error.
+- A `\n` in a string there becomes a real line break, **even inside a comment**. Use `\\n`.
+- A key event dispatched on `window` itself also reaches the App's own `window` listener, even
+  when a capture listener stops it, because both are "at target". Dispatch from `document.body`.
+- A failing smoke page script shows the owner a "could not start" dialog, on top of the smoke's
+  seeded "Smoke crash" recovery dialog. **Both are test artefacts, not the app** (the owner asked;
+  see the conversation of 2026-09-25).
+
+**Not done:** the lyrics track on the timeline with the vocal waveform, dragging and ripple (step
+4); keyboard nudging of selected lines (±10/100 ms), set-in/out at the playhead (step 4); WhisperX
+(step 5); a soft-subtitle track in exports (§10).
 
 ---
 

@@ -24,6 +24,8 @@ export function TopBar(): React.JSX.Element {
   const setQueueOpen = useStudio((s) => s.setQueueOpen);
   const matrixOpen = useStudio((s) => s.matrixOpen);
   const setMatrixOpen = useStudio((s) => s.setMatrixOpen);
+  const lyricsOpen = useStudio((s) => s.lyricsOpen);
+  const setLyricsOpen = useStudio((s) => s.setLyricsOpen);
   const activeRenders = useStudio((s) => s.renders.filter((job) => job.status === 'queued' || job.status === 'running').length);
 
   return (
@@ -50,6 +52,9 @@ export function TopBar(): React.JSX.Element {
       <span className="project-name" title={path ?? 'not saved yet'}>
         {name}{dirty ? ' •' : ''}
       </span>
+      <button type="button" data-action="lyrics-drawer" className={lyricsOpen ? 'active' : ''} title="The lyrics: text, timings, checklist, tap to sync" onClick={() => setLyricsOpen(!lyricsOpen)}>
+        ♪ Lyrics
+      </button>
       <button type="button" data-action="modulation-matrix" className={matrixOpen ? 'active' : ''} title="Every modulation binding in the project" onClick={() => setMatrixOpen(!matrixOpen)}>
         ∿ Modulation
       </button>

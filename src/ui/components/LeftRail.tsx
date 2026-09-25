@@ -15,6 +15,7 @@ import { AssetsPanel } from './AssetsPanel.tsx';
 import { PresetsPanel } from './PresetsPanel.tsx';
 import { ClipControls } from './ClipControls.tsx';
 import { StemsControls } from './StemsControls.tsx';
+import { LyricsSection } from './LyricsPanel.tsx';
 import { useModules } from '../modules.ts';
 import { useState } from 'react';
 
@@ -95,6 +96,8 @@ export function LeftRail(): React.JSX.Element {
           {analysisMessage}
         </p>
       )}
+
+      <LyricsSection />
 
       <AssetsPanel />
 

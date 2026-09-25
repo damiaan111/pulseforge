@@ -37,6 +37,10 @@ export const IPC = {
   recoveryClear: 'pf:recovery:clear',
   recoveryList: 'pf:recovery:list',
   recoveryDiscard: 'pf:recovery:discard',
+  settingsGet: 'pf:settings:get',
+  settingsUpdate: 'pf:settings:update',
+  lyricsOpen: 'pf:lyrics:open',
+  lyricsSave: 'pf:lyrics:save',
   stemsSeparate: 'pf:stems:separate',
   stemsCancel: 'pf:stems:cancel',
   /** Main → renderer: how far the running separation has got. */
@@ -76,6 +80,8 @@ export const IPC = {
 } as const;
 
 export type { RenderJob, JobStatus, RenderRequest, ModuleScan };
+export type { Settings as UserSettings } from './settings-store.ts';
+import type { Settings as UserSettings } from './settings-store.ts';
 
 export interface ProjectFile {
   readonly path: string;
@@ -352,6 +358,14 @@ export interface PulseforgeApi {
   /** Earlier runs that ended without a clean quit and left an autosave, newest first. */
   listRecovery(): Promise<readonly RecoveryCandidate[]>;
   discardRecovery(sessionId: string): Promise<void>;
+  /** User settings (data-formats §6), with any problems reading them. */
+  getSettings(): Promise<{ readonly settings: UserSettings; readonly problems: readonly string[] }>;
+  /** Merges and saves; resolves to the settings as saved. */
+  updateSettings(patch: Partial<UserSettings>): Promise<UserSettings>;
+  /** Shows an open dialog for a lyrics file (.lrc, .srt, .vtt, .ttml, .txt). Null when cancelled. */
+  openLyricsFile(): Promise<{ readonly name: string; readonly text: string } | null>;
+  /** Shows a save dialog and writes exported lyrics. Resolves to the path, or null when cancelled. */
+  saveLyricsFile(suggestedName: string, text: string): Promise<string | null>;
   onStemsProgress(listener: (progress: StemProgressEvent) => void): () => void;
   /** The drop-in modules folder, scanned now: loadable modules and per-folder problems (M35). */
   listModules(): Promise<ModuleScan>;

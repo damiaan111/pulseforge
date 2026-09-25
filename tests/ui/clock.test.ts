@@ -254,3 +254,32 @@ describe('loop wrap (audit regression)', () => {
     expect(wrapped.seekAudioTo).toBeCloseTo(6, 6);
   });
 });
+
+describe('playback rate and the tap position (lyrics-spec §3)', () => {
+  it('advances the silent lead-in at the playback rate, without a jump when the rate changes', () => {
+    const { clock, advance } = makeClock();
+    clock.play();
+    clock.tick(silent);
+    advance(400);
+    expect(clock.positionAt(silent)).toBeCloseTo(0.4);
+    clock.setRate(0.5);
+    expect(clock.positionAt(silent)).toBeCloseTo(0.4);
+    advance(400);
+    expect(clock.positionAt(silent)).toBeCloseTo(0.6);
+    expect(clock.tick(silent).frame?.timelineSeconds).toBeCloseTo(0.6, 1);
+  });
+
+  it('reads the audio while it sounds, unsnapped, and never moves the playhead', () => {
+    const { clock } = makeClock();
+    clock.play();
+    // Source 6.0123 → timeline 3.0123: finer than a frame, as a tap needs.
+    expect(clock.positionAt(sounding(6.0123))).toBeCloseTo(3.0123, 9);
+    expect(clock.timelineSeconds).toBe(0);
+  });
+
+  it('is the paused playhead when not playing', () => {
+    const { clock } = makeClock();
+    clock.seek(4.5);
+    expect(clock.positionAt(sounding(99))).toBe(4.5);
+  });
+});

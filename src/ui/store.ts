@@ -35,6 +35,10 @@ import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../
 import { stringifyDocument } from '../project/serialize.ts';
 import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing, RecoveryCandidate, RenderJob, StemProgressEvent } from '../shell/ipc.ts';
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
+import { detectLyricsFormat, exportLyrics as exportLyricsText, importLyricsFile, type LyricsExportFormat } from '../lyrics/formats.ts';
+import type { TapSession } from '../lyrics/tap.ts';
+import { importLyrics, lyricsToText, setLyricsText } from '../project/lyrics-commands.ts';
+import type { UserSettings } from '../shell/ipc.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
 import type { LiveModulation } from './preview/host.ts';
@@ -237,6 +241,37 @@ export interface StudioState {
   /** The modulation matrix panel (ui-spec §6). */
   matrixOpen: boolean;
   setMatrixOpen(open: boolean): void;
+
+  /** The lyrics editor drawer (ui-spec §5 "Lyrics", lyrics-spec §5) and which tab it shows. */
+  lyricsOpen: boolean;
+  lyricsTab: 'text' | 'lines' | 'checks';
+  setLyricsOpen(open: boolean, tab?: StudioState['lyricsTab']): void;
+  /** Selected lyric lines (UI only, never undoable): punch-in range, bulk edits, word editing. */
+  lyricsSelection: readonly string[];
+  setLyricsSelection(ids: readonly string[]): void;
+  /** Imports a lyrics file: timed formats replace the lines; plain text is read like a paste. */
+  importLyricsFile(): Promise<void>;
+  exportLyrics(format: LyricsExportFormat): Promise<void>;
+  /** A running tap-to-sync session (lyrics-spec §3), or null. */
+  tap: TapState | null;
+  setTap(tap: TapState | null): void;
+
+  /** User settings (data-formats §6); null until read. */
+  settings: UserSettings | null;
+  loadSettings(): Promise<void>;
+  updateSettings(patch: Partial<UserSettings>): Promise<void>;
+}
+
+export interface TapState {
+  readonly session: TapSession;
+  /** Playback speed while tapping; taps are still recorded in timeline time. */
+  readonly rate: number;
+  /** Land taps on the nearest vocal-stem onset within 100 ms (on by default when there are stems). */
+  readonly snapOnsets: boolean;
+  /** Land taps on the beat grid instead (off by default: vocals rarely sit on it). */
+  readonly snapBeats: boolean;
+  /** How many taps this session has made, for the overlay. */
+  readonly taps: number;
 }
 
 /** Everything derived from the history, recomputed after any command. */
@@ -662,7 +697,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({ exportOpen: open });
   },
   setQueueOpen(open) {
-    set(open ? { queueOpen: true, matrixOpen: false } : { queueOpen: false });
+    set(open ? { queueOpen: true, matrixOpen: false, lyricsOpen: false } : { queueOpen: false });
   },
 
   run(command, options) {
@@ -982,6 +1017,98 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   setMatrixOpen(open) {
     // One drawer at a time on the right edge.
-    set(open ? { matrixOpen: true, queueOpen: false } : { matrixOpen: false });
+    set(open ? { matrixOpen: true, queueOpen: false, lyricsOpen: false } : { matrixOpen: false });
+  },
+
+  lyricsOpen: false,
+  lyricsTab: 'text',
+  setLyricsOpen(open, tab) {
+    set(open
+      ? { lyricsOpen: true, queueOpen: false, matrixOpen: false, ...(tab === undefined ? {} : { lyricsTab: tab }) }
+      : { lyricsOpen: false });
+  },
+
+  lyricsSelection: [],
+  setLyricsSelection(ids) {
+    set({ lyricsSelection: ids });
+  },
+
+  async importLyricsFile() {
+    try {
+      const file = await window.pulseforge.openLyricsFile();
+      if (file === null) return;
+      const format = detectLyricsFormat(file.name, file.text);
+      if (format === null) {
+        // Plain text is a paste from a file: lines and section markers, no times.
+        const existing = history.current.lyrics.lines.length;
+        if (existing > 0 && !window.confirm(`Replace the ${existing} lyric lines with the text of ${file.name}? Lines whose text is unchanged keep their timing.`)) return;
+        get().run(setLyricsText(file.text));
+        set({ toast: { text: `Read ${history.current.lyrics.lines.length} lines from ${file.name}. Tap to sync, or align them, to give them times.`, kind: 'ok' } });
+        return;
+      }
+      const imported = importLyricsFile(file.name, file.text);
+      if (imported.lines.length === 0) {
+        set({ toast: { text: `${file.name} has no timed lines Pulseforge could read.${imported.warnings.length > 0 ? `\n${imported.warnings.join('\n')}` : ''}`, kind: 'warn' } });
+        return;
+      }
+      const existing = history.current.lyrics.lines.length;
+      if (existing > 0 && !window.confirm(`Replace the ${existing} lyric lines with the ${imported.lines.length} timed lines from ${file.name}? (Undo brings them back.)`)) return;
+      get().run(importLyrics(imported));
+      const words = imported.lines.filter((l) => l.words !== null).length;
+      set({
+        toast: {
+          text: `Imported ${imported.lines.length} lines from ${file.name}${words > 0 ? `, ${words} with word timings` : ''}.`
+            + (imported.format === 'lrc' ? ' LRC timings are often 0.2–0.5 s off: check a few lines before rendering.' : '')
+            + (imported.warnings.length > 0 ? `\n${imported.warnings.slice(0, 5).join('\n')}` : ''),
+          kind: imported.warnings.length > 0 ? 'warn' : 'ok',
+        },
+      });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Importing the lyrics'), kind: 'bad' } });
+    }
+  },
+
+  async exportLyrics(format) {
+    const document = history.current;
+    const text = exportLyricsText(document.lyrics, format, { title: document.name, canvas: { width: document.canvas.width, height: document.canvas.height } });
+    if (text.trim() === '' || text.trim() === 'WEBVTT') {
+      set({ toast: { text: 'No lyric line has a time yet, so there is nothing to export.', kind: 'warn' } });
+      return;
+    }
+    const clean = document.name.replace(/[^\w\- ]+/g, '').trim() || 'lyrics';
+    const extension = format === 'elrc' ? 'lrc' : format;
+    try {
+      const path = await window.pulseforge.saveLyricsFile(`${clean}.${extension}`, text);
+      if (path !== null) set({ toast: { text: `Exported ${path}`, kind: 'ok' } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Exporting the lyrics'), kind: 'bad' } });
+    }
+  },
+
+  tap: null,
+  setTap(tap) {
+    set({ tap });
+  },
+
+  settings: null,
+  async loadSettings() {
+    try {
+      const { settings, problems } = await window.pulseforge.getSettings();
+      set({ settings, ...(problems.length > 0 ? { toast: { text: `Settings: ${problems.join('; ')}`, kind: 'warn' as const } } : {}) });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the settings'), kind: 'bad' } });
+    }
+  },
+  async updateSettings(patch) {
+    try {
+      set({ settings: await window.pulseforge.updateSettings(patch) });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Saving the settings'), kind: 'bad' } });
+    }
   },
 }));
+
+/** The lyrics as the editor's text (section markers as `[label]`). */
+export function lyricsEditorText(): string {
+  return lyricsToText(history.current.lyrics);
+}

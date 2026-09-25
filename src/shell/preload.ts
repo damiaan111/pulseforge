@@ -34,6 +34,10 @@ const api: PulseforgeApi = {
   clearRecovery: () => ipcRenderer.invoke(IPC.recoveryClear) as Promise<void>,
   listRecovery: () => ipcRenderer.invoke(IPC.recoveryList) as ReturnType<PulseforgeApi['listRecovery']>,
   discardRecovery: (sessionId) => ipcRenderer.invoke(IPC.recoveryDiscard, sessionId) as Promise<void>,
+  getSettings: () => ipcRenderer.invoke(IPC.settingsGet) as ReturnType<PulseforgeApi['getSettings']>,
+  updateSettings: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch) as ReturnType<PulseforgeApi['updateSettings']>,
+  openLyricsFile: () => ipcRenderer.invoke(IPC.lyricsOpen) as ReturnType<PulseforgeApi['openLyricsFile']>,
+  saveLyricsFile: (suggestedName, text) => ipcRenderer.invoke(IPC.lyricsSave, suggestedName, text) as ReturnType<PulseforgeApi['saveLyricsFile']>,
   onStemsProgress(listener) {
     const handler = (_event: unknown, progress: Parameters<typeof listener>[0]) => listener(progress);
     ipcRenderer.on(IPC.stemsProgress, handler);

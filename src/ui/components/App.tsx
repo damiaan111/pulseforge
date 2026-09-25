@@ -11,6 +11,7 @@ import { RenderQueue } from './RenderQueue.tsx';
 import { ModulationMatrix } from './Modulation.tsx';
 import { Inspector } from './Inspector.tsx';
 import { RecoveryDialog } from './RecoveryDialog.tsx';
+import { LyricsDrawer } from './LyricsPanel.tsx';
 import { LeftRail } from './LeftRail.tsx';
 import { Timeline } from './Timeline.tsx';
 import { TopBar } from './TopBar.tsx';
@@ -64,6 +65,12 @@ export function App(): React.JSX.Element {
     return () => clearInterval(handle);
   }, [autosave, loadRecovery]);
 
+  // User settings (tap latency, D33), once.
+  const loadSettings = useStudio((s) => s.loadSettings);
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
   // The bundled typeface, once: text layers need it before they can draw anything (§8.13).
   useEffect(() => {
     void loadDefaultFont();
@@ -81,6 +88,7 @@ export function App(): React.JSX.Element {
         else if (state.exportOpen) state.setExportOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.matrixOpen) state.setMatrixOpen(false);
+        else if (state.lyricsOpen) state.setLyricsOpen(false);
         else if (state.toast !== null) state.notify(null);
         return;
       }
@@ -127,6 +135,7 @@ export function App(): React.JSX.Element {
       </div>
       <RenderQueue />
       <ModulationMatrix />
+      <LyricsDrawer />
       <ExportDialog />
       <SavePresetDialog />
       <RecoveryDialog />

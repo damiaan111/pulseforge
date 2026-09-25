@@ -116,6 +116,12 @@ export class PreviewClock {
   // at the end of the audio is seamless rather than a jump.
   private anchorWallMs = 0;
   private anchorTimeline = 0;
+  /**
+   * Playback speed (tap-to-sync at 0.75× or 0.5×, lyrics-spec §3). The audio element plays at this
+   * rate and stays the master; the silent stretches advance at it too, so a slowed lead-in stays
+   * slowed.
+   */
+  private rate = 1;
 
   private renderedAt: number[] = [];
   private droppedAt: number[] = [];
@@ -169,6 +175,27 @@ export class PreviewClock {
 
   setLoop(loop: LoopRegion | null): void {
     this.loop = loop;
+  }
+
+  get playbackRate(): number {
+    return this.rate;
+  }
+
+  /** Changes the speed. Re-anchored first, so the playhead does not jump. */
+  setRate(rate: number, wallMs = this.now()): void {
+    const next = Math.min(4, Math.max(0.1, rate));
+    if (this.transportState === 'playing') this.reanchor(this.anchorTimeline + ((wallMs - this.anchorWallMs) / 1000) * this.rate, wallMs);
+    this.rate = next;
+  }
+
+  /**
+   * Where the playhead is right now, for a key press — not frame-snapped, and without moving
+   * anything. While audio sounds it is the audio's position; in silence, the wall-clock anchor.
+   */
+  positionAt(reading: AudioReading, wallMs = this.now()): number {
+    if (this.transportState !== 'playing') return this.position;
+    if (reading.playing) return sourceToTimelineSeconds(reading.positionSeconds, this.placement);
+    return Math.min(this.durationSeconds, this.anchorTimeline + ((wallMs - this.anchorWallMs) / 1000) * this.rate);
   }
 
   play(): PreviewTick {
@@ -277,7 +304,7 @@ export class PreviewClock {
       this.reanchor(timeline, wallMs);
       return timeline;
     }
-    return this.anchorTimeline + (wallMs - this.anchorWallMs) / 1000;
+    return this.anchorTimeline + ((wallMs - this.anchorWallMs) / 1000) * this.rate;
   }
 
   private reanchor(timelineSeconds: number, wallMs = this.now()): void {

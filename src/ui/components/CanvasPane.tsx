@@ -12,6 +12,7 @@ import { PreviewHost } from '../preview/host.ts';
 import { setThumbnailHost } from '../preset-thumbnails.ts';
 import { shaderModuleDefinition } from '../../engine/modules/shader-module.ts';
 import { useStudio } from '../store.ts';
+import { TapOverlay } from './TapOverlay.tsx';
 
 /** Canvas sizes for the aspect switcher, all about 2 megapixels so switching is like for like. */
 const ASPECT_SIZES: Record<string, { width: number; height: number }> = {
@@ -34,6 +35,10 @@ export const previewControls = {
   stop: () => activeHost?.stop(),
   seek: (timelineSeconds: number) => activeHost?.seek(timelineSeconds),
   transport: () => activeHost?.transport ?? 'stopped',
+  /** The playhead now, unsnapped: what a lyric tap measures against. */
+  positionNow: () => activeHost?.positionNow() ?? 0,
+  setRate: (rate: number) => activeHost?.setRate(rate),
+  playbackRate: () => activeHost?.playbackRate ?? 1,
 };
 
 export function CanvasPane(): React.JSX.Element {
@@ -164,6 +169,7 @@ export function CanvasPane(): React.JSX.Element {
             {dropped} dropped
           </div>
         )}
+        <TapOverlay />
         {editTarget !== 'base' && (
           <button type="button" className="override-banner" onClick={() => setEditTarget('base')}>
             Editing the {editTarget} override — click to edit the base instead
