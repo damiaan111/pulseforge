@@ -89,6 +89,7 @@ export function createDocument(options: CreateDocumentOptions = {}): ProjectDocu
     globalEffects: [],
     globalModulations: [],
     lyrics: EMPTY_LYRICS,
+    director: null,
     extra: {},
   };
 }

@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1009 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 1057 tests, `npm run golden` 29/29 identical,
 > `--smoke` 23/23.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -96,6 +96,7 @@
 | 4.55 | WhisperX transcription and alignment (P6 step 5) — M26, the lyrics setup tier |
 | | **Auto-director (P7)** |
 | 4.56 | Groundwork: the curve source, the whole-frame chain, group bindings fix (P7 step 1) |
+| 4.57 | The director and its seven templates (P7 step 2) — M21, auto-director-spec §1–§9, §11 |
 
 ---
 
@@ -2707,6 +2708,144 @@ This is a regression test in `tests/project/snapshot.test.ts`.
 - `npm run golden` 29/29 identical.
 - `--smoke` **23/23**. New `globalChain`: Whole frame → the global inspector, add Vignette there, the
   row says "1 effect", undo removes it.
+
+### 4.57 The director and its seven templates (P7 step 2) — M21, auto-director-spec §1–§9, §11
+
+The pipeline, as pure TypeScript in `src/director/`, with no UI yet (that is step 3):
+
+```
+classify (digest.ts) → match (match.ts) → palette (palette.ts) → populate + calibrate (direct.ts,
+calibrate.ts) → arrange (arrange.ts) → guardrails (direct.ts) → an ordinary ProjectDocument + log
+```
+
+`direct(input, options)` is a pure function of the track's analysis, the project, the templates,
+the module library and a seed. The same inputs give the same bytes, **ids included**: ids come from
+a seeded id source (timestamp 0, bytes from `hash32`), never the clock.
+
+**Templates (`src/director/template.ts`, `templates/builtin/*.json`).**
+- Hand-authored JSON, `formatVersion: 1`, in the spec's §4 shape: affinity, aspects, palette rule,
+  slots with weighted candidates, intent-only modulations, arrangement, variation, budget.
+- Every field is validated. Every problem is reported with its path: a misspelt key, an unknown
+  axis, a target naming a missing slot or effect. Nothing is silently defaulted.
+- Deliberate differences from the spec's sketch (also in ROADMAP §4):
+  - Section states use this build's labels (intro, build, main, breakdown, outro). The spec's
+    "chorus" is `main`, and its "drop" is the separate `drop` entry, placed on the digest's drops.
+  - A modulation `target` may list alternatives; the first that resolves wins. Candidates do not
+    share parameter names: a radial's `length` is a bar visualizer's `maxHeight`.
+  - The budget is numeric: gpuCost low 1, medium 2, high 4, scaled by pixel count relative to 1080p.
+  - Tokens in parameter values: `$title`, `$logo`, `$backgroundImage` and `$seed`.
+- `template-store.ts` reads built-ins from `templates/builtin/` and the user's templates from a user
+  folder; a user template wins an id collision. A file that does not parse is listed as a problem.
+- **The seven** (§11): Neon Pulse, Neon Grid, Minimal Type, Minimal Mono, Cinematic Depth,
+  Cinematic Particles, Lyric Focus. All use only installed modules and parse with zero issues.
+
+**Matching (`match.ts`).**
+- Soft scoring:
+  - inside a preferred range scores 1, falling off linearly outside it;
+  - "tolerate" costs a little outside its range;
+  - "avoid" cuts the score to a fifth.
+- **Axes the digest could not measure are left out, not scored as a guess.**
+- Condition bonuses: Lyric Focus gets +0.8 with timed lyrics and −0.5 without.
+- Availability comes first (D29). A missing candidate module is substituted by the installed module
+  of the same kind sharing its tags, and the log says so. A required slot with no module makes the
+  template unavailable, with the reason.
+
+**Palette (`palette.ts`).**
+- `generate-from-style`: a hue from a style axis over the template's arc, plus seeded jitter, then
+  a harmony (analogous, complementary, triad, duotone, mono). Saturation comes from energy and
+  background lightness from darkness. Light templates put ink on paper.
+- Contrast is enforced last and always wins (§5.3):
+  - text against the background must reach the template's minimum WCAG ratio;
+  - the primary must reach 3:1 (WCAG non-text contrast).
+- Lightness moves until both pass, and each fix is logged.
+
+**Populate and calibrate.**
+- Slot resolution follows §5.1: filter candidates by what is installed, the slot's condition, the
+  candidate's `needs` and `minStyle`, then make a seeded weighted choice. Only declared parameters
+  are written; an unknown key is logged as a template mistake.
+- **Calibration (`calibrate.ts`, §5.2)** uses `inputRange: 'auto'`, which is exactly the spec's
+  "p10 → nothing, p90 → full deflection" at compile time. The director chooses only the *amount*:
+  - subtle 8%, medium 25%, strong 60% of the soft range;
+  - held under the soft maximum;
+  - multiply factors capped at ×1.25, ×1.6 or ×2.5, because a small base would otherwise give a
+    ×13 factor;
+  - response maps to envelope times: snappy 5/120 ms, smooth 40/400 ms, slow 200/1500 ms.
+- The source's measured p10/p50/p90 go in the log.
+- A flat source, or an amount that rounds to nothing, is not written (§7).
+- A missing stem falls back to the mix, said in the log.
+
+**Arrangement (`arrange.ts`, §6, D32).**
+- Section boundaries map to the timeline (lead-in and trim), snap to the beat grid, and are thinned
+  by **anti-chaos**: no change within 8 s of the last, and at most 2 layers entering or leaving at
+  one boundary.
+- **Anti-monotony** pushes neighbouring sections apart when they would look the same.
+- What it writes is ordinary bindings on the `curve` source:
+  - **section intensity** is multiplied into the template's intensity targets:
+    `floor + (1 − floor) · intensity`, and a build ramps into what follows;
+  - **presence** is an opacity curve that fades optional layers in and out on boundaries; the layer's
+    time range spans its first entry to its last exit;
+  - **drops** are a spike on the transient nearest the detected drop.
+- The title's time range ends before the first vocal segment, or at the end of the intro without
+  vocals.
+- Fades to and from black are a "Fade" layer on top, with an opacity curve.
+
+**Layer opacity is now a modulation target** (`layers.<id>.opacity`, engine.ts). The engine skips a
+layer faded to 0. It is described and edited like any parameter (`OPACITY_SPEC`), and the
+inspector's Opacity slider has the ∿ button. It has a GPU test (`opacity-modulation-gpu.test.ts`).
+Golden frames are unchanged.
+
+**Guardrails (§7).**
+- The budget and layer cap drop the lowest-priority optional slots, and the log says which and why.
+- Duplicate effects in the whole-frame chain: the first is kept.
+- Occlusion: generated layers under a full-frame opaque layer are removed.
+- Lyrics versus the hero: the hero moves up and shrinks.
+- The 9:16 safe area: text and logos are nudged by an aspect override.
+- Contrast is handled by the palette step.
+- Zero bindings are handled by calibration.
+
+**The director's record (`document.director`, saved with the project).**
+- The current roll: master seed, template, a seed per aspect (palette, layout, motion), locks, the
+  palette it ended with, and a one-line summary.
+- A history of up to 10 earlier rolls.
+- The **decision log as data**: step, sentence, and the facts behind it (data-formats §5).
+- A **fingerprint of everything it wrote** (canonical JSON, 53-bit hash).
+
+**Rerolls never lose your work (§9).**
+- On the next run, a layer, global effect or global binding still matching its fingerprint is
+  replaced.
+- One that no longer matches was edited: it is kept and keeps filling its slot.
+- Layers you added stay next to the layer they sat above.
+- Locks:
+  - *palette* keeps the palette verbatim, your edits included;
+  - *layout* keeps the template and its seed, so the same modules come back in the same slots;
+  - *motion* keeps the modulation seed;
+  - *template* keeps the template.
+- `surprise()` redraws a roll, up to 5 times, while it resolves to the same template, hero, hue
+  family and accents as the previous one (diversity enforcement).
+- A restore from the history reproduces the roll's seeds and palette exactly.
+
+**Verified here:**
+- `npm run check`: **1057 tests**. New: `tests/director/direct.test.ts` and `tests/director/parts.test.ts`.
+  They run on a song-shaped fixture built from the reference beat track, with quiet and loud parts,
+  so section detection finds structure.
+- **Every** built-in template makes a project that saves and reloads byte-identically with no issues:
+  every binding target resolves, and the engine compiles every binding with no issues.
+- The same seed gives the same bytes. Amounts stay inside the soft range with no zero bindings.
+- Intensity curves are sorted, and the title leaves. Contrast meets each template's minimum.
+- Cinematic Depth at 4K logs a budget drop. Lyric Focus wins with timed lyrics.
+- Reroll keeps an edited hero and a user layer and replaces the rest. The palette and layout locks
+  work, Surprise me differs, and the history holds 10 rolls, restorable.
+- Unit tests cover anti-chaos, beat snap, anti-monotony, presence fades, drops on onsets, the title
+  hold, lead-in mapping, contrast enforcement, seeded palettes, affinity and veto, unmeasured axes,
+  availability and tag substitution (D29), calibration bands, caps and refusals, and fingerprints.
+- `npm run golden` 29/29 identical.
+
+**Not yet:**
+- the studio's Auto panel, Generate on import (D9), the history strip's thumbnails, and the
+  contact-sheet check (§10.4) — step 3;
+- `derive-from-image` palettes;
+- "Extract as template" (§10.2);
+- palette shifts at chorus and drop (§6), which need keyframed palette roles.
 
 ---
 

@@ -221,6 +221,18 @@ export interface TargetPath {
   /** Set for a parameter of an effect in the layer's chain. */
   readonly effectId: string | null;
   readonly key: string;
+  /** A property of the layer itself rather than a module parameter — only `opacity` so far. */
+  readonly layerProperty?: true;
+}
+
+/**
+ * The layer's own opacity as a parameter, so a binding on it is described, calibrated and edited
+ * like any other. The auto-director's section presence curves are its main user.
+ */
+export const OPACITY_SPEC: ParamSpec = { key: 'opacity', label: 'Opacity', group: 'Layer', type: 'float', default: 1, min: 0, max: 1 };
+
+export function layerOpacityTarget(layerId: string): string {
+  return `layers.${layerId}.opacity`;
 }
 
 export function parseTarget(target: string): TargetPath | undefined {
@@ -228,6 +240,8 @@ export function parseTarget(target: string): TargetPath | undefined {
   if (global !== null) return { layerId: GLOBAL_OWNER, effectId: global[1]!, key: global[2]! };
   const effect = /^layers\.([^.]+)\.effects\.([^.]+)\.params\.(.+)$/.exec(target);
   if (effect !== null) return { layerId: effect[1]!, effectId: effect[2]!, key: effect[3]! };
+  const opacity = /^layers\.([^.]+)\.opacity$/.exec(target);
+  if (opacity !== null) return { layerId: opacity[1]!, effectId: null, key: 'opacity', layerProperty: true };
   const param = /^layers\.([^.]+)\.params\.(.+)$/.exec(target);
   if (param !== null) return { layerId: param[1]!, effectId: null, key: param[2]! };
   return undefined;
@@ -263,6 +277,7 @@ export function describeTarget(document: ProjectDocument, target: string, schema
     : findAnyLayer(document.layers, path.layerId);
   if (layer === undefined) return { label: target, spec: undefined, problem: 'its layer no longer exists' };
   const layerName = layer.name === '' ? '(unnamed)' : layer.name;
+  if (path.layerProperty === true) return { label: `${layerName} › Opacity`, spec: OPACITY_SPEC, problem: null };
   if (path.effectId === null) {
     if (layer.kind !== 'module') return { label: `${layerName} › ${path.key}`, spec: undefined, problem: 'groups have no parameters' };
     const schema = schemas(layer.module);

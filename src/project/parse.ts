@@ -16,10 +16,10 @@ import {
   ANCHORS, ASPECT_BUCKETS, ASSET_KINDS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE, FADE_CURVES, type FadeCurve,
   LYRIC_ROLES, LYRICS_SOURCES, type LyricLine, type LyricLineStyle, type Lyrics, type LyricSection, type LyricWord,
   DEFAULT_ENVELOPE, DEFAULT_LOOK_AHEAD_MS, ENVELOPE_MODES, IDENTITY_TRANSFORM,
-  MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
+  DECISION_STEPS, DIRECTOR_LOCKS, MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
-  type DocumentBlendMode, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
+  type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
   type ScaleReference, type SourceSpec, type TimeRange, type Transform,
 } from './document.ts';
@@ -618,6 +618,46 @@ function parseAsset(node: Node, issues: DocumentIssue[]): AssetRef {
  * start is reported and its end moved to the start, never swapped — swapping would invent a timing
  * nobody set. Line breaks inside a line are joined: a line is one line, wrapping is the layer's job.
  */
+/**
+ * The director's record (auto-director-spec §8–§9). Nothing in it affects a render — the project
+ * it made is ordinary layers — so a damaged record is repaired with defaults and reported, never
+ * a reason to refuse the file.
+ */
+function parseDirector(node: Node): DirectorState {
+  const roll = (n: Node): DirectorRoll => {
+    const seeds = n.child('seeds');
+    return {
+      seed: n.num('seed', 0, { integer: true }),
+      templateId: n.str('templateId', ''),
+      seeds: {
+        palette: seeds.num('palette', 0, { integer: true }),
+        layout: seeds.num('layout', 0, { integer: true }),
+        motion: seeds.num('motion', 0, { integer: true }),
+      },
+      locks: n.strings('locks').filter((lock): lock is DirectorLock => (DIRECTOR_LOCKS as readonly string[]).includes(lock)),
+      palette: n.strings('palette'),
+      summary: n.str('summary', ''),
+      extra: n.rest(),
+    };
+  };
+  return {
+    current: roll(node.child('current')),
+    history: node.children('history').map(roll),
+    log: node.children('log').map((n): DecisionEntry => ({
+      step: n.oneOf('step', DECISION_STEPS, 'populate'),
+      text: n.str('text', ''),
+      data: n.record('data'),
+    })),
+    generated: node.children('generated').map((n): GeneratedMark => ({
+      id: n.str('id', ''),
+      kind: n.oneOf('kind', ['layer', 'effect', 'binding'] as const, 'layer'),
+      slot: n.str('slot', ''),
+      fingerprint: n.str('fingerprint', ''),
+    })),
+    extra: node.rest(),
+  };
+}
+
 function parseLyrics(node: Node, issues: DocumentIssue[]): Lyrics {
   const lines = node.children('lines').map((n): LyricLine => {
     const rawText = n.str('text', '');
@@ -800,6 +840,7 @@ export function parseDocument(raw: unknown): ParseResult {
     globalModulations: root.children('globalModulations').map((n) => parseBinding(n, issues)),
     assets: root.children('assets').map((n) => parseAsset(n, issues)),
     lyrics: parseLyrics(root.child('lyrics'), issues),
+    director: root.take('director') === undefined || root.take('director') === null ? null : parseDirector(root.child('director')),
     extra: root.rest(RESERVED_DOCUMENT_KEYS),
   };
 

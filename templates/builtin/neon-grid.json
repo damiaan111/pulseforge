@@ -1,0 +1,120 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.neon.grid",
+  "name": "Neon Grid",
+  "description": "A glowing terrain grid flying under a horizon sun. Synthwave, outrun, retro electronic.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "energy": [0.4, 0.9], "tempo": [0.35, 0.8], "organic": [0, 0.45], "darkness": [0.4, 1] },
+    "tolerate": { "density": "any" },
+    "avoid": { "organic": [0.8, 1] },
+    "weight": 0.95
+  },
+  "aspects": ["16:9", "1:1"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "triad",
+    "baseHue": { "from": "darkness", "range": [320, 290] },
+    "saturation": [0.75, 1],
+    "background": [0.03, 0.1],
+    "minTextContrast": 4.5
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Sky",
+      "candidates": [
+        { "module": "core.source.background", "weight": 1, "label": "Sky",
+          "params": { "mode": "gradient", "gradient": "linear", "angle": 90, "colorA": "#000000", "colorB": "@background" } }
+      ]
+    },
+    {
+      "id": "SUN", "role": "ACCENT", "name": "Sun", "probability": 0.85, "priority": 45,
+      "candidates": [
+        { "module": "core.visualizer.orb", "weight": 1, "label": "Sun",
+          "params": { "fill": "@secondary", "drive": "rms", "radius": 0.2, "swell": 0.15, "softness": 0.25, "ripple": 0, "core": 0.8 } }
+      ],
+      "transform": { "y": 0.36 }
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": true,
+      "candidates": [
+        { "module": "core.scene3d.terrain", "weight": 4, "label": "Terrain",
+          "params": { "low": "@accent", "high": "@primary", "grid": 1.1, "glow": 1.2, "rig": "static", "flow": 12, "amplitude": 2.4, "height": 3, "distance": 14, "mirror": true, "valley": 0.6 } },
+        { "module": "core.visualizer.tunnel", "weight": 1, "label": "Tunnel", "minStyle": { "energy": 0.6 },
+          "params": { "fill": "@primary", "rings": 9, "speed": 0.8, "haze": 0.7 } }
+      ]
+    },
+    {
+      "id": "ACCENT", "role": "ACCENT", "probability": 0.55, "opacity": 0.7, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.particles", "weight": 1, "label": "Stars",
+          "params": { "fill": "@text", "count": 350, "size": 0.004, "sizeVariance": 0.8, "direction": "down", "speed": 0.01, "flare": 0.8, "seed": "$seed" } }
+      ]
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "fillMode": "gradient", "colorB": "@primary", "case": "upper", "size": 0.1, "letterSpacing": 0.1, "glow": 0.8, "glowColor": "@primary", "shadowColor": "@textShadow" } }
+      ],
+      "transform": { "y": 0.22 }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
+      "params": { "upcoming": "@text", "active": "@secondary", "sung": "@primary", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.2 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.24 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.1, "opacity": 0.85 } } ],
+      "transform": { "x": 0.92, "y": 0.1 },
+      "aspectOverrides": { "9:16": { "transform": { "x": 0.85, "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.8, "threshold": 0.55, "radius": 0.025 } },
+        { "key": "scanlines", "module": "core.effect.scanlines", "params": { "lines": 540, "depth": 0.22, "mask": 0.1 }, "probability": 0.5 },
+        { "key": "chromatic", "module": "core.effect.chromatic", "params": { "amount": 0.002 }, "probability": 0.4 },
+        { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.04 }, "probability": 0.4 }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Bass ridges", "target": ["HERO.params.amplitude", "HERO.params.reactivity"],
+      "source": { "type": "band", "stem": "mix", "band": "bass" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Sun swell", "target": ["SUN.params.swell"],
+      "source": { "type": "band", "stem": "mix", "band": "sub" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Stars", "target": ["ACCENT.params.flare"],
+      "source": { "type": "band", "stem": "mix", "band": "brilliance" }, "mode": "add", "intensity": "medium", "response": "snappy" },
+    { "label": "Glow", "target": ["POST.bloom.intensity"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "medium", "response": "smooth" },
+    { "label": "Kick", "target": ["HERO.params.kick"],
+      "source": { "type": "onset", "stem": "drums" }, "mode": "add", "intensity": "medium", "response": "snappy" }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.4 },
+      "build": { "intensity": 0.65 },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"] },
+      "breakdown": { "intensity": 0.45, "removeLayers": ["ACCENT"] },
+      "outro": { "intensity": 0.35 }
+    },
+    "intensityTargets": ["POST.bloom.intensity", "HERO.params.glow", "HERO.params.flow", "HERO.params.reactivity"],
+    "floor": 0.4,
+    "optionalLayers": ["ACCENT"],
+    "textHold": "untilFirstVocal",
+    "drop": { "targets": ["POST.bloom.intensity", "HERO.params.glow"], "amount": 0.4, "decaySeconds": 0.8 },
+    "fadeIn": 1.5,
+    "fadeOut": 3
+  },
+  "variation": {
+    "rerollable": ["slots.HERO.candidate", "slots.ACCENT.presence", "slots.SUN.presence", "palette.baseHue"],
+    "locked": ["arrangement"],
+    "hueJitter": 20,
+    "intensityJitter": 0.1
+  },
+  "budget": { "maxLayers": 7, "maxCost": 14 }
+}

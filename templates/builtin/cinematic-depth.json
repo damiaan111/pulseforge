@@ -1,0 +1,118 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.cinematic.depth",
+  "name": "Cinematic Depth",
+  "description": "One sculpted object in 3D, a slow orbiting camera, shallow focus and soft light. Budget-aware.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "energy": [0.3, 0.75], "dynamics": [0.4, 1] },
+    "tolerate": { "organic": "any", "tempo": [0.1, 0.8] },
+    "avoid": { "density": [0.9, 1] },
+    "weight": 0.95
+  },
+  "aspects": ["16:9", "9:16", "1:1"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "complementary",
+    "baseHue": { "from": "brightness", "range": [185, 215] },
+    "saturation": [0.5, 0.8],
+    "background": [0.02, 0.06],
+    "minTextContrast": 4.5
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Void",
+      "candidates": [
+        { "module": "core.source.background", "weight": 1, "label": "Void",
+          "params": { "mode": "gradient", "gradient": "radial", "colorA": "@background", "colorB": "#000000", "drift": 0.15 } }
+      ]
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": true,
+      "candidates": [
+        { "module": "core.scene3d.shapes", "weight": 3, "label": "Knot",
+          "params": { "shape": "knot", "color": "@primary", "rim": "@secondary", "glow": 0.8, "rig": "orbit", "speed": 8, "metalness": 0.45, "roughness": 0.3, "faceted": false, "displace": 0.35 } },
+        { "module": "core.scene3d.shapes", "weight": 2, "label": "Torus",
+          "params": { "shape": "torus", "color": "@primary", "rim": "@secondary", "glow": 0.8, "rig": "orbit", "speed": 8, "metalness": 0.5, "roughness": 0.25, "faceted": false, "displace": 0.3 } },
+        { "module": "core.scene3d.shapes", "weight": 2, "label": "Sphere",
+          "params": { "shape": "sphere", "color": "@primary", "rim": "@secondary", "glow": 0.7, "rig": "dolly", "speed": 6, "metalness": 0.3, "roughness": 0.4, "faceted": true, "displace": 0.5 } },
+        { "module": "core.scene3d.city", "weight": 1, "label": "City", "minStyle": { "energy": 0.5 },
+          "params": { "low": "@secondary", "high": "@primary", "glow": 0.9, "rig": "dolly", "speed": 5 } }
+      ],
+      "effects": [
+        { "key": "dof", "module": "core.effect.dof", "params": { "focus": 5.5, "range": 1.2, "amount": 0.6 }, "probability": 0.7 }
+      ]
+    },
+    {
+      "id": "ACCENT", "role": "ACCENT", "probability": 0.6, "opacity": 0.7, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.particles", "weight": 1, "label": "Dust",
+          "params": { "fill": "@glow", "count": 300, "size": 0.006, "sizeVariance": 0.9, "speed": 0.02, "sway": 0.04, "flare": 0.6, "softness": 0.9, "seed": "$seed" } }
+      ]
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "size": 0.07, "letterSpacing": 0.2, "case": "upper", "shadow": 0.6, "shadowColor": "@textShadow", "animSeconds": 1.2 } }
+      ],
+      "transform": { "y": 0.84 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.76 } } }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
+      "params": { "upcoming": "@text", "active": "@accent", "sung": "@text", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.82 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.74 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.09, "opacity": 0.8 } } ],
+      "transform": { "x": 0.92, "y": 0.9 },
+      "aspectOverrides": { "9:16": { "transform": { "x": 0.85, "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.75, "threshold": 0.7, "radius": 0.04 } },
+        { "key": "grade", "module": "core.effect.grade", "params": { "contrast": 1.1, "saturation": 0.9, "lift": 0.01 }, "probability": 0.6 },
+        { "key": "vignette", "module": "core.effect.vignette", "params": { "amount": 0.55, "softness": 0.6 } },
+        { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.05 }, "probability": 0.7 }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Bass form", "target": ["HERO.params.displace", "HERO.params.towerHeight"],
+      "source": { "type": "band", "stem": "bass", "band": "bass" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Pulse", "target": ["HERO.params.pulse", "HERO.params.kick"],
+      "source": { "type": "onset", "stem": "drums" }, "mode": "add", "intensity": "medium", "response": "snappy" },
+    { "label": "Light", "target": ["POST.bloom.intensity"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "medium", "response": "smooth" },
+    { "label": "Dust", "target": ["ACCENT.params.flare"],
+      "source": { "type": "band", "stem": "mix", "band": "brilliance" }, "mode": "add", "intensity": "subtle", "response": "smooth" }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.3 },
+      "build": { "intensity": 0.6, "addLayers": ["ACCENT"] },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"] },
+      "breakdown": { "intensity": 0.4, "removeLayers": ["ACCENT"] },
+      "outro": { "intensity": 0.3 }
+    },
+    "intensityTargets": ["POST.bloom.intensity", "HERO.params.glow", "HERO.params.displace"],
+    "floor": 0.3,
+    "optionalLayers": ["ACCENT"],
+    "textHold": "untilFirstVocal",
+    "drop": { "targets": ["HERO.params.pulse", "POST.bloom.intensity"], "amount": 0.45, "decaySeconds": 1 },
+    "fadeIn": 2,
+    "fadeOut": 4
+  },
+  "variation": {
+    "rerollable": ["slots.HERO.candidate", "slots.ACCENT.presence", "palette.baseHue", "slots.POST.effects.probability"],
+    "locked": ["arrangement"],
+    "hueJitter": 20,
+    "intensityJitter": 0.1
+  },
+  "budget": { "maxLayers": 6, "maxCost": 14 }
+}

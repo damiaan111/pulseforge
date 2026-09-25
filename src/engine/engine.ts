@@ -433,8 +433,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
             }
             inverseTransform = inverse;
           }
+          // Opacity is a modulation target too (`layers.<id>.opacity`): the auto-director's section
+          // presence curves fade optional layers in and out on section boundaries this way.
+          const opacityTarget = `layers.${layer.id}.opacity`;
+          const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, layer.opacity, t) : layer.opacity));
+          // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
+          if (opacity <= 0) continue;
           const common = {
-            opacity: Math.min(1, Math.max(0, layer.opacity)),
+            opacity,
             blend: layer.blend,
             ...(inverseTransform === undefined ? {} : { inverseTransform }),
           };

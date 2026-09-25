@@ -464,6 +464,74 @@ export interface Lyrics {
   readonly extra: Extra;
 }
 
+// ---------------------------------------------------------------------------
+// The auto-director's record (auto-director-spec §8–§9)
+// ---------------------------------------------------------------------------
+
+/**
+ * What "Surprise me" may keep from one roll to the next (auto-director-spec §9). `motion` is the
+ * spec's "keep modulations": which sources drive what, and how hard.
+ */
+export const DIRECTOR_LOCKS = ['template', 'palette', 'layout', 'motion'] as const;
+export type DirectorLock = (typeof DIRECTOR_LOCKS)[number];
+
+/** The aspects that draw their own randomness, so a locked one resolves the same way again. */
+export const DIRECTOR_ASPECTS = ['palette', 'layout', 'motion'] as const;
+export type DirectorAspect = (typeof DIRECTOR_ASPECTS)[number];
+
+/**
+ * One roll: everything needed to make the same project again from the same track. A seed per
+ * aspect rather than one seed, because a lock keeps that aspect's seed while the others move.
+ */
+export interface DirectorRoll {
+  readonly seed: number;
+  readonly templateId: string;
+  readonly seeds: Readonly<Record<DirectorAspect, number>>;
+  readonly locks: readonly DirectorLock[];
+  /** The palette the roll ended with, so restoring it gives back exactly that — even a locked one. */
+  readonly palette: readonly string[];
+  /** One line for the history strip: "Neon Pulse · Radial · magenta". */
+  readonly summary: string;
+  readonly extra: Extra;
+}
+
+export const DECISION_STEPS = ['classify', 'match', 'populate', 'calibrate', 'palette', 'arrange', 'guardrail', 'keep'] as const;
+export type DecisionStep = (typeof DECISION_STEPS)[number];
+
+/**
+ * One decision, as data (data-formats §5) with its sentence. `data` holds the facts behind it —
+ * scores, percentiles, the candidates — so two logs can be compared, not just read.
+ */
+export interface DecisionEntry {
+  readonly step: DecisionStep;
+  readonly text: string;
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Something the director wrote — a layer, a global effect or a global binding — with a hash of
+ * it as written. A reroll replaces what still matches its hash and keeps what does not: the
+ * user edited it, and a button called "Surprise me" must never throw that away (§9).
+ */
+export interface GeneratedMark {
+  readonly id: string;
+  readonly kind: 'layer' | 'effect' | 'binding';
+  /** The template slot it filled ("HERO", "POST"), so a kept layer keeps its slot filled. */
+  readonly slot: string;
+  readonly fingerprint: string;
+}
+
+export interface DirectorState {
+  readonly current: DirectorRoll;
+  /** Older rolls, oldest first, at most DIRECTOR_HISTORY_LIMIT; each restorable. */
+  readonly history: readonly DirectorRoll[];
+  readonly log: readonly DecisionEntry[];
+  readonly generated: readonly GeneratedMark[];
+  readonly extra: Extra;
+}
+
+export const DIRECTOR_HISTORY_LIMIT = 10;
+
 export const EMPTY_LYRICS: Lyrics = { language: 'en', source: 'manual', lines: [], sections: [], extra: {} };
 
 export interface ProjectDocument {
@@ -487,6 +555,8 @@ export interface ProjectDocument {
   readonly globalModulations: readonly ModulationBinding[];
   readonly assets: readonly AssetRef[];
   readonly lyrics: Lyrics;
+  /** What the auto-director made of this project, when it made it (M21, M22); null otherwise. */
+  readonly director: DirectorState | null;
   readonly extra: Extra;
 }
 

@@ -24,7 +24,7 @@ import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { useModules } from '../modules.ts';
 import { useState } from 'react';
-import { effectParamTarget, isModulatable, layerParamTarget } from '../../project/modulation-authoring.ts';
+import { OPACITY_SPEC, effectParamTarget, isModulatable, layerOpacityTarget, layerParamTarget } from '../../project/modulation-authoring.ts';
 import { ModulateButton, ModulationSection, useLiveValue } from './Modulation.tsx';
 
 
@@ -108,6 +108,7 @@ export function Inspector(): React.JSX.Element {
         min={0}
         max={1}
         step={0.01}
+        extra={<ModulateButton ownerId={layer.id} target={layerOpacityTarget(layer.id)} spec={OPACITY_SPEC} />}
         onChange={(v) => run(setLayerOpacity(layer.id, v), { seal: false })}
         onCommit={() => run(setLayerOpacity(layer.id, layer.opacity))}
       />

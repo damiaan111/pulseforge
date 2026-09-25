@@ -80,8 +80,8 @@ operability — the v1 must-have work is **roughly four-fifths done**.
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M21 | Auto-director: complete editable project from a track | 🔶 | 4.21, 4.26, 4.56 | section detection, classification, the curve source and the whole-frame chain exist; **templates, slot filling, generation, decision log, the Auto panel** |
-| M22 | Surprise me: seeded reroll, per-aspect locks, history strip | ⬜ | — | the seed and a reroll command exist; the rest follows M21 |
+| M21 | Auto-director: complete editable project from a track | 🔶 | 4.21, 4.26, 4.56, 4.57 | the director (match, palette, populate, calibrate, arrange, guardrails, decision log) and the seven templates are done and tested; **the Auto panel, Generate on import (D9), contact sheets** |
+| M22 | Surprise me: seeded reroll, per-aspect locks, history strip | 🔶 | 4.57 | reroll with diversity enforcement, per-aspect locks, kept edits and a restorable 10-roll history exist in the director; **the buttons, lock toggles and the history strip with thumbnails** |
 
 ### Output
 
@@ -155,6 +155,9 @@ it was made; they are collected here so none is a surprise.
 | User presets live in **Documents/Pulseforge/Presets**, built-ins in the repo, thumbnails in `cache/` | data-formats §3 names "known folders" without fixing them | user work beside the asset library, in the user's backups; caches rebuildable | STATUS 4.44 |
 | The 3D field of view applies to the frame's **short side** | not specified | a 9:16 cut shows the same subject as the 16:9 one | STATUS 4.43 |
 | Arrangement (section intensity, drop impulses) is a **`curve` modulation source**, not keyframes | auto-director-spec §6 speaks of keyframed intensity | keyframes (S1) are unbuilt and need their own spec; a curve binding is deterministic, editable, listed in the matrix, and can be converted to keyframes when they exist | STATUS 4.56 |
+| **Layer opacity is a modulation target** (`layers.<id>.opacity`) | modulation-spec §4 targets module parameters | the director's section presence has to fade a layer in and out; one opacity binding does it for every module, and is editable in the matrix | STATUS 4.57 |
+| Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
+| Multiplying bindings are **capped** at ×1.25 / ×1.6 / ×2.5 per band | §5.2: band share of the soft range | on a small base the range share becomes a ×13 factor | STATUS 4.57 |
 | The analysis cache key **includes band names** | data-formats §4.3: a band rename should keep the cache | cached tracks are stored by name, so a rename that hit the cache would silently disable every binding on the band; a rename now costs one re-analysis | STATUS 4.45 |
 
 ---

@@ -1,0 +1,109 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.lyric.focus",
+  "name": "Lyric Focus",
+  "description": "The words are the picture: large centred lyrics over a quiet line that follows the voice.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "vocalWeight": [0.5, 1] },
+    "tolerate": { "energy": "any", "density": [0, 0.8] },
+    "avoid": {},
+    "weight": 0.85,
+    "bonus": [ { "condition": "hasLyrics", "amount": 0.8 }, { "condition": "noLyrics", "amount": -0.5 } ]
+  },
+  "aspects": ["16:9", "9:16", "1:1", "4:5"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "complementary",
+    "baseHue": { "from": "brightness", "range": [190, 350] },
+    "saturation": [0.5, 0.85],
+    "background": [0.03, 0.1],
+    "minTextContrast": 7
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Backdrop",
+      "candidates": [
+        { "module": "core.source.background", "weight": 2, "label": "Wash",
+          "params": { "mode": "gradient", "gradient": "linear", "angle": 120, "colorA": "@background", "colorB": "#000000", "drift": 0.2 } },
+        { "module": "core.source.background", "weight": 2, "label": "Image", "needs": "hasBackgroundImage",
+          "params": { "mode": "image", "image": "$backgroundImage", "dim": 0.75, "zoom": 1.05, "drift": 0.2 } }
+      ]
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": false, "condition": "noLyrics",
+      "candidates": [
+        { "module": "core.visualizer.orb", "weight": 1, "label": "Orb",
+          "params": { "fill": "@primary", "drive": "rms", "radius": 0.14, "swell": 0.3, "softness": 0.7 } }
+      ]
+    },
+    {
+      "id": "WAVE", "role": "ACCENT", "name": "Voice line", "priority": 55, "opacity": 0.75,
+      "candidates": [
+        { "module": "core.visualizer.curve", "weight": 2, "label": "Line",
+          "params": { "fill": "@accent", "thickness": 0.003, "baseline": 0.82, "height": 0.1, "spread": 0.8, "fillBody": 0.12 } },
+        { "module": "core.visualizer.bars", "weight": 1, "label": "Bars",
+          "params": { "fill": "@accent", "barCount": 96, "baseline": 0.9, "maxHeight": 0.1, "barWidth": 0.5 } }
+      ]
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "size": 0.1, "letterSpacing": 0.04, "shadowColor": "@textShadow" } }
+      ],
+      "transform": { "y": 0.46 }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "required": true, "condition": "hasLyrics",
+      "params": { "upcoming": "@text", "active": "@primary", "sung": "@text", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.48, "scale": 1.35 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.45, "scale": 1.2 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.08, "opacity": 0.8 } } ],
+      "transform": { "x": 0.5, "y": 0.1 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.4, "threshold": 0.8 } },
+        { "key": "vignette", "module": "core.effect.vignette", "params": { "amount": 0.4 } }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Voice", "target": ["WAVE.params.height", "WAVE.params.maxHeight"],
+      "source": { "type": "rms", "stem": "vocals" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Beat", "target": ["BACKDROP.params.dim"],
+      "source": { "type": "beat", "stem": "mix" }, "mode": "add", "intensity": "subtle", "response": "snappy", "invert": true },
+    { "label": "Orb", "target": ["HERO.params.swell"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Light", "target": ["POST.bloom.intensity"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "subtle", "response": "smooth" }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.4 },
+      "build": { "intensity": 0.6 },
+      "main": { "intensity": 0.9 },
+      "breakdown": { "intensity": 0.5 },
+      "outro": { "intensity": 0.4 }
+    },
+    "intensityTargets": ["POST.bloom.intensity", "WAVE.params.height", "WAVE.params.maxHeight"],
+    "floor": 0.5,
+    "textHold": "untilFirstVocal",
+    "fadeIn": 1,
+    "fadeOut": 3
+  },
+  "variation": {
+    "rerollable": ["slots.WAVE.candidate", "palette.baseHue", "slots.BACKDROP.candidate"],
+    "locked": ["arrangement", "slots.LYRICS"],
+    "hueJitter": 30,
+    "intensityJitter": 0.08
+  },
+  "budget": { "maxLayers": 7, "maxCost": 8 }
+}

@@ -17,7 +17,7 @@
 // integer will move to the front of its node. It round-trips correctly; only its position moves.
 
 import type {
-  AspectOverride, CurveSpec, EffectSpec, EnvelopeSpec, Extra, Layer, Lyrics, ModulationBinding,
+  AspectOverride, CurveSpec, DirectorRoll, DirectorState, EffectSpec, EnvelopeSpec, Extra, Layer, Lyrics, ModulationBinding,
   ProjectDocument, QuantiseSpec, Range, TimeRange, Transform,
 } from './document.ts';
 
@@ -171,6 +171,26 @@ function layerJson(layer: Layer): Json {
   });
 }
 
+function rollJson(roll: DirectorRoll): Json {
+  return withExtra(roll.extra, {
+    seed: roll.seed,
+    templateId: roll.templateId,
+    seeds: { palette: roll.seeds.palette, layout: roll.seeds.layout, motion: roll.seeds.motion },
+    locks: [...roll.locks],
+    palette: [...roll.palette],
+    summary: roll.summary,
+  });
+}
+
+function directorJson(director: DirectorState): Json {
+  return withExtra(director.extra, {
+    current: rollJson(director.current),
+    history: director.history.map(rollJson),
+    log: director.log.map((entry) => ({ step: entry.step, text: entry.text, data: entry.data as Json })),
+    generated: director.generated.map((mark) => ({ id: mark.id, kind: mark.kind, slot: mark.slot, fingerprint: mark.fingerprint })),
+  });
+}
+
 /** Whether the lyrics differ from a new project's — only then are they written (see toJson). */
 function hasLyrics(lyrics: Lyrics): boolean {
   return lyrics.lines.length > 0 || lyrics.sections.length > 0 || lyrics.language !== 'en'
@@ -263,6 +283,8 @@ export function toJson(document: ProjectDocument): Json {
       : {}),
     // The same rule: a project without lyrics saves to the bytes it did before lyrics existed.
     ...(hasLyrics(document.lyrics) ? { lyrics: lyricsJson(document.lyrics) } : {}),
+    // And again: only a directed project carries the director's record.
+    ...(document.director === null ? {} : { director: directorJson(document.director) }),
   });
 }
 

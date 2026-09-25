@@ -1,0 +1,121 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.neon.pulse",
+  "name": "Neon Pulse",
+  "description": "Circular spectrum, heavy bloom, dark field, magenta and cyan. Synthwave, EDM — the flagship.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "energy": [0.55, 1], "tempo": [0.45, 1], "organic": [0, 0.45] },
+    "tolerate": { "vocalWeight": "any", "dynamics": [0, 0.75] },
+    "avoid": { "organic": [0.8, 1] },
+    "weight": 1
+  },
+  "aspects": ["16:9", "9:16", "1:1"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "complementary",
+    "baseHue": { "from": "brightness", "range": [290, 330] },
+    "saturation": [0.75, 1],
+    "background": [0.03, 0.09],
+    "minTextContrast": 4.5
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Backdrop",
+      "candidates": [
+        { "module": "core.source.background", "weight": 3, "label": "Radial field",
+          "params": { "mode": "gradient", "gradient": "radial", "colorA": "@background", "colorB": "#000000", "drift": 0.25 } },
+        { "module": "core.source.background", "weight": 2, "label": "Image", "needs": "hasBackgroundImage",
+          "params": { "mode": "image", "image": "$backgroundImage", "dim": 0.6, "zoom": 1.08, "drift": 0.3 } }
+      ]
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": true,
+      "candidates": [
+        { "module": "core.visualizer.radial", "weight": 4, "label": "Radial",
+          "params": { "fill": "@primary", "barCount": 120, "radius": 0.2, "length": 0.15, "thickness": 0.55, "mirror": true, "innerGlow": 0.35 } },
+        { "module": "core.visualizer.orb", "weight": 2, "label": "Orb",
+          "params": { "fill": "@primary", "drive": "onset", "radius": 0.16, "swell": 0.4, "ripple": 0.35, "core": 1.2 } },
+        { "module": "core.visualizer.bars", "weight": 2, "label": "Bars",
+          "params": { "fill": "@primary", "barCount": 72, "baseline": 0.74, "maxHeight": 0.45, "barWidth": 0.6 } }
+      ]
+    },
+    {
+      "id": "ACCENT", "role": "ACCENT", "probability": 0.75, "opacity": 0.85, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.particles", "weight": 3, "label": "Sparks",
+          "params": { "fill": "@accent", "flareOn": "onset", "count": 500, "size": 0.01, "speed": 0.06, "seed": "$seed" } },
+        { "module": "core.visualizer.waves", "weight": 1, "label": "Waves",
+          "params": { "fill": "@accent", "lines": 7, "amplitude": 0.05, "speed": 0.25, "fade": 0.6 } }
+      ]
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "case": "upper", "size": 0.08, "letterSpacing": 0.14, "glow": 0.6, "glowColor": "@glow", "shadowColor": "@textShadow" } }
+      ],
+      "transform": { "y": 0.82 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.74 } } }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
+      "params": { "upcoming": "@text", "active": "@accent", "sung": "@primary", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.8 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.72 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.1, "opacity": 0.9 } } ],
+      "transform": { "x": 0.92, "y": 0.9 },
+      "aspectOverrides": { "9:16": { "transform": { "x": 0.85, "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.9, "threshold": 0.6, "radius": 0.03 } },
+        { "key": "chromatic", "module": "core.effect.chromatic", "params": { "amount": 0.002 }, "probability": 0.5 },
+        { "key": "vignette", "module": "core.effect.vignette", "params": { "amount": 0.45 } },
+        { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.05 }, "probability": 0.5 }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Kick", "target": ["HERO.params.length", "HERO.params.swell", "HERO.params.maxHeight"],
+      "source": { "type": "onset", "stem": "drums" }, "mode": "add", "intensity": "medium", "response": "snappy" },
+    { "label": "Shimmer", "target": ["HERO.params.innerGlow", "HERO.params.core"],
+      "source": { "type": "band", "stem": "mix", "band": "presence" }, "mode": "add", "intensity": "subtle", "response": "smooth" },
+    { "label": "Drift", "target": ["HERO.params.rotation"],
+      "source": { "type": "noise", "stem": "mix" }, "mode": "add", "intensity": "subtle", "response": "slow" },
+    { "label": "Sparks", "target": ["ACCENT.params.flare", "ACCENT.params.amplitude"],
+      "source": { "type": "onset", "stem": "drums" }, "mode": "add", "intensity": "strong", "response": "snappy" },
+    { "label": "Glow", "target": ["POST.bloom.intensity"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "medium", "response": "smooth" },
+    { "label": "Hit", "target": ["POST.chromatic.amount"],
+      "source": { "type": "onset", "stem": "drums" }, "mode": "add", "intensity": "medium", "response": "snappy" }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.35 },
+      "build": { "intensity": 0.65 },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"] },
+      "breakdown": { "intensity": 0.45, "removeLayers": ["ACCENT"] },
+      "outro": { "intensity": 0.3, "removeLayers": ["ACCENT"] }
+    },
+    "intensityTargets": ["POST.bloom.intensity", "HERO.params.innerGlow", "HERO.params.core", "HERO.params.maxHeight"],
+    "floor": 0.35,
+    "optionalLayers": ["ACCENT"],
+    "textHold": "untilFirstVocal",
+    "drop": { "targets": ["POST.bloom.intensity"], "amount": 0.5, "decaySeconds": 0.6 },
+    "fadeIn": 1,
+    "fadeOut": 3
+  },
+  "variation": {
+    "rerollable": ["slots.HERO.candidate", "slots.ACCENT.presence", "palette.baseHue", "slots.POST.effects.probability"],
+    "locked": ["arrangement", "modulations.response"],
+    "hueJitter": 25,
+    "intensityJitter": 0.12
+  },
+  "budget": { "maxLayers": 7, "maxCost": 12 }
+}

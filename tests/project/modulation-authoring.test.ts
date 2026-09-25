@@ -110,6 +110,7 @@ describe('reading bindings back', () => {
     expect(parseTarget('global.effects.x.params.y')).toEqual({ layerId: GLOBAL_OWNER, effectId: 'x', key: 'y' });
     expect(effectParamTarget(GLOBAL_OWNER, 'x', 'y')).toBe('global.effects.x.params.y');
     expect(parseTarget('global.params.y')).toBeUndefined();
+    expect(parseTarget('layers.K1.opacity')).toEqual({ layerId: 'K1', effectId: null, key: 'opacity', layerProperty: true });
   });
 
   it('describes targets in the UI’s words, and says why a broken one is broken', () => {
