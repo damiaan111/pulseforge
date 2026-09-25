@@ -272,9 +272,13 @@ scale while the vocal drives the glow.
 ever dies, the next start offers the work back, says when it was saved and what differs from the
 file on disk, and lets you restore or discard it.
 
-**The gaps that matter most:** lyrics and the auto director are still to come.
+**Lyrics:** paste them or import a subtitle file, then let WhisperX time every word from the
+isolated vocals in about a minute, or tap along yourself. Correct anything on the lyrics lane
+of the timeline, with the vocals drawn behind it. Words fill in as they are sung, in seven styles.
 
-**Still to come:** lyrics and karaoke, the auto director's templates and Surprise Me,
+**The gaps that matter most:** the auto director is still to come.
+
+**Still to come:** the auto director's templates and Surprise Me,
 and the settings and cache screens.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest

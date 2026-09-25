@@ -38,6 +38,16 @@ const api: PulseforgeApi = {
   updateSettings: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch) as ReturnType<PulseforgeApi['updateSettings']>,
   openLyricsFile: () => ipcRenderer.invoke(IPC.lyricsOpen) as ReturnType<PulseforgeApi['openLyricsFile']>,
   saveLyricsFile: (suggestedName, text) => ipcRenderer.invoke(IPC.lyricsSave, suggestedName, text) as ReturnType<PulseforgeApi['saveLyricsFile']>,
+  lyricsAlignAvailable: () => ipcRenderer.invoke(IPC.lyricsAlignAvailable) as ReturnType<PulseforgeApi['lyricsAlignAvailable']>,
+  alignLyrics: (request) => ipcRenderer.invoke(IPC.lyricsAlign, request) as ReturnType<PulseforgeApi['alignLyrics']>,
+  cancelLyricsAlign: () => ipcRenderer.invoke(IPC.lyricsAlignCancel) as Promise<void>,
+  onLyricsAlignProgress(listener) {
+    const handler = (_event: unknown, progress: Parameters<typeof listener>[0]) => listener(progress);
+    ipcRenderer.on(IPC.lyricsAlignProgress, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.lyricsAlignProgress, handler);
+    };
+  },
   onStemsProgress(listener) {
     const handler = (_event: unknown, progress: Parameters<typeof listener>[0]) => listener(progress);
     ipcRenderer.on(IPC.stemsProgress, handler);

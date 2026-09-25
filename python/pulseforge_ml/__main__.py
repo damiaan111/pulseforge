@@ -189,13 +189,20 @@ def _warm_native_extensions():
     import torch  # noqa: F401
     from demucs.pretrained import get_model  # noqa: F401
 
+    # The lyrics tier, when installed: the same rule applies to CTranslate2 and WhisperX.
+    from . import lyrics
+
+    lyrics.warm()
+
 
 def cmd_serve(_args):
     """Long-lived mode: one process, many requests, model stays loaded (M27)."""
     from .serve import serve
 
+    from . import lyrics
+
     return serve(
-        {"health": _served_health, "separate": _served_separate},
+        {"health": _served_health, "separate": _served_separate, "transcribe": lyrics.transcribe, "align": lyrics.align},
         warmup=_warm_native_extensions,
     )
 

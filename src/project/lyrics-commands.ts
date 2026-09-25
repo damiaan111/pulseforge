@@ -498,6 +498,38 @@ export function importLyrics(imported: ImportedLyrics, newIds: IdFactory = newId
   };
 }
 
+/**
+ * A transcription as the project's lyrics (M26, "transcribe + align" — lyrics-spec §4): new lines
+ * with their timings and word confidences, replacing whatever was there. Transcription errors are
+ * expected; the lines are a starting point to correct, which is why this replaces rather than merges
+ * (the studio only offers it when there is no text).
+ */
+export function setTranscribedLyrics(
+  lines: readonly { readonly text: string; readonly startTicks: number; readonly endTicks: number; readonly words: readonly AlignedWord[]; readonly confidence: number | null }[],
+  newIds: IdFactory = newId,
+): Command {
+  return {
+    label: 'Transcribe lyrics',
+    apply: (document) => withLyrics(document, {
+      ...document.lyrics,
+      source: 'aligned',
+      sections: [],
+      lines: lines.map((line): LyricLine => ({
+        id: newIds(),
+        text: line.text,
+        startTicks: clampTick(line.startTicks),
+        endTicks: Math.max(clampTick(line.startTicks), clampTick(line.endTicks)),
+        words: line.words.map((w) => ({ id: newIds(), text: w.text, startTicks: clampTick(w.startTicks), endTicks: Math.max(clampTick(w.startTicks), clampTick(w.endTicks)), confidence: w.confidence, extra: {} })),
+        role: 'lead',
+        style: null,
+        confidence: line.confidence,
+        locked: false,
+        extra: {},
+      })),
+    }),
+  };
+}
+
 /** An aligned word, as the aligner reports it (M26). */
 export interface AlignedWord {
   readonly text: string;

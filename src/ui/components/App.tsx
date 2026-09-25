@@ -65,11 +65,17 @@ export function App(): React.JSX.Element {
     return () => clearInterval(handle);
   }, [autosave, loadRecovery]);
 
-  // User settings (tap latency, D33), once.
+  // User settings (tap latency, D33), once; and whether lyric alignment (M26) is installed.
   const loadSettings = useStudio((s) => s.loadSettings);
+  const loadAlignAvailability = useStudio((s) => s.loadAlignAvailability);
   useEffect(() => {
     void loadSettings();
-  }, [loadSettings]);
+    void loadAlignAvailability();
+  }, [loadSettings, loadAlignAvailability]);
+
+  // Alignment progress, pushed from the main process while WhisperX runs.
+  const reportAlignProgress = useStudio((s) => s.reportAlignProgress);
+  useEffect(() => window.pulseforge.onLyricsAlignProgress(reportAlignProgress), [reportAlignProgress]);
 
   // The bundled typeface, once: text layers need it before they can draw anything (§8.13).
   useEffect(() => {

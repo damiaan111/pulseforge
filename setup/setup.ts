@@ -11,11 +11,12 @@ import { SETUP_LOG, SETUP_PID, VENDOR } from './lib/paths.ts';
 import { requiredBytes, runPreflight, type Check } from './lib/preflight.ts';
 import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
-import { pythonEnvStep } from './steps/python-env.ts';
+import { lyricsModelsStep } from './steps/lyrics-models.ts';
+import { pythonEnvStep, pythonLyricsEnvStep } from './steps/python-env.ts';
 import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
-const STEPS: readonly Step[] = [ffmpegStep, fontStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep];
+const STEPS: readonly Step[] = [ffmpegStep, fontStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, lyricsModelsStep];
 
 const USAGE = `
 Usage: npm run setup -- [options]
@@ -28,6 +29,7 @@ Options:
   --tier <list>   Comma-separated tiers to install (default: ${ALL_TIERS.join(',')}).
                     core   FFmpeg (NVENC build)
                     stems  portable Python, uv, torch CUDA + Demucs wheelhouse, htdemucs weights
+                    lyrics WhisperX wheelhouse, Whisper medium, wav2vec2 (English alignment)
   --verify        Re-check installed artefacts against their checksums, offline. Changes nothing.
   --relock        Re-resolve setup/python/requirements.lock.txt from requirements.in (needs network).
   --from <dir>    Take pinned archives/models from <dir> instead of the network.
@@ -158,7 +160,7 @@ async function printPlan(log: Logger, steps: readonly Step[], options: Options):
   log.info(`Disk space to have free before starting: ~${formatBytes(requiredBytes(options.tiers))}`);
   log.info('Also written: vendor/vendor.lock.json, vendor/LICENSES.md, vendor/setup.log.');
   log.info('Temporary files: vendor/.tmp and vendor/.staging (not %TEMP%). Package caches: vendor/.cache.');
-  log.info('Nothing is installed outside vendor/ except setup/python/requirements.lock.txt, generated on first run for you to commit.');
+  log.info('Nothing is installed outside vendor/ except the Python locks in setup/python/ (requirements.lock.txt, requirements-lyrics.lock.txt), generated on first run for you to commit.');
   log.info('');
   log.info('Run `npm run setup` to execute this plan.');
 }

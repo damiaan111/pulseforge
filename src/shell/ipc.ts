@@ -41,6 +41,11 @@ export const IPC = {
   settingsUpdate: 'pf:settings:update',
   lyricsOpen: 'pf:lyrics:open',
   lyricsSave: 'pf:lyrics:save',
+  lyricsAlignAvailable: 'pf:lyrics:align-available',
+  lyricsAlign: 'pf:lyrics:align',
+  lyricsAlignCancel: 'pf:lyrics:align-cancel',
+  /** Main → renderer: how far the running alignment has got. */
+  lyricsAlignProgress: 'pf:lyrics:align-progress',
   stemsSeparate: 'pf:stems:separate',
   stemsCancel: 'pf:stems:cancel',
   /** Main → renderer: how far the running separation has got. */
@@ -81,6 +86,19 @@ export const IPC = {
 
 export type { RenderJob, JobStatus, RenderRequest, ModuleScan };
 export type { Settings as UserSettings } from './settings-store.ts';
+export type { LyricsAlignResult, LyricsAlignProgress, LyricsAlignMode } from '../ml/lyrics-align.ts';
+import type { LyricsAlignMode, LyricsAlignProgress, LyricsAlignResult } from '../ml/lyrics-align.ts';
+
+export interface LyricsAlignRequest {
+  readonly audioPath: string;
+  readonly settings: ProjectAnalysisSettings;
+  readonly language: string;
+  readonly mode: LyricsAlignMode;
+  readonly lines: readonly { readonly id: string; readonly text: string }[];
+  readonly placement: { readonly leadInTicks: number; readonly clipInTicks: number };
+  /** Singing on the vocal stem, timeline seconds, for the sanity pass. */
+  readonly vocalSegments?: readonly { readonly start: number; readonly end: number }[];
+}
 import type { Settings as UserSettings } from './settings-store.ts';
 
 export interface ProjectFile {
@@ -366,6 +384,15 @@ export interface PulseforgeApi {
   openLyricsFile(): Promise<{ readonly name: string; readonly text: string } | null>;
   /** Shows a save dialog and writes exported lyrics. Resolves to the path, or null when cancelled. */
   saveLyricsFile(suggestedName: string, text: string): Promise<string | null>;
+  /** Whether WhisperX alignment is installed (setup's lyrics tier), and for which languages. */
+  lyricsAlignAvailable(): Promise<{ readonly available: boolean; readonly languages: readonly string[]; readonly reason: string | null }>;
+  /**
+   * Transcribes the track's vocal stem and aligns lyrics to it (M26), through the GPU queue.
+   * `needs-stems` when the track has not been separated yet: alignment only runs on the vocals.
+   */
+  alignLyrics(request: LyricsAlignRequest): Promise<{ readonly status: 'ok'; readonly result: LyricsAlignResult } | { readonly status: 'needs-stems'; readonly message: string }>;
+  cancelLyricsAlign(): Promise<void>;
+  onLyricsAlignProgress(listener: (progress: LyricsAlignProgress) => void): () => void;
   onStemsProgress(listener: (progress: StemProgressEvent) => void): () => void;
   /** The drop-in modules folder, scanned now: loadable modules and per-folder problems (M35). */
   listModules(): Promise<ModuleScan>;

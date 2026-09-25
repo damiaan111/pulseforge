@@ -5,11 +5,11 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-09-18.** P0, P2, P3 and **P4 are complete**; P1 is partly done (core and
-> stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
+> **Last updated: 2026-09-25.** P0, P2, P3, P4 and **P6 (lyrics) are complete**; P1 is partly done (core,
+> stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 978 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 1002 tests, `npm run golden` 29/29 identical,
 > `--smoke` 22/22.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -20,9 +20,14 @@
 > (§4.48); and **autosave with crash recovery** — rolling snapshots every minute and before a
 > preset is applied, offered back after a crash with a summary of what they hold (§4.49).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): lyrics (P6) and the
-> auto-director (P7) are not started beyond analysis and classification;
-> operability (cache management M33, logs M34, settings M36).
+> **P6, lyrics (§4.50–§4.55):** the lyrics model and five subtitle formats; the karaoke layer with
+> seven fill modes; the lyrics editor, tap-to-sync with latency calibration, and a lyrics lane on
+> the zoomable timeline with the vocal level behind it; and WhisperX transcription and word
+> alignment on the vocal stem, through the GPU queue, offline.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the auto-director (P7) is not
+> started beyond analysis and classification; operability (cache management M33, logs M34,
+> settings M36).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -88,6 +93,7 @@
 | 4.52 | Fix: audio modulation read the wrong moment with a lead-in or a trim — M13, M29 |
 | 4.53 | Lyrics in the studio (P6 step 3) — M18, M19 tap-to-sync, D33 |
 | 4.54 | The lyrics timeline track (P6 step 4) — M19, lyrics-spec §5, ui-spec §3 |
+| 4.55 | WhisperX transcription and alignment (P6 step 5) — M26, the lyrics setup tier |
 
 ---
 
@@ -97,12 +103,12 @@
 |---|---|
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
-| P1 — Provisioning | 🔶 core + stems tiers work; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild CI job not started |
+| P1 — Provisioning | 🔶 core, stems and lyrics tiers work (§4.55); extras tier, `htdemucs_ft`, offline-rebuild CI job not started |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
-| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data, §4.50), step 2 (the karaoke layer, §4.51) step 3 (the studio editor and tap-to-sync, §4.53) and step 4 (the lyrics timeline track, §4.54) done; WhisperX (M26) follows |
+| **P6 — Lyrics** | ✅ **complete** (2026-09-25) — lyrics data §4.50, karaoke layer §4.51, studio editor and tap-to-sync §4.53, timeline track §4.54, WhisperX §4.55 |
 | P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
 | P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
@@ -193,8 +199,8 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 978 tests in 78 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
-| `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
+| `npm run check` | typecheck + lint + 1002 tests in 82 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs; **WhisperX, Whisper medium, wav2vec2** for the lyrics tier); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier core,stems,lyrics` | first run ~15 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
@@ -2528,6 +2534,131 @@ split-at-playhead; the view maths), `npm run golden` **29/29**, `--smoke` **22/2
 **Not done:** marquee multi-select; the per-stem waveform rows of the Audio track (ui-spec §3); a
 loop region; markers as snap targets (markers do not exist yet).
 
+### 4.55 WhisperX transcription and alignment (P6 step 5) — M26, lyrics-spec §4, D34, D37; the lyrics setup tier (M2)
+
+**P6 is complete with this step.**
+
+**Proved before it was built.** WhisperX brings a large dependency tree (102 packages), and it had
+to agree with the pinned torch 2.13 CUDA 13 build. So it was first installed into a throwaway venv
+(`out/wxtrial`, using the vendored torch through system site-packages) and run on the GPU.
+- `whisperx 3.4.5` resolves, and its alignment core imports on torchaudio 2.11.
+- **CTranslate2 4.4** (the version WhisperX pins, `<4.5`) **needs cuDNN 8** (`cudnn_ops_infer64_8.dll`),
+  which cannot sit beside torch's CUDA 13 build, which ships cuDNN 9.
+- **CTranslate2 4.8.2** (faster-whisper allows `<5`) runs, given CUDA 12's cuBLAS, which NVIDIA
+  publishes as the `nvidia-cublas-cu12` wheel. It then worked in the same process as torch's CUDA 13
+  libraries.
+- **WhisperX's own VAD front-end is unusable here:** `pyannote.audio` 3.3 references
+  `torchaudio.AudioMetaData`, which torchaudio 2.11 removed, and WhisperX pins pyannote below 4.
+  So transcription uses **faster-whisper directly, with its bundled Silero VAD** (an ONNX file inside
+  the package: offline). Forced alignment uses **`whisperx.alignment`** (wav2vec2 CTC) — the
+  component that is WhisperX's reason to exist. These are exactly the pieces `whisperx.load_model`
+  wraps. pyannote is still installed, as a declared dependency, but never imported.
+
+**Setup: the `lyrics` tier (`npm run setup -- --tier lyrics`; part of the default).**
+- `setup/python/requirements-lyrics.in` (the stems requirements plus `whisperx==3.4.5` and
+  `nvidia-cublas-cu12`) resolves to the committed **`requirements-lyrics.lock.txt`**, with the
+  **stems lock as constraints**. Every shared package keeps its stems version, so installing this tier
+  cannot change stem separation. Checked: `--verify` passes for both tiers, and the real Demucs GPU
+  test still passes afterwards.
+- The CTranslate2 override is applied when resolving **and** when installing, because uv re-checks
+  declared dependencies on install. The install copy is built from the lock's own entry *with its
+  hashes*, since installs run with `--require-hashes` (both found on the first real runs).
+- `setup/steps/python-env.ts` is now one factory, `createPythonEnvStep`, configured twice (stems,
+  lyrics): the same wheelhouse, hash, offline-install and offline-verify rules for both. Each tier has
+  its own marker file, and the vendor lock records the lyrics lock's hash (`pythonLyricsEnv`).
+- Models (`setup/steps/lyrics-models.ts`), all pinned by URL and full SHA-256:
+  - **Whisper medium** in CTranslate2 format (D8's default), `Systran/faster-whisper-medium` at
+    revision `08e178d4…`, 1.53 GB. `model.bin`'s hash is the published LFS id; the three small files
+    publish none and were recorded from a verified download.
+  - **wav2vec2 base 960h** (English alignment, torchaudio), 378 MB.
+  - After downloading, both are **loaded offline on the GPU**, as the sidecar will load them.
+- Totals: 104 wheels (about 0.9 GB) and 1.9 GB of models. `--plan` shows them.
+
+**Sidecar (`python/pulseforge_ml/lyrics.py`), two served commands.**
+- `transcribe`: faster-whisper medium, fp16, VAD on, word timestamps, and
+  `condition_on_previous_text=False` (lyrics repeat, and conditioning makes Whisper loop on a chorus).
+  Progress by position in the audio.
+- `align`: `whisperx.align` one line at a time, so progress is per line, a cancel lands between lines,
+  and one failing line is reported without losing the rest.
+- Both put the CUDA 12 cuBLAS folder on the DLL path before CTranslate2 loads. The native imports
+  happen in **warmup, before the stdin reader thread** (the Windows deadlock of §4.24). That makes
+  sidecar start-up about **7.8 s** including the lyrics imports; it is paid once per sidecar
+  lifetime, stems included.
+- Models stay loaded between requests. Idle shutdown and the GPU queue's stop-before-render free them.
+
+**Which part of the song is which line (`src/lyrics/align-match.ts`, pure).**
+- The lyric **words** are aligned to the transcript's **words** as two sequences (Needleman–Wunsch,
+  scored by normalised Levenshtein similarity with a 0.6 threshold), so mishearings,
+  skipped repeats and ad-libs do not derail it.
+- A line's window is the span of the transcript words it matched, using the densest cluster so one
+  stray match of "the" cannot stretch a window across a verse, padded by 0.35 s.
+- An unmatched line is placed in the gap between its neighbours, by length. One with no room is
+  **reported as unplaced**, never guessed.
+- Transcribe mode cuts Whisper's segments (up to 30 s) into lines at pauses over 0.6 s and at a
+  42-character natural break.
+
+**The sanity pass (`src/lyrics/align-result.ts`, lyrics-spec §4).**
+- The aligner's whitespace runs are mapped onto our tokens (a "—" joins its word). Words the model
+  could not place (digits and symbols are outside its alphabet) are filled by length between their
+  neighbours.
+- **Rejected, and left as they were:** a line where fewer than half its words aligned, words out of
+  order, a word with no length, or a line landing where the vocal stem shows no singing.
+- Confidence is the mean word score, which feeds the editor's heat and the low-confidence check.
+
+**Orchestration (`src/ml/lyrics-align.ts`, plain Node).**
+- Finds the track's **vocal stem** (the stem job's FLAC). Without one it returns `needs-stems` rather
+  than aligning the mix. Refuses a language with no provisioned alignment model (English only for
+  now) with lyrics-spec §4's fallback: tap-to-sync.
+- The flow: transcribe, then match or cut into lines, then align, then the sanity pass. Results are
+  mapped to timeline ticks through the clip placement.
+- The main process runs it through the **GPU queue** (M28), with progress and cancel, and reports
+  whether the tier is installed (`lyricsAlignAvailable`).
+
+**Studio.** The drawer has an **Align to the vocals** section:
+- **Align the lyrics** times every *unlocked* line, word by word. **Locked lines are never sent,
+  so they can never change** (§4).
+- **Transcribe…** replaces the lines with a transcription as a starting point, asking first.
+- Progress by stage, and Cancel.
+- Without stems it offers to separate first, then continues. Without the tier it says which
+  `npm run setup` to run.
+- It **autosaves first** (ui-spec §10 names re-aligning lyrics as a risky operation).
+- The result toast counts lines aligned, low-confidence lines, lines refused by the sanity check
+  (with reasons) and lines not found. Refused and unplaced lines are left **selected** in the Lines
+  tab for manual timing.
+- Explicit, never automatic (D34): it is offered in the toast when lyrics text arrives from a file.
+  After an LRC import the toast suggests refining with it — offered, never forced (D37).
+
+**Measured on a real song** (one of the owner's own, read in place; its stems were separated by the
+smoke's `stemsUi`), 2:48:
+- Transcription (Whisper medium) took **7.9 s** and gave 22 coherent lines ("Neon signs flicker, they
+  bend and go / Like secrets spilled in a late night show").
+- Aligning those 22 lines took **4.9 s**: 22 aligned, 0 rejected, 0 unplaced, word scores mostly
+  0.6–0.9.
+- The weak spots are the ones the spec predicts: a one-word "I" came out 20 ms long at confidence
+  0.07 (the checklist flags it), and one phrase was split mid-sentence at a breath. PROJECT.md §4's
+  "30–60 s for a 4-minute vocal stem" estimate is beaten by a wide margin.
+
+**Verified here:**
+- `npm run check`: **1002 tests in 82 files**. New ones cover matching (similarity, monotonic
+  alignment, windows, gap placement, unplaced, stray clusters, transcript to lines), the sanity pass,
+  and the orchestrator with a fake sidecar and real FFmpeg (needs-stems, language refusal, windows on
+  the timeline, transcribe mode, rejections).
+- **`tests/golden/lyrics-align-gpu.test.ts`** runs the real sidecar on the RTX 3060. The sidecar
+  starts with the lyrics imports (no deadlock); instrumental audio produces no invented words; forced
+  alignment keeps every word inside its window; the sidecar stays healthy.
+- `npm run setup -- --verify` passes offline for **core, stems and lyrics**; the Demucs GPU test
+  passes after the lyrics install.
+- `npm run golden` **29/29**, `--smoke` **22/22**. The standard `lyricsUi` check also asserts that
+  alignment is offered and disabled without a track.
+- **`PULSEFORGE_SMOKE_ALIGN=1`** (opt-in, needs a project with audio, stems and lyrics) presses
+  Align in the real window. Run on the song project it returned "Aligned 5 lines to the vocals" with
+  all five timed: the whole path from the button through IPC, the GPU queue, WhisperX and back
+  through the undo stack.
+
+**Not done:** alignment models for other languages (wav2vec2 per language, PROJECT.md §3); Whisper
+`large-v3` as the quality option (D8, "one click away"); a soft-subtitle track in exports
+(lyrics-spec §10); manual syllable splitting (D36, Should).
+
 ---
 
 ## 5. Measured results
@@ -2611,8 +2742,8 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   sample, past a trimmed out-point it keeps reading the file, so a visualizer can react during a
   lead-out to music that is not playing. Modulation reads silence there since §4.52; modules should get
   an "audible" flag or a silenced analysis view.
-- `--smoke` with a project on the command line: `layerAdded` assumes the smoke's own empty project
-  (it expects exactly one layer after adding one) and fails there. The recovery and lyrics checks skip
+- `--smoke` with a project on the command line: `layerAdded` and `textLayer` assume the smoke's own
+  empty project (they expect exactly one new layer) and fail there. The recovery and lyrics checks skip
   themselves in that case since §4.54; `layerAdded` should do the same.
 - A quit while a render is running cancels the render first, *then* the window asks about unsaved
   changes; answering Cancel keeps the app open with the render already cancelled.

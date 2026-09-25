@@ -37,8 +37,10 @@ import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing,
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import { detectLyricsFormat, exportLyrics as exportLyricsText, importLyricsFile, type LyricsExportFormat } from '../lyrics/formats.ts';
 import type { TapSession } from '../lyrics/tap.ts';
-import { importLyrics, lyricsToText, setLyricsText } from '../project/lyrics-commands.ts';
-import type { UserSettings } from '../shell/ipc.ts';
+import { applyAlignment, importLyrics, lyricsToText, setLyricsText, setTranscribedLyrics } from '../project/lyrics-commands.ts';
+import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
+import { sourceToTimelineSeconds } from '../engine/core/time.ts';
+import type { LyricsAlignMode, LyricsAlignProgress, UserSettings } from '../shell/ipc.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import type { PreviewStats, Transport } from './clock.ts';
 import type { LiveModulation } from './preview/host.ts';
@@ -261,6 +263,14 @@ export interface StudioState {
   /** A running tap-to-sync session (lyrics-spec §3), or null. */
   tap: TapState | null;
   setTap(tap: TapState | null): void;
+
+  /** WhisperX alignment (M26): whether it is installed, and the running job. */
+  alignAvailability: { readonly available: boolean; readonly languages: readonly string[]; readonly reason: string | null } | null;
+  loadAlignAvailability(): Promise<void>;
+  aligning: LyricsAlignProgress | null;
+  alignLyrics(mode: LyricsAlignMode): Promise<void>;
+  cancelAlign(): Promise<void>;
+  reportAlignProgress(progress: LyricsAlignProgress): void;
 
   /** User settings (data-formats §6); null until read. */
   settings: UserSettings | null;
@@ -1049,7 +1059,13 @@ export const useStudio = create<StudioState>((set, get) => ({
         const existing = history.current.lyrics.lines.length;
         if (existing > 0 && !window.confirm(`Replace the ${existing} lyric lines with the text of ${file.name}? Lines whose text is unchanged keep their timing.`)) return;
         get().run(setLyricsText(file.text));
-        set({ toast: { text: `Read ${history.current.lyrics.lines.length} lines from ${file.name}. Tap to sync, or align them, to give them times.`, kind: 'ok' } });
+        set({
+          toast: {
+            text: `Read ${history.current.lyrics.lines.length} lines from ${file.name}. `
+              + (get().alignAvailability?.available === true ? 'Align the lyrics (Lyrics panel) times them from the vocals in about a minute, or tap to sync.' : 'Tap to sync to give them times.'),
+            kind: 'ok',
+          },
+        });
         return;
       }
       const imported = importLyricsFile(file.name, file.text);
@@ -1064,7 +1080,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       set({
         toast: {
           text: `Imported ${imported.lines.length} lines from ${file.name}${words > 0 ? `, ${words} with word timings` : ''}.`
-            + (imported.format === 'lrc' ? ' LRC timings are often 0.2–0.5 s off: check a few lines before rendering.' : '')
+            + (imported.format === 'lrc'
+              ? ` LRC timings are often 0.2–0.5 s off: check a few lines${get().alignAvailability?.available === true ? ', or refine them with Align the lyrics in the Lyrics panel' : ''} before rendering.`
+              : '')
             + (imported.warnings.length > 0 ? `\n${imported.warnings.slice(0, 5).join('\n')}` : ''),
           kind: imported.warnings.length > 0 ? 'warn' : 'ok',
         },
@@ -1099,6 +1117,105 @@ export const useStudio = create<StudioState>((set, get) => ({
   tap: null,
   setTap(tap) {
     set({ tap });
+  },
+
+  alignAvailability: null,
+  async loadAlignAvailability() {
+    try {
+      set({ alignAvailability: await window.pulseforge.lyricsAlignAvailable() });
+    } catch {
+      set({ alignAvailability: { available: false, languages: [], reason: 'Could not ask the main process whether alignment is installed.' } });
+    }
+  },
+
+  aligning: null,
+  async alignLyrics(mode) {
+    const document = history.current;
+    const audio = get().audio;
+    if (audio === null || document.audio.path === '') {
+      set({ toast: { text: 'Load the track first: alignment listens to its vocals.', kind: 'warn' } });
+      return;
+    }
+    if (get().aligning !== null) return;
+    const { lyrics } = document;
+    // Locked lines are human-verified: they are never sent, so they can never change (lyrics-spec §4).
+    const lines = lyrics.lines.filter((l) => !l.locked && l.text.trim() !== '').map((l) => ({ id: l.id, text: l.text }));
+    if (mode === 'align' && lines.length === 0) {
+      set({ toast: { text: lyrics.lines.length === 0 ? 'There is no text to align: paste the lyrics first, or transcribe the vocals.' : 'Every line is locked, so there is nothing to align.', kind: 'warn' } });
+      return;
+    }
+    if (mode === 'transcribe' && lyrics.lines.length > 0
+      && !window.confirm(`Replace the ${lyrics.lines.length} lyric lines with a transcription of the vocals? Transcriptions of singing have errors; they are a starting point to correct. (Undo brings the current lines back.)`)) {
+      return;
+    }
+    // A risky operation (ui-spec §10): snapshot the work first.
+    await get().autosave('before aligning lyrics');
+    const placement = { leadInTicks: document.audio.leadInTicks, clipInTicks: document.audio.clipInTicks };
+    const rms = get().analysis?.sources.get('vocals')?.features.get('rms');
+    const vocalSegments = rms === undefined ? undefined : detectVocalSegments(rms.data, rms.rate).map((s) => ({
+      start: sourceToTimelineSeconds(s.start, placement),
+      end: sourceToTimelineSeconds(s.end, placement),
+    }));
+    const request = {
+      audioPath: audio.path,
+      settings: document.analysisSettings,
+      language: lyrics.language,
+      mode,
+      lines,
+      placement,
+      ...(vocalSegments === undefined ? {} : { vocalSegments }),
+    };
+    set({ aligning: { stage: 'decoding', fraction: 0 } });
+    try {
+      let reply = await window.pulseforge.alignLyrics(request);
+      if (reply.status === 'needs-stems') {
+        set({ aligning: null });
+        if (!window.confirm(`${reply.message}\n\nSeparate the stems now (about a minute on the GPU) and then align?`)) return;
+        await get().separateStems();
+        if (get().stems.state !== 'ready') return;
+        set({ aligning: { stage: 'decoding', fraction: 0 } });
+        reply = await window.pulseforge.alignLyrics(request);
+        if (reply.status === 'needs-stems') throw new Error(reply.message);
+      }
+      const { result } = reply;
+      // The project may have changed while the GPU worked; the command writes to what is there now
+      // and skips lines that were locked, edited or deleted in the meantime.
+      if (result.mode === 'align') {
+        const command = applyAlignment(result.aligned);
+        get().run(command);
+        const low = result.aligned.filter((l) => l.confidence !== null && l.confidence < 0.5).length;
+        const flagged = [...result.rejected.map((r) => r.lineId).filter((id): id is string => id !== null), ...result.unplaced];
+        if (flagged.length > 0) set({ lyricsSelection: flagged });
+        const parts = [
+          `Aligned ${result.aligned.length - command.skipped()} line${result.aligned.length === 1 ? '' : 's'} to the vocals${low > 0 ? ` (${low} low-confidence — check them)` : ''}.`,
+          result.rejected.length > 0 ? `${result.rejected.length} refused by the sanity check and left as they were: ${result.rejected.slice(0, 3).map((r) => `“${r.text.slice(0, 24)}” — ${r.reason}`).join('; ')}.` : '',
+          result.unplaced.length > 0 ? `${result.unplaced.length} not found in the vocals (a repeat not sung, or text that differs).` : '',
+          command.skipped() > 0 ? `${command.skipped()} changed while aligning and were left alone.` : '',
+          flagged.length > 0 ? 'Those lines are selected in the Lines tab.' : '',
+        ].filter((p) => p !== '');
+        set({ toast: { text: parts.join('\n'), kind: flagged.length > 0 || low > 0 ? 'warn' : 'ok' } });
+      } else {
+        get().run(setTranscribedLyrics(result.created));
+        set({
+          toast: {
+            text: `Transcribed ${result.created.length} lines from the vocals (heard as “${result.detectedLanguage}”). Expect errors: correct the text in the Text tab — timings are kept where the words still match.`
+              + (result.rejected.length > 0 ? `\n${result.rejected.length} lines have line timing only (their words could not be aligned).` : ''),
+            kind: 'ok',
+          },
+        });
+      }
+    } catch (error) {
+      const text = describeError(error, 'Aligning the lyrics');
+      set({ toast: { text, kind: /cancelled/i.test(text) ? 'warn' : 'bad' } });
+    } finally {
+      set({ aligning: null });
+    }
+  },
+  async cancelAlign() {
+    await window.pulseforge.cancelLyricsAlign();
+  },
+  reportAlignProgress(progress) {
+    if (get().aligning !== null) set({ aligning: progress });
   },
 
   settings: null,

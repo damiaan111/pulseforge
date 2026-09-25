@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PYTHON_PACKAGES } from '../manifest.ts';
+import { PYTHON_PACKAGES, PYTHON_PACKAGES_LYRICS } from '../manifest.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import type { LockedPackage } from '../lib/lockfile.ts';
 import { formatBytes } from '../lib/log.ts';
 import {
+  PY_LYRICS_REQUIREMENTS_IN,
+  PY_LYRICS_REQUIREMENTS_LOCK,
   PY_REQUIREMENTS_IN,
   PY_REQUIREMENTS_LOCK,
   PYTHON_EXE,
@@ -18,6 +20,7 @@ import {
   WHEELHOUSE,
 } from '../lib/paths.ts';
 import { run, runChecked } from '../lib/proc.ts';
+import type { Tier } from '../manifest.ts';
 import type { Step, StepContext } from './types.ts';
 
 // The wheelhouse detail from PROJECT.md §3: wheels are downloaded into vendor/wheelhouse/
@@ -28,9 +31,38 @@ import type { Step, StepContext } from './types.ts';
 // but uv has no download command. uv resolves and installs; the vendored interpreter's
 // own pip downloads, with --require-hashes against the uv-generated lock.
 
-const TITLE = 'Python packages (torch CUDA + Demucs)';
-const ENV_MARKER = join(VENDOR, 'python', '.pulseforge-env.json');
-const LOCK_RELATIVE = 'setup/python/requirements.lock.txt';
+//
+// Two tiers install into the one vendored interpreter, each from its own lock: `stems` (torch CUDA +
+// Demucs) and `lyrics` (WhisperX on top). The lyrics lock is resolved with the stems lock as
+// constraints, so it is a strict superset that never changes a stems package — installing it cannot
+// break stem separation, and the stems step's offline check keeps passing. One implementation,
+// configured twice (`createPythonEnvStep`), so both get the same wheelhouse, hash and offline rules.
+
+/** What differs between the tiers that install Python packages. */
+interface PythonEnvConfig {
+  readonly id: string;
+  readonly title: string;
+  readonly tier: Tier;
+  readonly requirementsIn: string;
+  readonly requirementsLock: string;
+  readonly lockRelative: string;
+  readonly marker: string;
+  readonly approxWheelhouseBytes: number;
+  /** Extra `uv pip compile` arguments (constraints, overrides), prepared at relock time. */
+  readonly compileArgs: () => Promise<string[]>;
+  /**
+   * Extra `uv pip install` arguments. uv re-checks every package's declared dependencies when it
+   * installs, so an override used to resolve the lock has to be repeated here too.
+   */
+  readonly installArgs: () => Promise<string[]>;
+  /** Python appended to the probe: sets fields on `out` for `check` to read. */
+  readonly probeExtra: string;
+  /** Throws a SetupError when the tier's own packages are not usable; returns a summary. */
+  readonly check: (info: EnvProbe) => string;
+  /** Before relocking, what must already be in place (the stems lock, for the lyrics tier). */
+  readonly requires?: () => void;
+  readonly record: (ctx: StepContext, lockSha: string, info: EnvProbe) => void;
+}
 
 interface EnvMarker {
   requirementsLockSha256: string;
@@ -47,10 +79,13 @@ interface EnvProbe {
   torchError?: string;
   demucs?: string;
   demucsError?: string;
+  whisperx?: string;
+  lyricsError?: string;
+  ctranslate2Cuda?: number;
   packages: LockedPackage[];
 }
 
-const PROBE_SCRIPT = String.raw`
+const PROBE_HEAD = String.raw`
 import json, site, sys
 from importlib import metadata
 out = {"python": sys.version.split()[0], "executable": sys.executable, "userSite": bool(site.ENABLE_USER_SITE)}
@@ -69,6 +104,9 @@ try:
     out["demucs"] = metadata.version("demucs")
 except Exception as e:
     out["demucsError"] = repr(e)
+`;
+
+const PROBE_TAIL = String.raw`
 def licence(d):
     m = d.metadata
     value = m.get("License-Expression") or ""
@@ -88,40 +126,36 @@ async function sha256Text(path: string): Promise<string> {
   return createHash('sha256').update(await readFile(path)).digest('hex');
 }
 
-async function readMarker(): Promise<EnvMarker | undefined> {
-  try {
-    return JSON.parse(await readFile(ENV_MARKER, 'utf8')) as EnvMarker;
-  } catch {
-    return undefined;
-  }
-}
-
-async function probe(ctx: StepContext): Promise<EnvProbe> {
-  const result = await runChecked(PYTHON_EXE, ['-c', PROBE_SCRIPT], { step: TITLE, log: ctx.log, env: pythonEnv() }, () => ({
+async function probe(config: PythonEnvConfig, ctx: StepContext): Promise<EnvProbe> {
+  const script = PROBE_HEAD + config.probeExtra + PROBE_TAIL;
+  const result = await runChecked(PYTHON_EXE, ['-c', script], { step: config.title, log: ctx.log, env: pythonEnv() }, () => ({
     what: 'Could not inspect the vendored Python environment.',
     fix: ['Re-run `npm run setup`; if it repeats, delete vendor/python and run setup again.'],
   }));
-  return JSON.parse(result.stdout) as EnvProbe;
+  // Libraries print banners on import; the probe's JSON is the last line.
+  return JSON.parse(result.stdout.trim().split(/\r?\n/).pop() ?? '{}') as EnvProbe;
 }
 
 function lockedTorchVersion(lockText: string): string | undefined {
   return /^torch==(\S+)/m.exec(lockText)?.[1];
 }
 
-async function ensureRequirementsLock(ctx: StepContext): Promise<{ generated: boolean }> {
-  const exists = existsSync(PY_REQUIREMENTS_LOCK);
+async function ensureRequirementsLock(config: PythonEnvConfig, ctx: StepContext): Promise<{ generated: boolean }> {
+  const exists = existsSync(config.requirementsLock);
   if (exists && !ctx.relock) return { generated: false };
+  config.requires?.();
 
   ctx.log.info(
     exists
-      ? 'Re-resolving the Python lock (--relock) …'
-      : 'No Python lock yet; resolving setup/python/requirements.in with uv (needs network) …',
+      ? `Re-resolving ${config.lockRelative} (--relock) …`
+      : `No ${config.lockRelative} yet; resolving it with uv (needs network) …`,
   );
+  const inputRelative = config.requirementsIn.slice(ROOT.length + 1).split('\\').join('/');
   await runChecked(
     UV_EXE,
     [
-      'pip', 'compile', 'setup/python/requirements.in',
-      '--output-file', LOCK_RELATIVE,
+      'pip', 'compile', inputRelative,
+      '--output-file', config.lockRelative,
       '--generate-hashes',
       '--python', PYTHON_EXE,
       '--python-version', PYTHON_PACKAGES.pythonVersion,
@@ -135,8 +169,9 @@ async function ensureRequirementsLock(ctx: StepContext): Promise<{ generated: bo
       '--only-binary', ':all:',
       '--no-config',
       '--custom-compile-command', 'npm run setup -- --relock',
+      ...(await config.compileArgs()),
     ],
-    { step: TITLE, log: ctx.log, cwd: ROOT, env: pythonEnv(), echo: true },
+    { step: config.title, log: ctx.log, cwd: ROOT, env: pythonEnv(), echo: true },
     () => ({
       what: 'uv could not resolve the Python requirements.',
       likelyCause:
@@ -144,26 +179,26 @@ async function ensureRequirementsLock(ctx: StepContext): Promise<{ generated: bo
       fix: [
         'Read the uv output above: it names the package that could not be satisfied.',
         'If it is a network error, check the connection and re-run.',
-        'If a version has no wheel, adjust setup/python/requirements.in deliberately and re-run with --relock.',
+        `If a version has no wheel, adjust ${inputRelative} deliberately and re-run with --relock.`,
       ],
     }),
   );
 
-  const torch = lockedTorchVersion(await readFile(PY_REQUIREMENTS_LOCK, 'utf8'));
+  const torch = lockedTorchVersion(await readFile(config.requirementsLock, 'utf8'));
   if (torch === undefined || !torch.endsWith(`+${PYTHON_PACKAGES.torchLocalVersion}`)) {
     throw new SetupError({
-      step: TITLE,
+      step: config.title,
       what: `The generated lock pins torch ${torch ?? '(missing)'}, not a +${PYTHON_PACKAGES.torchLocalVersion} CUDA build.`,
       likelyCause: 'The resolver chose the CPU wheel, so stem separation would silently run on the CPU.',
       fix: ['Check the torch pin in setup/python/requirements.in and PYTHON_PACKAGES.torchIndex in setup/manifest.ts, then re-run with --relock.'],
     });
   }
-  ctx.log.ok(`Wrote ${LOCK_RELATIVE} (torch ${torch})`);
+  ctx.log.ok(`Wrote ${config.lockRelative} (torch ${torch})`);
   return { generated: true };
 }
 
-async function pipResumeArgs(ctx: StepContext): Promise<string[]> {
-  const result = await run(PYTHON_EXE, ['-m', 'pip', '--version'], { step: TITLE, log: ctx.log, env: pythonEnv() });
+async function pipResumeArgs(config: PythonEnvConfig, ctx: StepContext): Promise<string[]> {
+  const result = await run(PYTHON_EXE, ['-m', 'pip', '--version'], { step: config.title, log: ctx.log, env: pythonEnv() });
   const match = /^pip (\d+)\.(\d+)/.exec(result.stdout);
   const major = Number(match?.[1] ?? 0);
   const minor = Number(match?.[2] ?? 0);
@@ -171,15 +206,15 @@ async function pipResumeArgs(ctx: StepContext): Promise<string[]> {
   return major > 25 || (major === 25 && minor >= 1) ? ['--resume-retries', '5'] : [];
 }
 
-async function downloadWheelhouse(ctx: StepContext): Promise<void> {
-  ctx.log.info('Filling vendor/wheelhouse/ (hash-checked against the lock; the torch CUDA wheel is ~2.5 GB) …');
+async function downloadWheelhouse(config: PythonEnvConfig, ctx: StepContext): Promise<void> {
+  ctx.log.info(`Filling vendor/wheelhouse/ from ${config.lockRelative} (hash-checked; wheels already there are kept) …`);
   await mkdir(WHEELHOUSE, { recursive: true });
   await mkdir(TMP, { recursive: true });
   await runChecked(
     PYTHON_EXE,
     [
       '-m', 'pip', 'download',
-      '--requirement', PY_REQUIREMENTS_LOCK,
+      '--requirement', config.requirementsLock,
       '--dest', WHEELHOUSE,
       '--require-hashes',
       '--no-deps', // the lock is the complete, resolved set
@@ -187,9 +222,9 @@ async function downloadWheelhouse(ctx: StepContext): Promise<void> {
       '--no-cache-dir',
       '--index-url', PYTHON_PACKAGES.pypiIndex,
       '--extra-index-url', PYTHON_PACKAGES.torchIndex,
-      ...(await pipResumeArgs(ctx)),
+      ...(await pipResumeArgs(config, ctx)),
     ],
-    { step: TITLE, log: ctx.log, env: pythonEnv(), echo: true },
+    { step: config.title, log: ctx.log, env: pythonEnv(), echo: true },
     (result) => {
       const tail = result.tail;
       if (/DO NOT MATCH THE HASHES/i.test(tail)) {
@@ -214,22 +249,23 @@ async function downloadWheelhouse(ctx: StepContext): Promise<void> {
   );
 }
 
-async function installFromWheelhouse(ctx: StepContext): Promise<void> {
+async function installFromWheelhouse(config: PythonEnvConfig, ctx: StepContext): Promise<void> {
   ctx.log.info('Installing into vendor/python/ from the wheelhouse only (--offline --no-index) …');
   await runChecked(
     UV_EXE,
     [
       'pip', 'install',
       '--python', PYTHON_EXE,
-      '--requirement', PY_REQUIREMENTS_LOCK,
+      '--requirement', config.requirementsLock,
       '--require-hashes',
       '--no-index',
       '--find-links', WHEELHOUSE,
       '--offline',
       '--no-config',
       '--break-system-packages',
+      ...(await config.installArgs()),
     ],
-    { step: TITLE, log: ctx.log, env: pythonEnv(), echo: true },
+    { step: config.title, log: ctx.log, env: pythonEnv(), echo: true },
     () => ({
       what: 'Installing from the wheelhouse failed.',
       likelyCause: 'The wheelhouse is incomplete, or a file in it is damaged.',
@@ -238,7 +274,8 @@ async function installFromWheelhouse(ctx: StepContext): Promise<void> {
   );
 }
 
-function assertHealthy(info: EnvProbe): void {
+function assertHealthy(config: PythonEnvConfig, info: EnvProbe): string {
+  const TITLE = config.title;
   if (!info.executable.toLowerCase().startsWith(VENDOR.toLowerCase()) || info.userSite) {
     throw new SetupError({
       step: TITLE,
@@ -278,14 +315,7 @@ function assertHealthy(info: EnvProbe): void {
       ],
     });
   }
-  if (info.demucsError !== undefined) {
-    throw new SetupError({
-      step: TITLE,
-      what: `demucs is installed but fails to import: ${info.demucsError}`,
-      likelyCause: 'A dependency mismatch in the resolved lock.',
-      fix: ['Re-run with `npm run setup -- --relock`; if it persists, share vendor/setup.log.'],
-    });
-  }
+  return config.check(info);
 }
 
 async function wheelhouseSummary(): Promise<string> {
@@ -294,105 +324,258 @@ async function wheelhouseSummary(): Promise<string> {
   return `${files.length} wheels`;
 }
 
-export const pythonEnvStep: Step = {
-  id: 'python-env',
-  title: TITLE,
-  tier: PYTHON_PACKAGES.tier,
+async function readMarker(path: string): Promise<EnvMarker | undefined> {
+  try {
+    return JSON.parse(await readFile(path, 'utf8')) as EnvMarker;
+  } catch {
+    return undefined;
+  }
+}
 
-  async describe() {
-    const lockExists = existsSync(PY_REQUIREMENTS_LOCK);
-    const marker = await readMarker();
-    const lockSha = lockExists ? await sha256Text(PY_REQUIREMENTS_LOCK) : undefined;
-    const torch = lockExists ? lockedTorchVersion(await readFile(PY_REQUIREMENTS_LOCK, 'utf8')) : undefined;
-    const requirements = (await readFile(PY_REQUIREMENTS_IN, 'utf8'))
-      .split(/\r?\n/)
-      .filter((l) => l.trim() !== '' && !l.trim().startsWith('#'))
-      .join(', ');
-    return {
-      name: 'Python packages',
-      version: lockExists ? `lock: torch ${torch ?? '?'} (+ deps)` : `requirements.in: ${requirements}`,
-      download: `~${formatBytes(PYTHON_PACKAGES.approxWheelhouseBytes)} of wheels`,
-      source: `${PYTHON_PACKAGES.pypiIndex} + ${PYTHON_PACKAGES.torchIndex}`,
-      destination: 'vendor/wheelhouse/ (kept) → installed into vendor/python/',
-      status:
-        marker !== undefined && marker.requirementsLockSha256 === lockSha
-          ? `installed (${await wheelhouseSummary()})`
-          : lockExists
-            ? 'not installed; lock present'
-            : `not installed. ${LOCK_RELATIVE} does not exist yet: uv resolves it first (metadata only) and you commit it`,
-    };
-  },
+export function createPythonEnvStep(config: PythonEnvConfig): Step {
+  const TITLE = config.title;
+  return {
+    id: config.id,
+    title: TITLE,
+    tier: config.tier,
 
-  async run(ctx) {
-    ctx.log.heading(TITLE);
-    const { generated } = await ensureRequirementsLock(ctx);
-    const lockSha = await sha256Text(PY_REQUIREMENTS_LOCK);
+    async describe() {
+      const lockExists = existsSync(config.requirementsLock);
+      const marker = await readMarker(config.marker);
+      const lockSha = lockExists ? await sha256Text(config.requirementsLock) : undefined;
+      const torch = lockExists ? lockedTorchVersion(await readFile(config.requirementsLock, 'utf8')) : undefined;
+      const requirements = (await readFile(config.requirementsIn, 'utf8'))
+        .split(/\r?\n/)
+        .filter((l) => l.trim() !== '' && !l.trim().startsWith('#'))
+        .join(', ');
+      return {
+        name: TITLE,
+        version: lockExists ? `lock: torch ${torch ?? '?'} (+ deps)` : `requirements: ${requirements}`,
+        download: `~${formatBytes(config.approxWheelhouseBytes)} of wheels`,
+        source: `${PYTHON_PACKAGES.pypiIndex} + ${PYTHON_PACKAGES.torchIndex}`,
+        destination: 'vendor/wheelhouse/ (kept) → installed into vendor/python/',
+        status:
+          marker !== undefined && marker.requirementsLockSha256 === lockSha
+            ? `installed (${await wheelhouseSummary()})`
+            : lockExists
+              ? 'not installed; lock present'
+              : `not installed. ${config.lockRelative} does not exist yet: uv resolves it first (metadata only) and you commit it`,
+      };
+    },
 
-    const marker = await readMarker();
-    if (marker?.requirementsLockSha256 === lockSha && !generated) {
-      const info = await probe(ctx);
-      try {
-        assertHealthy(info);
-        ctx.log.ok(`Already installed: torch ${info.torch ?? '?'} on ${info.device ?? '?'}, demucs ${info.demucs ?? '?'}`);
-        record(ctx, lockSha, info);
-        return;
-      } catch (error) {
-        ctx.log.warn(`Installed environment failed its health check (${(error as Error).message}); reinstalling.`);
+    async run(ctx) {
+      ctx.log.heading(TITLE);
+      const { generated } = await ensureRequirementsLock(config, ctx);
+      const lockSha = await sha256Text(config.requirementsLock);
+
+      const marker = await readMarker(config.marker);
+      if (marker?.requirementsLockSha256 === lockSha && !generated) {
+        const info = await probe(config, ctx);
+        try {
+          const summary = assertHealthy(config, info);
+          ctx.log.ok(`Already installed: ${summary}`);
+          config.record(ctx, lockSha, info);
+          return;
+        } catch (error) {
+          ctx.log.warn(`Installed environment failed its health check (${(error as Error).message}); reinstalling.`);
+        }
       }
-    }
 
-    await downloadWheelhouse(ctx);
-    ctx.log.ok(`Wheelhouse complete (${await wheelhouseSummary()})`);
-    await installFromWheelhouse(ctx);
+      await downloadWheelhouse(config, ctx);
+      ctx.log.ok(`Wheelhouse complete (${await wheelhouseSummary()})`);
+      await installFromWheelhouse(config, ctx);
 
-    const info = await probe(ctx);
-    assertHealthy(info);
-    await writeFile(ENV_MARKER, JSON.stringify({ requirementsLockSha256: lockSha } satisfies EnvMarker, null, 2) + '\n');
-    ctx.log.ok(`torch ${info.torch ?? '?'} sees ${info.device ?? '?'} (CUDA ${info.torchCuda ?? '?'}); demucs ${info.demucs ?? '?'}`);
-    record(ctx, lockSha, info);
+      const info = await probe(config, ctx);
+      const summary = assertHealthy(config, info);
+      await writeFile(config.marker, JSON.stringify({ requirementsLockSha256: lockSha } satisfies EnvMarker, null, 2) + '\n');
+      ctx.log.ok(summary);
+      config.record(ctx, lockSha, info);
 
-    if (generated) {
-      ctx.log.warn(`${LOCK_RELATIVE} was generated in this run. Commit it: until it is committed, the Python resolution is not pinned.`);
-    }
-  },
+      if (generated) {
+        ctx.log.warn(`${config.lockRelative} was generated in this run. Commit it: until it is committed, the Python resolution is not pinned.`);
+      }
+    },
 
-  async verify(ctx) {
-    ctx.log.heading(`Verify: ${TITLE}`);
-    if (!existsSync(PY_REQUIREMENTS_LOCK)) {
-      throw new SetupError({ step: TITLE, what: `${LOCK_RELATIVE} does not exist.`, fix: ['Run `npm run setup` to generate and install it.'] });
-    }
-    const marker = await readMarker();
-    if (marker?.requirementsLockSha256 !== (await sha256Text(PY_REQUIREMENTS_LOCK))) {
-      throw new SetupError({
-        step: TITLE,
-        what: 'The installed Python environment does not correspond to the current lock.',
-        likelyCause: 'The lock changed (a git pull or --relock) since the environment was installed.',
-        fix: ['Run `npm run setup` to install the locked set.'],
-      });
-    }
-    // Proves the wheelhouse alone satisfies the lock, with no index: the offline-rebuild guarantee.
-    await runChecked(
-      UV_EXE,
-      ['pip', 'install', '--python', PYTHON_EXE, '--requirement', PY_REQUIREMENTS_LOCK, '--require-hashes', '--no-index', '--find-links', WHEELHOUSE, '--offline', '--no-config', '--break-system-packages', '--dry-run'],
-      { step: TITLE, log: ctx.log, env: pythonEnv() },
-      () => ({
-        what: 'The wheelhouse can no longer satisfy the lock offline.',
-        likelyCause: 'Wheels were deleted from vendor/wheelhouse/.',
-        fix: ['Run `npm run setup` (with internet) to restore the missing wheels.'],
-      }),
-    );
-    const info = await probe(ctx);
-    assertHealthy(info);
-    ctx.log.ok(`Wheelhouse satisfies the lock offline; torch ${info.torch ?? '?'} sees ${info.device ?? '?'}`);
-  },
-};
+    async verify(ctx) {
+      ctx.log.heading(`Verify: ${TITLE}`);
+      if (!existsSync(config.requirementsLock)) {
+        throw new SetupError({ step: TITLE, what: `${config.lockRelative} does not exist.`, fix: ['Run `npm run setup` to generate and install it.'] });
+      }
+      const marker = await readMarker(config.marker);
+      if (marker?.requirementsLockSha256 !== (await sha256Text(config.requirementsLock))) {
+        throw new SetupError({
+          step: TITLE,
+          what: 'The installed Python environment does not correspond to the current lock.',
+          likelyCause: 'The lock changed (a git pull or --relock) since the environment was installed.',
+          fix: ['Run `npm run setup` to install the locked set.'],
+        });
+      }
+      // Proves the wheelhouse alone satisfies the lock, with no index: the offline-rebuild guarantee.
+      await runChecked(
+        UV_EXE,
+        ['pip', 'install', '--python', PYTHON_EXE, '--requirement', config.requirementsLock, '--require-hashes', '--no-index', '--find-links', WHEELHOUSE, '--offline', '--no-config', '--break-system-packages', '--dry-run', ...(await config.installArgs())],
+        { step: TITLE, log: ctx.log, env: pythonEnv() },
+        () => ({
+          what: 'The wheelhouse can no longer satisfy the lock offline.',
+          likelyCause: 'Wheels were deleted from vendor/wheelhouse/.',
+          fix: ['Run `npm run setup` (with internet) to restore the missing wheels.'],
+        }),
+      );
+      const info = await probe(config, ctx);
+      const summary = assertHealthy(config, info);
+      ctx.log.ok(`Wheelhouse satisfies the lock offline; ${summary}`);
+    },
+  };
+}
 
-function record(ctx: StepContext, lockSha: string, info: EnvProbe): void {
+function recordEnv(ctx: StepContext, lockSha: string, info: EnvProbe): void {
   ctx.lock.pythonEnv = {
-    requirementsLockSha256: lockSha,
+    requirementsLockSha256: ctx.lock.pythonEnv?.requirementsLockSha256 ?? lockSha,
     python: info.python,
     torch: info.torch ?? 'unknown',
     torchCuda: info.torchCuda ?? 'none',
+    // The one interpreter's whole package list: after the lyrics tier, its packages too.
     packages: info.packages,
   };
 }
+
+// ---------------------------------------------------------------------------
+// stems: torch CUDA + Demucs
+// ---------------------------------------------------------------------------
+
+export const pythonEnvStep: Step = createPythonEnvStep({
+  id: 'python-env',
+  title: 'Python packages (torch CUDA + Demucs)',
+  tier: PYTHON_PACKAGES.tier,
+  requirementsIn: PY_REQUIREMENTS_IN,
+  requirementsLock: PY_REQUIREMENTS_LOCK,
+  lockRelative: 'setup/python/requirements.lock.txt',
+  marker: join(VENDOR, 'python', '.pulseforge-env.json'),
+  approxWheelhouseBytes: PYTHON_PACKAGES.approxWheelhouseBytes,
+  compileArgs: async () => [],
+  installArgs: async () => [],
+  probeExtra: '',
+  check(info) {
+    if (info.demucsError !== undefined) {
+      throw new SetupError({
+        step: 'Python packages (torch CUDA + Demucs)',
+        what: `demucs is installed but fails to import: ${info.demucsError}`,
+        likelyCause: 'A dependency mismatch in the resolved lock.',
+        fix: ['Re-run with `npm run setup -- --relock`; if it persists, share vendor/setup.log.'],
+      });
+    }
+    return `torch ${info.torch ?? '?'} sees ${info.device ?? '?'} (CUDA ${info.torchCuda ?? '?'}); demucs ${info.demucs ?? '?'}`;
+  },
+  record(ctx, lockSha, info) {
+    recordEnv(ctx, lockSha, info);
+    if (ctx.lock.pythonEnv !== null) ctx.lock.pythonEnv.requirementsLockSha256 = lockSha;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// lyrics: WhisperX on top (M26)
+// ---------------------------------------------------------------------------
+
+/**
+ * CTranslate2 (faster-whisper) is built for CUDA 12; torch here is CUDA 13. The CUDA 12 cuBLAS comes
+ * from the `nvidia-cublas-cu12` wheel, and this folder has to be on the DLL search path before
+ * CTranslate2 loads — the sidecar does the same (python/pulseforge_ml/lyrics.py).
+ */
+const CUBLAS12_SNIPPET = String.raw`
+import os as _os, importlib.util as _iu
+_spec = _iu.find_spec("nvidia.cublas")
+if _spec is not None and _spec.submodule_search_locations:
+    _bin = _os.path.join(list(_spec.submodule_search_locations)[0], "bin")
+    if _os.path.isdir(_bin):
+        _os.add_dll_directory(_bin)
+        _os.environ["PATH"] = _bin + _os.pathsep + _os.environ.get("PATH", "")
+`;
+
+/**
+ * The overrides as a file, for uv's `--override` — resolving and installing both need it. For an
+ * install (`fromLock`), each override is copied from the lock *with its hashes*: installs run with
+ * `--require-hashes`, and an unhashed override is refused.
+ */
+async function lyricsOverridesFile(fromLock?: string): Promise<string> {
+  await mkdir(TMP, { recursive: true });
+  const path = join(TMP, 'lyrics-overrides.txt');
+  let text = `${PYTHON_PACKAGES_LYRICS.overrides.join('\n')}\n`;
+  if (fromLock !== undefined) {
+    const lock = (await readFile(fromLock, 'utf8')).replace(/\r\n/g, '\n');
+    text = PYTHON_PACKAGES_LYRICS.overrides.map((pin) => {
+      const start = lock.indexOf(`${pin} \\\n`);
+      if (start < 0) {
+        throw new SetupError({ step: 'Python packages for lyrics (WhisperX)', what: `${pin} is not in the lyrics lock.`, fix: ['Re-run with `npm run setup -- --relock`.'] });
+      }
+      // The pin and its `--hash=` continuation lines, up to the first line that does not continue.
+      const lines = lock.slice(start).split('\n');
+      const end = lines.findIndex((line) => !line.trimEnd().endsWith('\\'));
+      return lines.slice(0, end + 1).join('\n');
+    }).join('\n') + '\n';
+  }
+  await writeFile(path, text);
+  return path;
+}
+
+export const pythonLyricsEnvStep: Step = createPythonEnvStep({
+  id: 'python-lyrics-env',
+  title: 'Python packages for lyrics (WhisperX)',
+  tier: PYTHON_PACKAGES_LYRICS.tier,
+  requirementsIn: PY_LYRICS_REQUIREMENTS_IN,
+  requirementsLock: PY_LYRICS_REQUIREMENTS_LOCK,
+  lockRelative: 'setup/python/requirements-lyrics.lock.txt',
+  marker: join(VENDOR, 'python', '.pulseforge-lyrics-env.json'),
+  approxWheelhouseBytes: PYTHON_PACKAGES_LYRICS.approxWheelhouseBytes,
+  requires() {
+    if (!existsSync(PY_REQUIREMENTS_LOCK)) {
+      throw new SetupError({
+        step: 'Python packages for lyrics (WhisperX)',
+        what: 'The lyrics lock is resolved against the stems lock, which does not exist yet.',
+        fix: ['Run setup with the stems tier first (the default does both).'],
+      });
+    }
+  },
+  async compileArgs() {
+    // The stems lock, without hashes, as constraints: every shared package keeps its stems version.
+    await mkdir(TMP, { recursive: true });
+    const constraints = join(TMP, 'stems-constraints.txt');
+    const pins = (await readFile(PY_REQUIREMENTS_LOCK, 'utf8')).split(/\r?\n/)
+      .map((line) => /^([A-Za-z0-9_.-]+==\S+)/.exec(line)?.[1])
+      .filter((pin): pin is string => pin !== undefined);
+    await writeFile(constraints, `${pins.join('\n')}\n`);
+    return ['--constraint', constraints, '--override', await lyricsOverridesFile()];
+  },
+  installArgs: async () => ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)],
+  probeExtra: CUBLAS12_SNIPPET + String.raw`
+try:
+    import ctranslate2, faster_whisper, whisperx, whisperx.alignment
+    out["whisperx"] = metadata.version("whisperx")
+    out["ctranslate2Cuda"] = int(ctranslate2.get_cuda_device_count())
+except Exception as e:
+    out["lyricsError"] = repr(e)
+`,
+  check(info) {
+    const step = 'Python packages for lyrics (WhisperX)';
+    if (info.lyricsError !== undefined) {
+      throw new SetupError({
+        step,
+        what: `WhisperX is installed but fails to import: ${info.lyricsError}`,
+        likelyCause: 'A dependency mismatch in the resolved lock.',
+        fix: ['Re-run with `npm run setup -- --relock`; if it persists, share vendor/setup.log.'],
+      });
+    }
+    if ((info.ctranslate2Cuda ?? 0) < 1) {
+      throw new SetupError({
+        step,
+        what: 'CTranslate2 (faster-whisper) cannot see a CUDA device.',
+        likelyCause: 'The CUDA 12 cuBLAS wheel is missing, or the NVIDIA driver is too old for CUDA 12.',
+        fix: ['Re-run `npm run setup -- --tier lyrics`, and update the NVIDIA driver if this repeats.'],
+      });
+    }
+    return `whisperx ${info.whisperx ?? '?'}, CTranslate2 on ${info.ctranslate2Cuda ?? 0} CUDA device(s)`;
+  },
+  record(ctx, lockSha, info) {
+    recordEnv(ctx, lockSha, info);
+    ctx.lock.pythonLyricsEnv = { requirementsLockSha256: lockSha };
+  },
+});

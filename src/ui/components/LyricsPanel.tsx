@@ -201,6 +201,7 @@ export function LyricsDrawer(): React.JSX.Element | null {
       {tab === 'text' && <TextTab />}
       {tab === 'lines' && <LinesTab />}
       {tab === 'checks' && <ChecksTab checks={checks} />}
+      <AlignControls />
       <TapControls />
     </aside>
   );
@@ -550,6 +551,74 @@ function ChecksTab(props: { checks: readonly LyricsCheck[] }): React.JSX.Element
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Alignment with WhisperX (M26, lyrics-spec §4) — explicit, never automatic (D34)
+// ---------------------------------------------------------------------------
+
+const ALIGN_STAGES: Readonly<Record<string, string>> = {
+  decoding: 'Finding the vocal stem…',
+  transcribing: 'Listening to the vocals…',
+  aligning: 'Aligning words…',
+};
+
+function AlignControls(): React.JSX.Element {
+  const availability = useStudio((s) => s.alignAvailability);
+  const aligning = useStudio((s) => s.aligning);
+  const alignLyrics = useStudio((s) => s.alignLyrics);
+  const cancelAlign = useStudio((s) => s.cancelAlign);
+  const lyrics = useStudio((s) => s.document.lyrics);
+  const audio = useStudio((s) => s.audio);
+  const hasStems = useStudio((s) => s.analysis?.sources.has('vocals') === true);
+  const unlocked = lyrics.lines.filter((l) => !l.locked).length;
+  const languageOk = availability?.languages.includes(lyrics.language.toLowerCase().split(/[-_]/)[0] ?? '') === true;
+
+  return (
+    <div className="tap-controls align-controls" data-testid="align-controls" data-state={aligning === null ? 'idle' : 'running'}>
+      <h3>Align to the vocals</h3>
+      {availability !== null && !availability.available ? (
+        <p className="dim">{availability.reason}</p>
+      ) : aligning !== null ? (
+        <>
+          <div className="progress"><div className="progress-fill" style={{ width: `${(aligning.fraction * 100).toFixed(1)}%` }} /></div>
+          <div className="tap-row">
+            <span className="dim">{ALIGN_STAGES[aligning.stage] ?? aligning.stage} {(aligning.fraction * 100).toFixed(0)}%</span>
+            <button type="button" data-action="align-cancel" onClick={() => void cancelAlign()}>Cancel</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="dim">
+            WhisperX listens to the isolated vocals{hasStems ? '' : ' (stems are separated first)'} and times every word. Expect most lines close and some
+            words wrong: check the low-confidence ones it marks. Locked lines are never changed.
+            {!languageOk && ` Word alignment is installed for ${(availability?.languages ?? ['en']).join(', ')}; these lyrics are marked “${lyrics.language}”.`}
+          </p>
+          <div className="tap-row">
+            <button
+              type="button"
+              className="wide"
+              data-action="align-lyrics"
+              disabled={audio === null || unlocked === 0 || !languageOk}
+              title={audio === null ? 'Load the track first' : unlocked === 0 ? 'Paste the lyrics (or unlock lines) first' : 'Time the unlocked lines, word by word'}
+              onClick={() => void alignLyrics('align')}
+            >
+              Align the lyrics
+            </button>
+            <button
+              type="button"
+              data-action="transcribe-lyrics"
+              disabled={audio === null || !languageOk}
+              title="No lyrics written down? Transcribe them from the vocals, as a starting point to correct"
+              onClick={() => void alignLyrics('transcribe')}
+            >
+              Transcribe…
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

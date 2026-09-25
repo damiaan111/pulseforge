@@ -5,11 +5,10 @@
 // Checksums come from each project's published checksum files, not from our own
 // downloads — except where noted.
 
-export type Tier = 'core' | 'stems';
-export const ALL_TIERS: readonly Tier[] = ['core', 'stems'];
-/** Tiers from PROJECT.md §3 that P0 does not provision yet — named so asking for them fails loudly. */
+export type Tier = 'core' | 'stems' | 'lyrics';
+export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics'];
+/** Tiers from PROJECT.md §3 not provisioned yet — named so asking for them fails loudly. */
 export const FUTURE_TIERS: Readonly<Record<string, string>> = {
-  lyrics: 'WhisperX and Whisper models arrive with P6 (lyrics).',
   extras: 'MilkDrop presets and optional models arrive after v1.',
 };
 
@@ -137,7 +136,61 @@ export const FONT_INTER: ArchiveArtefact = {
   expectFile: 'extras/ttf/Inter-Regular.ttf',
 };
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, PYTHON, UV, DEMUCS_HTDEMUCS];
+// ---------------------------------------------------------------------------
+// Lyrics tier (P6, M26): transcription and forced alignment
+// ---------------------------------------------------------------------------
+
+/**
+ * Whisper `medium` in CTranslate2 format, for faster-whisper (D8: fast by default; `large-v3` is a
+ * later, optional pin). Pinned to one Hugging Face revision. model.bin's SHA-256 is the published
+ * LFS object id; the three small files publish none, so theirs were recorded from a verified
+ * download of that revision (2026-09-25) and are enforced from then on.
+ */
+const WHISPER_REVISION = '08e178d48790749d25932bbc082711ddcfdfbc4f';
+const whisperFile = (fileName: string, sha256: string, sizeBytes: number): FileArtefact => ({
+  kind: 'file',
+  id: `whisper-medium-${fileName.replace(/\W+/g, '-')}`,
+  name: `Whisper medium (CTranslate2) — ${fileName}`,
+  version: WHISPER_REVISION.slice(0, 12),
+  tier: 'lyrics',
+  url: `https://huggingface.co/Systran/faster-whisper-medium/resolve/${WHISPER_REVISION}/${fileName}`,
+  fileName,
+  sha256,
+  sizeBytes,
+  license: 'MIT (OpenAI Whisper weights, converted by Systran)',
+  installDir: 'models/whisper/faster-whisper-medium',
+});
+export const WHISPER_MEDIUM: readonly FileArtefact[] = [
+  whisperFile('model.bin', '9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae', 1_527_906_378),
+  whisperFile('config.json', '3622a2ddc41ec0e0fd4e68c13c6830f03b90c38d89aaad184de02c8c642cf807', 2_257),
+  whisperFile('tokenizer.json', 'fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab', 2_203_239),
+  whisperFile('vocabulary.txt', '34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913', 459_861),
+];
+
+/**
+ * The English forced-alignment model WhisperX uses (torchaudio's WAV2VEC2_ASR_BASE_960H). torchaudio
+ * loads it from a model folder by this exact file name, so the folder is all the sidecar passes.
+ * Other languages' wav2vec2 models are per language (PROJECT.md §3) and not provisioned yet: an
+ * unsupported language falls back to tap-to-sync with a message (lyrics-spec §4). Hash recorded
+ * from a verified download (2026-09-25; the server's size matched).
+ */
+export const WAV2VEC2_EN: FileArtefact = {
+  kind: 'file',
+  id: 'wav2vec2-en',
+  name: 'wav2vec2 base 960h (English alignment)',
+  version: 'torchaudio WAV2VEC2_ASR_BASE_960H',
+  tier: 'lyrics',
+  url: 'https://download.pytorch.org/torchaudio/models/wav2vec2_fairseq_base_ls960_asr_ls960.pth',
+  fileName: 'wav2vec2_fairseq_base_ls960_asr_ls960.pth',
+  sha256: '488fd4f16de84438ffc945334278c1b9fb9b7159a806c1080b16111a958c945d',
+  sizeBytes: 377_664_473,
+  license: 'MIT (fairseq wav2vec 2.0, LibriSpeech 960 h)',
+  installDir: 'models/align',
+};
+
+export const LYRICS_MODELS: readonly FileArtefact[] = [...WHISPER_MEDIUM, WAV2VEC2_EN];
+
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS];
 
 export const PYTHON_PACKAGES = {
   tier: 'stems' as Tier,
@@ -153,8 +206,26 @@ export const PYTHON_PACKAGES = {
   approxWheelhouseBytes: 3.2 * 1024 ** 3,
 };
 
+/**
+ * WhisperX on top of the stems environment (M26). The lock is resolved with the stems lock as
+ * **constraints**, so every package the two share keeps its stems version and installing this tier
+ * never changes the working stem separation. Two deliberate departures from what WhisperX declares,
+ * both found by running it on the RTX machine (STATUS §4.55):
+ *  - `ctranslate2` is **overridden** past WhisperX's `<4.5` pin: those versions need cuDNN 8, which
+ *    cannot sit beside the pinned torch CUDA 13 build (cuDNN 9). faster-whisper allows `<5`.
+ *  - `nvidia-cublas-cu12` is added: CTranslate2 is built for CUDA 12, torch ships only CUDA 13's
+ *    cuBLAS. The sidecar puts that one DLL folder on the search path when it loads CTranslate2.
+ */
+export const PYTHON_PACKAGES_LYRICS = {
+  tier: 'lyrics' as Tier,
+  /** Overrides applied on top of the requirements (uv `--override`). */
+  overrides: ['ctranslate2==4.8.2'],
+  approxWheelhouseBytes: 0.9 * 1024 ** 3,
+};
+
 /** Free space setup insists on before starting, per tier (downloads + install + temp). */
 export const REQUIRED_FREE_BYTES: Readonly<Record<Tier, number>> = {
   core: 1 * 1024 ** 3,
   stems: 16 * 1024 ** 3,
+  lyrics: 5 * 1024 ** 3,
 };

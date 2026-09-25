@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-18, after autosave and crash recovery (M1).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-25, after P6 (lyrics) is complete.** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -16,18 +16,18 @@
 |---|---|---|
 | Planning | ✅ | PROJECT.md, eight specs, decisions D1–D51 |
 | P0 — Spike | ✅ | `npm run validate` 8/8 |
-| P1 — Provisioning | 🔶 | core + stems tiers; lyrics/extras tiers, `htdemucs_ft`, offline-rebuild check still open |
+| P1 — Provisioning | 🔶 | core, stems and lyrics tiers; extras tier, `htdemucs_ft`, offline-rebuild check still open |
 | P2 — Engine | ✅ | |
 | P3 — Studio | ✅ | |
 | P4 — Library | ✅ | 16 steps, 2026-09-15 → 09-18 |
 | P5 — Export | 🔶 | most of it landed early with the render pipeline; see M34 and §3 |
-| P6 — Lyrics | 🔶 | steps 1–4 done: lyrics data (STATUS 4.50), the karaoke layer (4.51), the studio editor and tap-to-sync (4.53), the timeline track (4.54); WhisperX (M26) remains |
+| P6 — Lyrics | ✅ | five steps, 2026-09-25: STATUS 4.50–4.55 |
 | P7 — Auto-director | 🔶 | analysis, sections and classification only |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 30 done, 4 partly done, 6 not started.** By count that is about 80%; by
-effort — the not-started items include the whole lyrics phase and the auto-director's templates,
-both large — the v1 must-have work is **roughly two-thirds done**.
+**Must-haves (M1–M40): 34 done, 4 partly done, 2 not started.** By count that is about 90%; by
+effort — what remains is dominated by the auto-director (templates, generation, Surprise me), then
+operability — the v1 must-have work is **roughly four-fifths done**.
 
 ---
 
@@ -38,7 +38,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
 | M1 | Shell; new/open/save/save-as; autosave + crash recovery; versioned schema with migrations | ✅ | 4.7, 4.14, 4.49 | the autosave interval is fixed at 1 min until the settings screen (M36); auto-generate and lyrics re-align must autosave first when built |
-| M2 | One-command setup with checksums; fully offline after | 🔶 | 4.2 | lyrics/extras tiers (Whisper models), `htdemucs_ft`, an offline-rebuild check. Offline at runtime is enforced (network requests are blocked and logged, 4.14) |
+| M2 | One-command setup with checksums; fully offline after | 🔶 | 4.2, 4.55 | the lyrics tier is done (4.55); the extras tier, `htdemucs_ft`, Whisper `large-v3`, other languages' alignment models, an offline-rebuild check. Offline at runtime is enforced (network requests are blocked and logged, 4.14) |
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
 | M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | ✅ | 4.6, 4.24, 4.48 | per-stem waveform rows and stem solo in the preview are not built |
@@ -46,7 +46,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | ✅ | 4.3, 4.39, 4.47 | thirteen modes (normal, add, screen and the ten separable ones); the HSL family is not implemented and not offered |
 | M8 | Undo/redo for every mutation | ✅ | 4.15 | |
 | M27 | ML sidecar lifecycle: spawn/supervise/restart, JSON-lines, progress, cancel, health check | ✅ | 4.24, 4.48 | a health check on start-up (surfaced in a settings screen) comes with M36 |
-| M28 | Global GPU job queue: renderer / Demucs / WhisperX never contend for VRAM | ✅ | 4.48 | WhisperX joins it when M26 is built |
+| M28 | Global GPU job queue: renderer / Demucs / WhisperX never contend for VRAM | ✅ | 4.48, 4.55 | |
 
 ### Creative core
 
@@ -74,7 +74,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 | M18 | Lyrics editor: paste, `.lrc`/`.srt` import, per-line times | ✅ | 4.50, 4.53 — paste/type with markers, import and export of five formats, typed times, roles, locks, words, checklist |
 | M19 | Tap-to-sync with beat snapping, vocal-stem waveform, drag-adjust | ✅ | 4.53, 4.54 — tap-to-sync; the timeline lane with the vocal level, drag/resize/ripple/word boundaries, snapping, zoom, keyboard. Not built: marquee select, loop region |
 | M20 | Karaoke word-fill rendering | ✅ | 4.51 — seven fill modes, line window with scroll/crossfade/cut, roles, lyric modulation sources. Not built: contrast enforcement against the backdrop, gradient fills |
-| M26 | WhisperX transcription + alignment on the vocal stem | ⬜ | needs M5, M28 and the lyrics setup tier (M2) |
+| M26 | WhisperX transcription + alignment on the vocal stem | ✅ | 4.55 — English alignment; other languages' models and `large-v3` are not provisioned |
 
 ### Auto (P7)
 
@@ -128,13 +128,12 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
    time ranges and clip edges is still open.
 3. ✅ **Stems end to end (M5, M27, M28)** — done (STATUS 4.48). Per-stem waveform rows are still open.
 4. ✅ **Autosave and crash recovery (M1)** — done (STATUS 4.49).
-5. **Lyrics (P6: M18–M20, M26)** — editor, tap-to-sync, the lyrics track, karaoke word-fill (built
-   on the text engine's per-word boxes), then WhisperX once stems and the queue exist.
+5. ✅ **Lyrics (P6: M18–M20, M26)** — done (STATUS 4.50–4.55).
 6. **Auto-director (P7: M21, M22)** — templates, slot filling against the now-complete module
    library, the decision log, Surprise me with locks and history.
 7. **Operability (M33, M34, M36)** — cache screen with prune and ceiling, rotating logs and
    copy-diagnostics, the settings screen with setup/repair.
-8. **P1 remainder** — lyrics/extras tiers, `htdemucs_ft`, an offline-rebuild check.
+8. **P1 remainder** — extras tier, `htdemucs_ft`, Whisper `large-v3`, alignment models for more languages, an offline-rebuild check.
 9. **P8** — keyframes (needs a short spec first), masking, motion blur, 6-stem model, and the rest
    of the Should-haves.
 
@@ -150,6 +149,8 @@ it was made; they are collected here so none is a surprise.
 | Drop-in modules are **declarative only** (JSON + GLSL); no JavaScript from `modules/` runs | module-spec §12 describes plugins as "code", trust model "none" | keeps the renderer sandboxed and the IPC surface unchanged, and makes drop-ins deterministic by construction; built-ins cover what shaders cannot | STATUS 4.42, `docs/module-authoring.md` §7 |
 | Depth of field is an **engine effect gated by `needsDepth`**, not Three's post-processing | compositor-spec §7.2 says the same; §7.3's "depth as a second output" is implemented as `LayerDepth` on the effect context | one post path for 2D and 3D | STATUS 4.43 |
 | Lyric **styling lives on the lyrics layer**, not in the lyrics document | lyrics-spec §1 sketches style/karaoke/layout inside `LyricsDocument`; §7 and §13 require schema-declared params of a text-kind module | only as layer params are they modulatable, per-aspect overridable and in presets; a project can show lead and backing lines on two differently styled layers. Per-line overrides (D38) stay on the line | STATUS 4.50 |
+| **CTranslate2 4.8.2 overrides WhisperX's `<4.5` pin**, and the `nvidia-cublas-cu12` wheel is added | PROJECT.md §3 "official WhisperX" | the pinned CTranslate2 needs cuDNN 8, which cannot sit beside the pinned torch CUDA 13 build; 4.8.2 is API-compatible (faster-whisper allows `<5`) and needs CUDA 12's cuBLAS, which the wheel provides | STATUS 4.55 |
+| Transcription uses **faster-whisper with its bundled Silero VAD**, not `whisperx.load_model` | "WhisperX transcription + alignment" (M26) | WhisperX's VAD front-end imports pyannote.audio 3.x, broken on the torchaudio that matches the pinned torch; the forced alignment is WhisperX's own (`whisperx.alignment`) | STATUS 4.55 |
 | Preset **thumbnails use a fixed reference track**, not the loaded song | D45 ("live preview-with-my-audio later") | a thumbnail is then a property of the preset alone, so it caches and matches across machines | STATUS 4.44 |
 | User presets live in **Documents/Pulseforge/Presets**, built-ins in the repo, thumbnails in `cache/` | data-formats §3 names "known folders" without fixing them | user work beside the asset library, in the user's backups; caches rebuildable | STATUS 4.44 |
 | The 3D field of view applies to the frame's **short side** | not specified | a 9:16 cut shows the same subject as the 16:9 one | STATUS 4.43 |
@@ -161,7 +162,7 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 978 tests — unit tests, and GPU tests that render through Electron |
+| `npm run check` | typecheck, lint (including the engine boundary) and 1002 tests — unit tests, and GPU tests that render through Electron |
 | `npm run golden` | 29 reference frames (bars, layered, 3D scenes, lyrics at 16:9, 9:16, 1:1) are byte-identical |
 | `npm run dev -- --smoke` | 22 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |

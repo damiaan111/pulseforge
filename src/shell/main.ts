@@ -26,7 +26,9 @@ import { existsSync, watch } from 'node:fs';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
+import { WAV2VEC2_EN } from '../../setup/manifest.ts';
+import { ALIGN_LANGUAGES, LyricsNeedStemsError, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
@@ -37,7 +39,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -423,6 +425,7 @@ function registerHandlers(): void {
   // Stems (M5): Demucs through the supervised sidecar (M27), taking its turn on the GPU (M28).
   // One separation at a time; a second request while one runs is refused rather than queued twice.
   let stemsController: AbortController | null = null;
+  let lyricsAlignController: AbortController | null = null;
   ipcMain.handle(IPC.stemsSeparate, async (event, path: unknown, rawSettings: unknown) => {
     if (typeof path !== 'string') throw new Error('separateStems needs a path');
     const settings = parseProjectAnalysisSettings(rawSettings);
@@ -520,6 +523,70 @@ function registerHandlers(): void {
     await writeFile(result.filePath, text, 'utf8');
     return result.filePath;
   });
+  // Lyrics alignment (M26): WhisperX on the vocal stem, through the GPU queue like stems.
+  const lyricsFiles = () => ({
+    whisperDir: join(MODELS, 'whisper', 'faster-whisper-medium'),
+    alignDir: join(MODELS, 'align'),
+    marker: join(VENDOR, 'python', '.pulseforge-lyrics-env.json'),
+  });
+  const lyricsMissing = (): string | null => {
+    const files = lyricsFiles();
+    const missing = [PYTHON_EXE, files.marker, join(files.whisperDir, 'model.bin'), join(files.alignDir, WAV2VEC2_EN.fileName)].filter((p) => !existsSync(p));
+    return missing.length === 0 ? null : `Alignment needs the lyrics part of setup, which is not installed here. Run \`npm run setup -- --tier lyrics\` (about 2.7 GB) and restart the studio.`;
+  };
+  ipcMain.handle(IPC.lyricsAlignAvailable, async () => {
+    const reason = lyricsMissing();
+    return { available: reason === null, languages: ALIGN_LANGUAGES, reason };
+  });
+  ipcMain.handle(IPC.lyricsAlign, async (event, raw: unknown) => {
+    const request = raw as Partial<LyricsAlignRequest>;
+    if (typeof request.audioPath !== 'string' || (request.mode !== 'align' && request.mode !== 'transcribe') || !Array.isArray(request.lines)
+      || typeof request.language !== 'string' || typeof request.placement !== 'object' || request.placement === null) {
+      throw new Error('alignLyrics needs an audio path, a mode, a language, the lines and the placement');
+    }
+    const missing = lyricsMissing();
+    if (missing !== null) throw new Error(missing);
+    if (lyricsAlignController !== null) throw new Error('An alignment is already running.');
+    const settings = parseProjectAnalysisSettings(request.settings);
+    const controller = new AbortController();
+    lyricsAlignController = controller;
+    const send = (progress: LyricsAlignProgress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC.lyricsAlignProgress, progress);
+    };
+    send({ stage: 'decoding', fraction: 0 });
+    try {
+      const files = lyricsFiles();
+      const lines = request.lines.filter((l): l is { id: string; text: string } => typeof l?.id === 'string' && typeof l?.text === 'string');
+      const result = await gpuQueue.run('ml', `Lyrics: ${basename(request.audioPath)}`, () => alignLyrics({
+        ffmpegExe: FFMPEG_EXE,
+        sidecar: sidecar(),
+        stemsRoot: join(ROOT, 'cache', 'stems'),
+        stemModel: settings.stemModel,
+        audioPath: request.audioPath as string,
+        whisperDir: files.whisperDir,
+        alignDir: files.alignDir,
+        language: request.language as string,
+        mode: request.mode as 'align' | 'transcribe',
+        lines,
+        placement: { leadInTicks: Number(request.placement?.leadInTicks) || 0, clipInTicks: Number(request.placement?.clipInTicks) || 0 },
+        ...(Array.isArray(request.vocalSegments) ? { vocalSegments: request.vocalSegments } : {}),
+        signal: controller.signal,
+        onProgress: send,
+      }), controller.signal);
+      return { status: 'ok' as const, result };
+    } catch (error) {
+      if (error instanceof LyricsNeedStemsError) return { status: 'needs-stems' as const, message: error.message };
+      throw error instanceof GpuJobCancelledError || controller.signal.aborted
+        ? new Error('Alignment was cancelled.')
+        : describe(error);
+    } finally {
+      lyricsAlignController = null;
+    }
+  });
+  ipcMain.handle(IPC.lyricsAlignCancel, async (): Promise<void> => {
+    lyricsAlignController?.abort();
+  });
+
   ipcMain.handle(IPC.recoveryClear, async (): Promise<void> => {
     await recoveryStore().clear(recoverySessionId);
   });
@@ -1368,6 +1435,9 @@ app.whenReady().then(async () => {
           await pause(80);
           click('#app [data-action="lyrics-tab-lines"]');
           const listed = await waitFor(() => document.querySelectorAll('#app [data-testid="lyric-lines"] .lyric-line').length === 3, 40);
+          // Alignment (M26) is offered, idle, and — with no track loaded — not pressable.
+          const alignOffered = document.querySelector('#app [data-testid="align-controls"]')?.getAttribute('data-state') === 'idle'
+            && (document.querySelector('#app [data-action="align-lyrics"]')?.disabled ?? true) === true;
           const marker = document.querySelector('#app [data-testid="lyric-lines"] .lyric-marker')?.textContent === 'Verse';
           click('#app [data-action="lyrics-tab-checks"]');
           const untimed = await waitFor(() => document.querySelector('#app [data-check="untimed"]') !== null, 40);
@@ -1433,12 +1503,34 @@ app.whenReady().then(async () => {
           const steps = {
             listed: listed === true, marker, untimed: untimed === true, layerAdded: layerAdded === true, overlay: overlay !== null && overlay !== false,
             timedAll: timedAll === true, undone: undone === true, closed: closed === true,
-            typed, dragged: dragged === true, nudged: nudged === true, drawerClosed: document.querySelector('#app [data-testid="lyrics-drawer"]') === null,
+            typed, dragged: dragged === true, nudged: nudged === true, alignOffered, drawerClosed: document.querySelector('#app [data-testid="lyrics-drawer"]') === null,
           };
           lyricsUi = Object.values(steps).every(Boolean);
           // Which step, when it fails: the console reaches the smoke log.
           if (!lyricsUi) console.error('[smoke] lyricsUi steps ' + JSON.stringify(steps));
         }
+      }
+
+      // WhisperX from the studio (M26), opt-in (PULSEFORGE_SMOKE_ALIGN=1): needs a project with a
+      // track, its stems and lyrics text. Presses Align in the real window and waits for the GPU
+      // job; the lines must come back timed, word by word, through the command stack.
+      let alignLive;
+      if (${process.env['PULSEFORGE_SMOKE_ALIGN'] === '1' ? 'true' : 'false'}) {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        window.confirm = () => true;
+        click('#app header [data-action="lyrics-drawer"]');
+        await new Promise((done) => setTimeout(done, 100));
+        click('#app [data-action="align-lyrics"]');
+        const started = await waitFor(() => document.querySelector('#app [data-testid="align-controls"]')?.getAttribute('data-state') === 'running', 100);
+        const finished = await waitFor(() => document.querySelector('#app [data-testid="align-controls"]')?.getAttribute('data-state') === 'idle', 6000);
+        click('#app [data-action="lyrics-tab-lines"]');
+        await new Promise((done) => setTimeout(done, 100));
+        const rows = [...document.querySelectorAll('#app [data-testid="lyric-lines"] .lyric-line')];
+        const timed = rows.filter((row) => row.getAttribute('data-timed') === 'yes').length;
+        const toast = document.querySelector('#app .toast')?.textContent ?? '';
+        console.error('[smoke] alignLive ' + JSON.stringify({ started, finished, rows: rows.length, timed, toast: toast.slice(0, 300) }));
+        alignLive = started === true && finished === true && timed > 0 && /Aligned \\d+ line/.test(toast);
+        click('#app header [data-action="lyrics-drawer"]');
       }
 
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
@@ -1488,6 +1580,7 @@ app.whenReady().then(async () => {
         layerEditing,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
+        ...(alignLive === undefined ? {} : { alignLive }),
         exportDialog,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
