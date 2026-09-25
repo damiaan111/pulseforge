@@ -383,6 +383,9 @@ function parseSource(node: Node): SourceSpec {
     rateHz: s.num('rateHz', 1, { min: 0 }),
     phase: s.num('phase', 0),
     syncDivision: s.nullableNum('syncDivision', { min: 0 }),
+    points: s.children('points')
+      .map((p) => ({ ticks: p.ticks('ticks', 0), value: p.num('value', 0) }))
+      .sort((a, b) => a.ticks - b.ticks),
     noiseScale: s.num('noiseScale', 1, { min: 0 }),
     octaves: s.num('octaves', 1, { integer: true, min: 1, max: 8 }),
     from: s.num('from', 0),

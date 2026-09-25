@@ -266,6 +266,12 @@ export interface SourceSpec {
   readonly phase: number;
   /** `lfo`: beats per cycle, locking the rate to the grid instead of to `rateHz`. */
   readonly syncDivision: number | null;
+  /**
+   * `curve`: timeline ticks → value, sorted; empty for every other source. What the auto-director's
+   * arranger writes for section intensity and drop impulses (auto-director-spec §6) — an ordinary
+   * binding, editable like any other, standing in for keyframes until those exist (S1).
+   */
+  readonly points: readonly { readonly ticks: number; readonly value: number }[];
   /** `noise`: cycles per second of the underlying value noise, and how many octaves. */
   readonly noiseScale: number;
   readonly octaves: number;

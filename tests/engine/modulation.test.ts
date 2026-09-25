@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ANALYSIS_RATE, type AnalysisSet, type AnalysisTrack } from '../../src/engine/core/analysis.ts';
 import {
-  applyCurve, bindingLevels, compileModulation, modulateValue, smoothEnvelope, valueNoise,
+  applyCurve, bindingLevels, compileModulation, modulateValue, sampleCurve, smoothEnvelope, valueNoise,
   type ModulationBinding, type ModulationSource,
 } from '../../src/engine/core/modulation.ts';
 import { resolveParams, type ParamSpec } from '../../src/engine/core/params.ts';
@@ -455,5 +455,36 @@ describe('audio sources follow the clip, not the timeline (PROJECT.md §8.10)', 
     expect(modulateValue(program, TARGET, 0, 0.5)).toBe(0);
     // Timeline 2.6 s would be 2.1 s into the file — loud there, but past the clip's out-point.
     expect(modulateValue(program, TARGET, 0, 2.6)).toBe(0);
+  });
+});
+
+describe("the curve source (the auto-director's arrangement, standing in for keyframes)", () => {
+  const S = 48_000;
+  const points = [{ ticks: 1 * S, value: 0.2 }, { ticks: 2 * S, value: 1 }, { ticks: 3 * S, value: 0 }];
+
+  it('is linear between points and flat outside them', () => {
+    expect(sampleCurve(points, 0)).toBe(0.2);
+    expect(sampleCurve(points, 1.5)).toBeCloseTo(0.6, 9);
+    expect(sampleCurve(points, 2.5)).toBeCloseTo(0.5, 9);
+    expect(sampleCurve(points, 3.9)).toBe(0);
+    expect(sampleCurve([], 1)).toBe(0);
+  });
+
+  it('a step (two points on one tick) jumps rather than dividing by zero', () => {
+    const step = [{ ticks: S, value: 0 }, { ticks: S, value: 1 }, { ticks: 2 * S, value: 1 }];
+    expect(sampleCurve(step, 0.999)).toBe(0);
+    expect(sampleCurve(step, 1.5)).toBe(1);
+  });
+
+  it('drives a binding without any analysis, and inputRange auto leaves it alone', () => {
+    const program = compile([binding({ source: source({ type: 'curve', points }), inputRange: 'auto' })], EMPTY_ANALYSIS);
+    expect(program.issues).toEqual([]);
+    expect(modulateValue(program, TARGET, 0, 1.5)).toBeCloseTo(0.6, 6);
+  });
+
+  it('a curve with no points is reported and kept, not guessed at', () => {
+    const program = compile([binding({ source: source({ type: 'curve', points: [] }) })], EMPTY_ANALYSIS);
+    expect(program.issues.map((i) => i.bindingId)).toEqual(['B1']);
+    expect(modulateValue(program, TARGET, 0.3, 1)).toBe(0.3);
   });
 });

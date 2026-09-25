@@ -1,3 +1,4 @@
+import { GLOBAL_OWNER } from '../../src/project/commands.ts';
 // Making and describing bindings in the studio (M13, modulation-spec §10–§11).
 
 import { describe, expect, it } from 'vitest';
@@ -106,7 +107,9 @@ describe('reading bindings back', () => {
   it('parses both kinds of target path', () => {
     expect(parseTarget(layerParamTarget(L1, 'glow'))).toEqual({ layerId: L1, effectId: null, key: 'glow' });
     expect(parseTarget(effectParamTarget(L1, E1, 'intensity'))).toEqual({ layerId: L1, effectId: E1, key: 'intensity' });
-    expect(parseTarget('global.effects.x.params.y')).toBeUndefined();
+    expect(parseTarget('global.effects.x.params.y')).toEqual({ layerId: GLOBAL_OWNER, effectId: 'x', key: 'y' });
+    expect(effectParamTarget(GLOBAL_OWNER, 'x', 'y')).toBe('global.effects.x.params.y');
+    expect(parseTarget('global.params.y')).toBeUndefined();
   });
 
   it('describes targets in the UI’s words, and says why a broken one is broken', () => {

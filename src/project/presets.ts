@@ -352,7 +352,10 @@ function resolveBinding(
   } else {
     notes.push(`A modulation points outside the preset (${target}); it was kept as written and may not resolve.`);
   }
-  return { ...binding, id: bindingId, target };
+  // A preset saved before a source field existed lacks it: filled with its default, so the binding
+  // is as complete as one parsed from a project.
+  const source = { ...binding.source, points: binding.source.points ?? [] };
+  return { ...binding, source, id: bindingId, target };
 }
 
 /** Capture the whole project: palette, every top-level module layer, and the global chain. */

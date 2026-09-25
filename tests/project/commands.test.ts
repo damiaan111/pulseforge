@@ -363,3 +363,18 @@ describe('applying presets (S8)', () => {
     expect({ ...next, layers: document.layers, globalEffects: document.globalEffects, palette: document.palette }).toEqual(document);
   });
 });
+
+describe('the global effect chain is edited with the same commands as a layer chain', () => {
+  it('adds, tunes and modulates a global effect, and removing it keeps the document whole', async () => {
+    const { GLOBAL_OWNER } = await import('../../src/project/commands.ts');
+    let doc: ProjectDocument = { ...createDocument({ timestamp: '2026-09-25T00:00:00.000Z' }), layers: [bars(K1)] };
+    doc = addEffect(GLOBAL_OWNER, createEffect('core.effect.bloom', { id: E1 })).apply(doc);
+    doc = setEffectParam(GLOBAL_OWNER, E1, 'intensity', 0.4).apply(doc);
+    doc = addModulation(GLOBAL_OWNER, createBinding(`global.effects.${E1}.params.intensity`, { id: M1 })).apply(doc);
+    expect(doc.globalEffects.map((e) => e.params['intensity'])).toEqual([0.4]);
+    expect(doc.globalModulations.map((b) => b.id)).toEqual([M1]);
+    expect(doc.layers.map((l) => l.effects.length)).toEqual([0]);
+    doc = removeEffect(GLOBAL_OWNER, E1).apply(doc);
+    expect(doc.globalEffects).toEqual([]);
+  });
+});

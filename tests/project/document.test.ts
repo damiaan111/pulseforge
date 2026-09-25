@@ -258,3 +258,17 @@ describe('aspectBucket', () => {
     expect(aspectBucket(2000, 1000)).toBe('custom');
   });
 });
+
+describe('curve points round-trip', () => {
+  it('saves only a curve’s points, sorted, and reads them back', async () => {
+    const { createBinding } = await import('../../src/project/create.ts');
+    const plain = createBinding('layers.K1.params.glow', { id: 'B1' });
+    const curve = { ...plain, id: 'B2', source: { ...plain.source, type: 'curve', points: [{ ticks: 96_000, value: 1 }, { ticks: 0, value: 0.5 }] } };
+    const doc = { ...createDocument({ timestamp: '2026-09-25T00:00:00.000Z' }), globalModulations: [plain, curve] };
+    const json = JSON.parse(stringifyDocument(doc));
+    expect('points' in json.globalModulations[0].source).toBe(false);
+    const back = parseDocument(json).document;
+    expect(back.globalModulations[1]!.source.points).toEqual([{ ticks: 0, value: 0.5 }, { ticks: 96_000, value: 1 }]);
+    expect(back.globalModulations[0]!.source.points).toEqual([]);
+  });
+});

@@ -99,6 +99,7 @@ function toEngineBinding(binding: DocumentBinding): ModulationBinding {
       rateHz: source.rateHz,
       phase: source.phase,
       syncDivision: source.syncDivision,
+      ...(source.points.length > 0 ? { points: source.points } : {}),
       noiseScale: source.noiseScale,
       octaves: source.octaves,
       from: source.from,
@@ -210,7 +211,10 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     },
     layers,
     durationTicks: timelineDurationTicks(document),
-    globalModulations: document.globalModulations.map(toEngineBinding),
+    // The engine indexes bindings by target path, not by owner, and its group layers carry none:
+    // a group's bindings (on its effects, its transform) ride with the global ones rather than
+    // being dropped.
+    globalModulations: [...document.globalModulations, ...groupBindings(document.layers)].map(toEngineBinding),
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
     ...(document.lyrics.lines.length > 0 ? { lyrics: toRenderLyrics(document.lyrics) } : {}),
     // Files are not the engine's business: it gets id → hash, and the host registers the pixels.
@@ -220,6 +224,11 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
   };
 
   return { project, notes, aspect };
+}
+
+/** Every binding stored on a group layer, nested groups included, in document order. */
+function groupBindings(layers: readonly Layer[]): Layer['modulations'] {
+  return layers.flatMap((layer) => (layer.kind === 'group' ? [...layer.modulations, ...groupBindings(layer.children)] : []));
 }
 
 /**

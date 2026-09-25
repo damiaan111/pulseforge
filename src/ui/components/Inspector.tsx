@@ -12,7 +12,7 @@
 
 import type { ParamSpec } from '../../engine/core/params.ts';
 import {
-  addAsset, addEffect, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
+  GLOBAL_OWNER, addAsset, addEffect, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
   sequence, setEffectEnabled, setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTimeRange, setLayerTransform,
 } from '../../project/commands.ts';
 import { secondsToTicks, ticksToSeconds } from '../../engine/core/time.ts';
@@ -58,9 +58,14 @@ export function Inspector(): React.JSX.Element {
   const layer = selectedId === null ? undefined : findLayer(document, selectedId);
 
   if (layer === undefined) {
+    // With no layer selected, the inspector edits what applies to the whole frame: the global
+    // effect chain (compositor-spec — graded, bloomed, grained after every layer is composited),
+    // which is where the auto-director puts its POST slot. It is edited like any layer's chain.
     return (
-      <aside className="inspector">
-        <p className="empty">Select a layer to edit it.</p>
+      <aside className="inspector" data-testid="global-inspector">
+        <p className="empty">Select a layer to edit it. Below: effects on the whole frame.</p>
+        <EffectChain layerId={GLOBAL_OWNER} effects={document.globalEffects} hasDepth={false} />
+        <ModulationSection layerId={GLOBAL_OWNER} bindings={document.globalModulations} />
       </aside>
     );
   }
@@ -250,7 +255,7 @@ function EffectChain(props: { layerId: string; effects: readonly EffectSpec[]; h
   return (
     <>
       <h2>Effects</h2>
-      {effects.length === 0 ? <p className="empty">No effects on this layer.</p> : null}
+      {effects.length === 0 ? <p className="empty">{layerId === GLOBAL_OWNER ? 'No effects on the whole frame.' : 'No effects on this layer.'}</p> : null}
       {effects.map((effect, index) => {
         const manifest = MANIFESTS.get(effect.module);
         const open = openId === effect.id;

@@ -289,3 +289,19 @@ describe('groups clip and solo their children', () => {
     expect(all.find((l) => l.id === '0000000000K000000000000002')!.enabled).toBe(false);
   });
 });
+
+describe('bindings stored on groups and on the global chain', () => {
+  it('reach the engine: a binding on a group (on its effect) is not dropped', async () => {
+    const { createBinding } = await import('../../src/project/create.ts');
+    const group = createGroupLayer([createModuleLayer('core.visualizer.bars', { id: 'C1' })], { id: 'G1', name: 'Group' });
+    const effect = createEffect('core.effect.bloom', { id: 'E1' });
+    const binding = createBinding('layers.G1.effects.E1.params.intensity', { id: 'B1' });
+    const document = {
+      ...createDocument({ timestamp: '2026-09-25T00:00:00.000Z' }),
+      layers: [{ ...group, effects: [effect], modulations: [binding] }],
+    };
+    const { project } = toRenderProject(document);
+    const all = [...(project.globalModulations ?? [])];
+    expect(all.map((b) => b.id)).toContain('B1');
+  });
+});

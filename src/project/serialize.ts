@@ -110,6 +110,8 @@ function bindingJson(binding: ModulationBinding): Json {
       octaves: binding.source.octaves,
       from: binding.source.from,
       to: binding.source.to,
+      // Only a curve has points; every other binding saves exactly as before.
+      ...(binding.source.points.length > 0 ? { points: binding.source.points.map((p) => ({ ticks: p.ticks, value: p.value })) } : {}),
     }),
     inputRange: binding.inputRange === 'auto' ? 'auto' : rangeJson(binding.inputRange),
     curve: curveJson(binding.curve),

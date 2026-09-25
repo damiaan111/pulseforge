@@ -101,6 +101,24 @@ function withLayer(document: ProjectDocument, id: string, fn: (layer: Layer) => 
   return { ...document, layers };
 }
 
+/**
+ * The owner id of the project's own effect chain and its bindings (`document.globalEffects`,
+ * `globalModulations`) — the post chain over the finished composite. Effect and modulation commands
+ * take it wherever they take a layer id, so the one effect-chain editor serves both.
+ */
+export const GLOBAL_OWNER = 'global';
+
+/**
+ * Like `withLayer`, for the commands that only touch an owner's `effects` and `modulations`: a layer,
+ * or the global chain when `ownerId` is `GLOBAL_OWNER`.
+ */
+function withChainOwner(document: ProjectDocument, ownerId: string, fn: (owner: Layer) => Layer): ProjectDocument {
+  if (ownerId !== GLOBAL_OWNER) return withLayer(document, ownerId, fn);
+  // The global chain has no layer around it; the functions below read and rebuild only these two.
+  const owner = fn({ effects: document.globalEffects, modulations: document.globalModulations } as unknown as Layer);
+  return { ...document, globalEffects: owner.effects, globalModulations: owner.modulations };
+}
+
 const EMPTY_OVERRIDE: AspectOverride = { transform: {}, params: {}, extra: {} };
 
 function withOverride(layer: Layer, aspect: AspectBucket, fn: (override: AspectOverride) => AspectOverride): Layer {
@@ -499,7 +517,7 @@ function retargetBindings(layer: Layer, remap: ReadonlyMap<string, string>): Lay
 export function addEffect(layerId: string, effect: EffectSpec, index?: number): Command {
   return {
     label: 'Add effect',
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       if (layer.effects.some((e) => e.id === effect.id)) {
         throw new CommandError(`An effect with id "${effect.id}" is already on this layer`);
       }
@@ -512,7 +530,7 @@ export function addEffect(layerId: string, effect: EffectSpec, index?: number): 
 export function removeEffect(layerId: string, effectId: string): Command {
   return {
     label: 'Remove effect',
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       const effects = layer.effects.filter((e) => e.id !== effectId);
       if (effects.length === layer.effects.length) {
         throw new CommandError(`No effect with id "${effectId}" on layer "${layerId}"`);
@@ -526,7 +544,7 @@ export function removeEffect(layerId: string, effectId: string): Command {
 export function moveEffect(layerId: string, effectId: string, toIndex: number): Command {
   return {
     label: 'Reorder effect',
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       const from = layer.effects.findIndex((e) => e.id === effectId);
       if (from < 0) throw new CommandError(`No effect with id "${effectId}" on layer "${layerId}"`);
       const rest = [...layer.effects.slice(0, from), ...layer.effects.slice(from + 1)];
@@ -539,7 +557,7 @@ export function moveEffect(layerId: string, effectId: string, toIndex: number): 
 export function setEffectEnabled(layerId: string, effectId: string, enabled: boolean): Command {
   return {
     label: enabled ? 'Enable effect' : 'Bypass effect',
-    apply: (document) => withLayer(document, layerId, (layer) => ({
+    apply: (document) => withChainOwner(document, layerId, (layer) => ({
       ...layer,
       effects: layer.effects.map((e) => (e.id === effectId ? { ...e, enabled } : e)),
     })),
@@ -550,7 +568,7 @@ export function setEffectParam(layerId: string, effectId: string, key: string, v
   return {
     label: `Set ${key}`,
     mergeKey: `effectParam:${layerId}:${effectId}:${key}`,
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       if (!layer.effects.some((e) => e.id === effectId)) {
         throw new CommandError(`No effect with id "${effectId}" on layer "${layerId}"`);
       }
@@ -569,7 +587,7 @@ export function setEffectParam(layerId: string, effectId: string, key: string, v
 export function addModulation(layerId: string, binding: ModulationBinding): Command {
   return {
     label: 'Add modulation',
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       if (layer.modulations.some((b) => b.id === binding.id)) {
         throw new CommandError(`A binding with id "${binding.id}" is already on this layer`);
       }
@@ -581,7 +599,7 @@ export function addModulation(layerId: string, binding: ModulationBinding): Comm
 export function removeModulation(layerId: string, bindingId: string): Command {
   return {
     label: 'Remove modulation',
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       const modulations = layer.modulations.filter((b) => b.id !== bindingId);
       if (modulations.length === layer.modulations.length) {
         throw new CommandError(`No binding with id "${bindingId}" on layer "${layerId}"`);
@@ -601,7 +619,7 @@ export function updateModulation(
   return {
     label: keys.length === 1 ? `Set ${keys[0]}` : 'Edit modulation',
     mergeKey: `binding:${layerId}:${bindingId}:${keys.sort().join(',')}`,
-    apply: (document) => withLayer(document, layerId, (layer) => {
+    apply: (document) => withChainOwner(document, layerId, (layer) => {
       if (!layer.modulations.some((b) => b.id === bindingId)) {
         throw new CommandError(`No binding with id "${bindingId}" on layer "${layerId}"`);
       }

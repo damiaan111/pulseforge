@@ -187,6 +187,7 @@ export function createBinding(target: string, options: CreateBindingOptions = {}
       rateHz: 1,
       phase: 0,
       syncDivision: null,
+      points: [],
       noiseScale: 1,
       octaves: 1,
       from: 0,

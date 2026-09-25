@@ -17,7 +17,7 @@ import { useMemo, useState } from 'react';
 
 import type { ParamSpec } from '../../engine/core/params.ts';
 import { KNOWN_CURVES } from '../../engine/core/modulation.ts';
-import { addModulation, removeModulation, sequence, updateModulation } from '../../project/commands.ts';
+import { GLOBAL_OWNER, addModulation, removeModulation, sequence, updateModulation } from '../../project/commands.ts';
 import type { ModulationBinding } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import {
@@ -451,7 +451,7 @@ export function ModulationMatrix(): React.JSX.Element | null {
                     ownerId={row.ownerId}
                     binding={row.binding}
                     info={row.info}
-                    onJump={() => { select(row.ownerId); setOpenBinding(row.binding.id); }}
+                    onJump={() => { select(row.ownerId === GLOBAL_OWNER ? null : row.ownerId); setOpenBinding(row.binding.id); }}
                     {...(sameTarget.length > 1 ? {
                       reorder: {
                         up: before === undefined ? null : swap(row, before),

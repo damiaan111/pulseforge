@@ -113,6 +113,19 @@ export function LeftRail(): React.JSX.Element {
       <ModulesPanel />
 
       <h2>Layers</h2>
+      {/* The whole frame sits above every layer: its effects run after they are composited. Selecting
+          it (or nothing) shows the global effect chain in the inspector. */}
+      <button
+        type="button"
+        className={`frame-row${selectedLayerId === null ? ' selected' : ''}`}
+        data-action="select-whole-frame"
+        onClick={() => select(null)}
+      >
+        <span className="layer-name">
+          <span className="name">Whole frame</span>
+          <span className="meta">{document.globalEffects.length === 0 ? 'no effects' : `${document.globalEffects.length} effect${document.globalEffects.length === 1 ? '' : 's'}`}</span>
+        </span>
+      </button>
       {layers.length === 0 ? (
         <p className="empty">No layers yet.</p>
       ) : (

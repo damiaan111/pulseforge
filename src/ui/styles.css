@@ -171,6 +171,10 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .layer-name .meta { color: var(--text-dim); font-size: 11px; }
 .eye { background: none; border: none; padding: 0 8px; }
 .layer-actions { display: flex; gap: 4px; margin-top: 8px; }
+/* "Whole frame": looks like a layer row, but is not one (it selects the global effect chain). */
+.frame-row { display: flex; width: 100%; padding: 0; margin-bottom: 2px; border: 1px solid transparent; border-radius: var(--radius); background: none; color: inherit; font: inherit; cursor: pointer; }
+.frame-row:hover { background: var(--panel); }
+.frame-row.selected { border-color: var(--accent); background: var(--panel); }
 
 /* --- canvas -------------------------------------------------------------- */
 

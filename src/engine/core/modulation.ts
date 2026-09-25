@@ -56,6 +56,37 @@ export interface ModulationSource {
   /** `ramp`: the value at t=0 and at the end of the track. */
   readonly from?: number;
   readonly to?: number;
+  /**
+   * `curve`: a piecewise-linear value over the timeline, in timeline ticks, sorted — the
+   * auto-director's section intensity and drop impulses (auto-director-spec §6). Held flat before
+   * the first point and after the last.
+   */
+  readonly points?: readonly CurvePoint[];
+}
+
+export interface CurvePoint {
+  readonly ticks: number;
+  readonly value: number;
+}
+
+/** A `curve` source at `t` seconds: linear between points, flat outside them. Pure. */
+export function sampleCurve(points: readonly CurvePoint[], t: number): number {
+  if (points.length === 0) return 0;
+  const ticks = t * TICKS_PER_SECOND;
+  const first = points[0] as CurvePoint;
+  if (ticks <= first.ticks) return first.value;
+  let lo = 0;
+  let hi = points.length - 1;
+  if (ticks >= (points[hi] as CurvePoint).ticks) return (points[hi] as CurvePoint).value;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if ((points[mid] as CurvePoint).ticks <= ticks) lo = mid;
+    else hi = mid;
+  }
+  const a = points[lo] as CurvePoint;
+  const b = points[hi] as CurvePoint;
+  const span = b.ticks - a.ticks;
+  return span <= 0 ? b.value : a.value + ((b.value - a.value) * (ticks - a.ticks)) / span;
 }
 
 export interface CurveSpec {
@@ -265,7 +296,7 @@ export interface ModulationProgram {
 const GENERATORS = new Set(['lfo', 'ramp', 'progress', 'noise']);
 
 /** Sources that are 0..1 by definition, so `inputRange: 'auto'` leaves them alone. */
-const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive']);
+const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive', 'curve']);
 
 /** Built once per compile and shared by every lyric binding: the signals scan the lines. */
 const lyricSignalCache = new WeakMap<RenderLyrics, ReturnType<typeof lyricSignals>>();
@@ -359,6 +390,11 @@ function rawSampler(
       return (t) => lfo(source, seed, binding.id, t);
     case 'noise':
       return (t) => valueNoise(seed, binding.id, t * (source.noiseScale ?? 1), source.octaves ?? 1);
+    case 'curve': {
+      const points = source.points ?? [];
+      if (points.length === 0) return { error: 'unsupported', detail: 'the curve has no points; the binding is kept and inactive' };
+      return (t) => sampleCurve(points, t);
+    }
     case 'rms':
     case 'peak':
     case 'onset':
@@ -451,6 +487,8 @@ function derivedKey(binding: ModulationBinding, range: ModulationRange): string 
   return JSON.stringify([
     s.type, s.stem, s.band ?? null, s.shape ?? null, s.rateHz ?? null, s.phase ?? null,
     s.noiseScale ?? null, s.octaves ?? null, s.from ?? null, s.to ?? null,
+    // Two curves with different points are different signals, whatever else they share.
+    s.points === undefined ? null : s.points.map((p) => [p.ticks, p.value]),
     range.min, range.max, binding.curve.type, binding.curve.amount,
     binding.envelope.attackMs, binding.envelope.releaseMs, binding.envelope.mode,
     binding.lookAheadMs,

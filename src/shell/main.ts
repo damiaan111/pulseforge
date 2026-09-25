@@ -1533,6 +1533,28 @@ app.whenReady().then(async () => {
         click('#app header [data-action="lyrics-drawer"]');
       }
 
+      // The whole-frame chain (P7 prerequisite): "Whole frame" in the layer list shows the global
+      // effect chain in the inspector; adding an effect there lands in the document's global chain
+      // (the row's count says so) and is one undo step.
+      let globalChain = false;
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        click('#app [data-action="select-whole-frame"]');
+        const shown = await waitFor(() => document.querySelector('#app [data-testid="global-inspector"]'), 40);
+        const picker = document.querySelector('#app [data-testid="global-inspector"] select[data-action="add-effect"]');
+        if (shown !== null && shown !== false && picker !== null) {
+          const setValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+          setValue.call(picker, 'core.effect.vignette');
+          picker.dispatchEvent(new Event('change', { bubbles: true }));
+          const added = await waitFor(() => document.querySelectorAll('#app [data-testid="global-inspector"] .effect').length === 1, 40);
+          const counted = (document.querySelector('#app [data-action="select-whole-frame"]')?.textContent ?? '').includes('1 effect');
+          click('#app header button[data-action="undo"]');
+          const undone = await waitFor(() => document.querySelectorAll('#app [data-testid="global-inspector"] .effect').length === 0, 40);
+          globalChain = added === true && counted && undone === true;
+          if (!globalChain) console.error('[smoke] globalChain ' + JSON.stringify({ added, counted, undone }));
+        }
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1578,6 +1600,7 @@ app.whenReady().then(async () => {
         presetSave,
         modulationUi,
         layerEditing,
+        globalChain,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),

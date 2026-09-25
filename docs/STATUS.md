@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1002 tests, `npm run golden` 29/29 identical,
-> `--smoke` 22/22.
+> any aspect. Last full verification: `npm run check` 1009 tests, `npm run golden` 29/29 identical,
+> `--smoke` 23/23.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -94,6 +94,8 @@
 | 4.53 | Lyrics in the studio (P6 step 3) — M18, M19 tap-to-sync, D33 |
 | 4.54 | The lyrics timeline track (P6 step 4) — M19, lyrics-spec §5, ui-spec §3 |
 | 4.55 | WhisperX transcription and alignment (P6 step 5) — M26, the lyrics setup tier |
+| | **Auto-director (P7)** |
+| 4.56 | Groundwork: the curve source, the whole-frame chain, group bindings fix (P7 step 1) |
 
 ---
 
@@ -2658,6 +2660,53 @@ smoke's `stemsUi`), 2:48:
 **Not done:** alignment models for other languages (wav2vec2 per language, PROJECT.md §3); Whisper
 `large-v3` as the quality option (D8, "one click away"); a soft-subtitle track in exports
 (lyrics-spec §10); manual syllable splitting (D36, Should).
+
+### 4.56 Groundwork for the auto-director (P7 step 1) — curve source, whole-frame chain, a silent drop fixed
+
+Three things the director needs before it can write a project that stays editable.
+
+**The `curve` modulation source (`src/engine/core/modulation.ts`).**
+- A piecewise-linear value over the timeline: `source.points` is a sorted list of `{ ticks, value }`
+  in timeline ticks. Linear between points, flat before the first and after the last. Two points on
+  one tick make a step, not a division by zero. `sampleCurve(points, t)` is pure (binary search).
+- The arranger uses it for **section intensity** and **drop impulses** (auto-director-spec §6). The
+  spec expects keyframes there, and keyframes (S1) do not exist yet. A curve is an ordinary binding,
+  editable, removable and listed in the matrix. This is recorded as a deviation in ROADMAP §4.
+- It is 0..1 by construction, so `inputRange: 'auto'` leaves it alone. A curve with no points is
+  reported as an issue and kept, not guessed at.
+- In the document it is `SourceSpec.points`, which is empty for every other source. It is saved only
+  when non-empty, so no existing file changes. Parsing sorts it. Presets without the field are
+  normalised.
+- It is offered as "Curve" in the binding editor's source list. There is no point editor yet: a
+  curve is authored by the director, and its points are visible through save and load.
+
+**The whole-frame (global) effect chain in the studio.**
+- The engine has always run `globalEffects` after compositing, with `global.effects.<id>.params.<key>`
+  as the binding target. Until now it had no UI. The director's POST slot goes there, so it has to be
+  editable.
+- `GLOBAL_OWNER = 'global'` in `commands.ts`. The eight effect and modulation commands (add, remove,
+  move, enable, set a param, add, remove or update a binding) accept it as an owner and edit
+  `document.globalEffects` and `globalModulations`. The same commands, the same undo.
+- Modulation authoring understands the path: `parseTarget`, `effectParamTarget`, `describeTarget`
+  ("Global › Bloom › Intensity") and `allBindings` (the matrix lists global bindings; its → jump
+  opens the whole-frame inspector).
+- **"Whole frame"** sits at the top of the layer list, above every layer, because its effects run
+  after all of them. Selecting it, or selecting nothing, shows the global effect chain and its
+  modulation in the inspector. The row counts its effects.
+
+**Fixed: bindings stored on a group were silently dropped.** `toRenderProject` passed module-layer
+bindings to the engine, but the engine's group spec carries none. A binding on a group's own effect
+or transform was saved, shown and never evaluated. Bindings are indexed by target path, not owner,
+so the snapshot now carries every group's bindings (nested ones included) with the global ones.
+This is a regression test in `tests/project/snapshot.test.ts`.
+
+**Verified here:**
+- `npm run check`: **1009 tests**. New: the curve's sampling, steps, `auto` range and empty-curve
+  issue; a curve saving, sorting and loading; the global chain through the ordinary commands;
+  global target paths; group bindings reaching the engine.
+- `npm run golden` 29/29 identical.
+- `--smoke` **23/23**. New `globalChain`: Whole frame → the global inspector, add Vignette there, the
+  row says "1 effect", undo removes it.
 
 ---
 

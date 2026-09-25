@@ -80,7 +80,7 @@ operability — the v1 must-have work is **roughly four-fifths done**.
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M21 | Auto-director: complete editable project from a track | 🔶 | 4.21, 4.26 | section detection and classification exist; **templates, slot filling, generation, decision log, the Auto panel** |
+| M21 | Auto-director: complete editable project from a track | 🔶 | 4.21, 4.26, 4.56 | section detection, classification, the curve source and the whole-frame chain exist; **templates, slot filling, generation, decision log, the Auto panel** |
 | M22 | Surprise me: seeded reroll, per-aspect locks, history strip | ⬜ | — | the seed and a reroll command exist; the rest follows M21 |
 
 ### Output
@@ -154,6 +154,7 @@ it was made; they are collected here so none is a surprise.
 | Preset **thumbnails use a fixed reference track**, not the loaded song | D45 ("live preview-with-my-audio later") | a thumbnail is then a property of the preset alone, so it caches and matches across machines | STATUS 4.44 |
 | User presets live in **Documents/Pulseforge/Presets**, built-ins in the repo, thumbnails in `cache/` | data-formats §3 names "known folders" without fixing them | user work beside the asset library, in the user's backups; caches rebuildable | STATUS 4.44 |
 | The 3D field of view applies to the frame's **short side** | not specified | a 9:16 cut shows the same subject as the 16:9 one | STATUS 4.43 |
+| Arrangement (section intensity, drop impulses) is a **`curve` modulation source**, not keyframes | auto-director-spec §6 speaks of keyframed intensity | keyframes (S1) are unbuilt and need their own spec; a curve binding is deterministic, editable, listed in the matrix, and can be converted to keyframes when they exist | STATUS 4.56 |
 | The analysis cache key **includes band names** | data-formats §4.3: a band rename should keep the cache | cached tracks are stored by name, so a rename that hit the cache would silently disable every binding on the band; a rename now costs one re-analysis | STATUS 4.45 |
 
 ---

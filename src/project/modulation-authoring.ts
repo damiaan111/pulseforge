@@ -14,6 +14,7 @@ import type { ParamSpec } from '../engine/core/params.ts';
 import { createBinding } from './create.ts';
 import type { Layer, ModulationBinding, ProjectDocument } from './document.ts';
 import { walkLayers } from './document.ts';
+import { GLOBAL_OWNER } from './commands.ts';
 
 /** A source the studio offers, with the words it is offered in (modulation-spec §2). */
 export interface SourceChoice {
@@ -36,6 +37,7 @@ export const SOURCE_CHOICES: readonly SourceChoice[] = [
   { type: 'noise', label: 'Drift', hint: 'Smooth seeded random wandering.', audio: false },
   { type: 'ramp', label: 'Ramp', hint: 'From one value to another over the whole track.', audio: false },
   { type: 'progress', label: 'Progress', hint: 'Zero at the start of the track, one at the end.', audio: false },
+  { type: 'curve', label: 'Curve', hint: 'A shape over the timeline — how the auto-director gives each section its intensity and each drop its kick.', audio: false },
   { type: 'lyricActive', label: 'Singing', hint: 'One while a lyric line is being sung, zero between lines (needs timed lyrics).', audio: false },
   { type: 'lineProgress', label: 'Line progress', hint: 'Zero to one through the line being sung (needs timed lyrics).', audio: false },
   { type: 'wordActive', label: 'Words', hint: 'A short pulse on every sung word — karaoke-synced accents (needs timed lyrics).', audio: false },
@@ -214,6 +216,7 @@ export const RECIPES: readonly Recipe[] = [
 // ---------------------------------------------------------------------------
 
 export interface TargetPath {
+  /** A layer id, or GLOBAL_OWNER for the project's global effect chain. */
   readonly layerId: string;
   /** Set for a parameter of an effect in the layer's chain. */
   readonly effectId: string | null;
@@ -221,6 +224,8 @@ export interface TargetPath {
 }
 
 export function parseTarget(target: string): TargetPath | undefined {
+  const global = /^global\.effects\.([^.]+)\.params\.(.+)$/.exec(target);
+  if (global !== null) return { layerId: GLOBAL_OWNER, effectId: global[1]!, key: global[2]! };
   const effect = /^layers\.([^.]+)\.effects\.([^.]+)\.params\.(.+)$/.exec(target);
   if (effect !== null) return { layerId: effect[1]!, effectId: effect[2]!, key: effect[3]! };
   const param = /^layers\.([^.]+)\.params\.(.+)$/.exec(target);
@@ -233,6 +238,7 @@ export function layerParamTarget(layerId: string, key: string): string {
 }
 
 export function effectParamTarget(layerId: string, effectId: string, key: string): string {
+  if (layerId === GLOBAL_OWNER) return `global.effects.${effectId}.params.${key}`;
   return `layers.${layerId}.effects.${effectId}.params.${key}`;
 }
 
@@ -251,7 +257,10 @@ export interface TargetInfo {
 export function describeTarget(document: ProjectDocument, target: string, schemas: SchemaLookup): TargetInfo {
   const path = parseTarget(target);
   if (path === undefined) return { label: target, spec: undefined, problem: 'not a parameter path this build understands' };
-  const layer = findAnyLayer(document.layers, path.layerId);
+  // The global chain reads like a layer with effects and nothing else.
+  const layer = path.layerId === GLOBAL_OWNER
+    ? ({ kind: 'group', name: 'Global', effects: document.globalEffects } as unknown as Layer)
+    : findAnyLayer(document.layers, path.layerId);
   if (layer === undefined) return { label: target, spec: undefined, problem: 'its layer no longer exists' };
   const layerName = layer.name === '' ? '(unnamed)' : layer.name;
   if (path.effectId === null) {
@@ -287,6 +296,7 @@ export function allBindings(document: ProjectDocument): { readonly ownerId: stri
   for (const { layer } of walkLayers(document.layers)) {
     for (const binding of layer.modulations) rows.push({ ownerId: layer.id, binding });
   }
+  for (const binding of document.globalModulations) rows.push({ ownerId: GLOBAL_OWNER, binding });
   return rows;
 }
 
