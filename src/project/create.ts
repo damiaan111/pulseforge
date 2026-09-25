@@ -7,7 +7,7 @@
 
 import {
   CURRENT_SCHEMA_VERSION, DEFAULT_CURVE, DEFAULT_ENVELOPE, DEFAULT_LOOK_AHEAD_MS,
-  FULL_TIME_RANGE, IDENTITY_TRANSFORM,
+  EMPTY_LYRICS, FULL_TIME_RANGE, IDENTITY_TRANSFORM,
   type AnalysisSettings, type AudioSettings, type CanvasSettings, type EffectSpec,
   type GroupLayer, type ModulationBinding, type ModuleLayer, type Palette,
   type ProjectDocument,
@@ -88,6 +88,7 @@ export function createDocument(options: CreateDocumentOptions = {}): ProjectDocu
     layers: [],
     globalEffects: [],
     globalModulations: [],
+    lyrics: EMPTY_LYRICS,
     extra: {},
   };
 }

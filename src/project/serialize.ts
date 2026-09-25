@@ -17,7 +17,7 @@
 // integer will move to the front of its node. It round-trips correctly; only its position moves.
 
 import type {
-  AspectOverride, CurveSpec, EffectSpec, EnvelopeSpec, Extra, Layer, ModulationBinding,
+  AspectOverride, CurveSpec, EffectSpec, EnvelopeSpec, Extra, Layer, Lyrics, ModulationBinding,
   ProjectDocument, QuantiseSpec, Range, TimeRange, Transform,
 } from './document.ts';
 
@@ -169,6 +169,43 @@ function layerJson(layer: Layer): Json {
   });
 }
 
+/** Whether the lyrics differ from a new project's — only then are they written (see toJson). */
+function hasLyrics(lyrics: Lyrics): boolean {
+  return lyrics.lines.length > 0 || lyrics.sections.length > 0 || lyrics.language !== 'en'
+    || lyrics.source !== 'manual' || Object.keys(lyrics.extra).length > 0;
+}
+
+function lyricsJson(lyrics: Lyrics): Json {
+  return withExtra(lyrics.extra, {
+    language: lyrics.language,
+    source: lyrics.source,
+    lines: lyrics.lines.map((line) => withExtra(line.extra, {
+      id: line.id,
+      text: line.text,
+      startTicks: line.startTicks,
+      endTicks: line.endTicks,
+      role: line.role,
+      locked: line.locked,
+      confidence: line.confidence,
+      style: line.style === null ? null : withExtra(line.style.extra, {
+        scale: line.style.scale,
+        opacity: line.style.opacity,
+        offsetX: line.style.offsetX,
+        offsetY: line.style.offsetY,
+        color: line.style.color,
+      }),
+      words: line.words.map((word) => withExtra(word.extra, {
+        id: word.id,
+        text: word.text,
+        startTicks: word.startTicks,
+        endTicks: word.endTicks,
+        confidence: word.confidence,
+      })),
+    })),
+    sections: lyrics.sections.map((section) => withExtra(section.extra, { id: section.id, label: section.label, beforeLineId: section.beforeLineId })),
+  });
+}
+
 export function toJson(document: ProjectDocument): Json {
   const { canvas, audio, analysisSettings: analysis, palette } = document;
   return withExtra(document.extra, {
@@ -222,6 +259,8 @@ export function toJson(document: ProjectDocument): Json {
         ),
       }
       : {}),
+    // The same rule: a project without lyrics saves to the bytes it did before lyrics existed.
+    ...(hasLyrics(document.lyrics) ? { lyrics: lyricsJson(document.lyrics) } : {}),
   });
 }
 

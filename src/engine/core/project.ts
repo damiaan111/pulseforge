@@ -6,6 +6,7 @@ import type { ImageAssetRef } from './image.ts';
 import type { FontAssetRef } from './text.ts';
 import type { VideoAssetRef } from './video.ts';
 import type { LayerTransform } from './layout.ts';
+import type { RenderLyrics } from './lyrics.ts';
 import type { ModulationBinding } from './modulation.ts';
 import type { Rational } from './time.ts';
 
@@ -134,4 +135,9 @@ export interface RenderProject {
   readonly globalEffects?: readonly EffectSpec[];
   /** Asset id → what it is. Pixels are registered with the engine separately, by hash (image.ts). */
   readonly assets?: Readonly<Record<string, ImageAssetRef | FontAssetRef | VideoAssetRef>>;
+  /**
+   * The project's timed lyric lines (lyrics-spec §1), for lyrics layers and the lyric modulation
+   * sources. Absent when the project has no lyrics.
+   */
+  readonly lyrics?: RenderLyrics;
 }

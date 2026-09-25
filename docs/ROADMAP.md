@@ -21,7 +21,7 @@
 | P3 — Studio | ✅ | |
 | P4 — Library | ✅ | 16 steps, 2026-09-15 → 09-18 |
 | P5 — Export | 🔶 | most of it landed early with the render pipeline; see M34 and §3 |
-| P6 — Lyrics | ⬜ | the text engine it needs (M32) is done |
+| P6 — Lyrics | 🔶 | step 1 done: the lyrics data layer (STATUS 4.50) |
 | P7 — Auto-director | 🔶 | analysis, sections and classification only |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
@@ -71,7 +71,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 
 | | Requirement | State | What is left |
 |---|---|---|---|
-| M18 | Lyrics editor: paste, `.lrc`/`.srt` import, per-line times | ⬜ | all — lyrics-spec is written |
+| M18 | Lyrics editor: paste, `.lrc`/`.srt` import, per-line times | 🔶 | the model, text preparation, `.lrc`/`.srt`/`.vtt`/`.ttml` import and export, commands and checklist are done (4.50); **the studio editor** is not |
 | M19 | Tap-to-sync with beat snapping, vocal-stem waveform, drag-adjust | ⬜ | all; the vocal waveform needs M5 |
 | M20 | Karaoke word-fill rendering | ⬜ | the text engine already reports per-word boxes (M32), which is what word-fill needs |
 | M26 | WhisperX transcription + alignment on the vocal stem | ⬜ | needs M5, M28 and the lyrics setup tier (M2) |
@@ -149,6 +149,7 @@ it was made; they are collected here so none is a surprise.
 |---|---|---|---|
 | Drop-in modules are **declarative only** (JSON + GLSL); no JavaScript from `modules/` runs | module-spec §12 describes plugins as "code", trust model "none" | keeps the renderer sandboxed and the IPC surface unchanged, and makes drop-ins deterministic by construction; built-ins cover what shaders cannot | STATUS 4.42, `docs/module-authoring.md` §7 |
 | Depth of field is an **engine effect gated by `needsDepth`**, not Three's post-processing | compositor-spec §7.2 says the same; §7.3's "depth as a second output" is implemented as `LayerDepth` on the effect context | one post path for 2D and 3D | STATUS 4.43 |
+| Lyric **styling lives on the lyrics layer**, not in the lyrics document | lyrics-spec §1 sketches style/karaoke/layout inside `LyricsDocument`; §7 and §13 require schema-declared params of a text-kind module | only as layer params are they modulatable, per-aspect overridable and in presets; a project can show lead and backing lines on two differently styled layers. Per-line overrides (D38) stay on the line | STATUS 4.50 |
 | Preset **thumbnails use a fixed reference track**, not the loaded song | D45 ("live preview-with-my-audio later") | a thumbnail is then a property of the preset alone, so it caches and matches across machines | STATUS 4.44 |
 | User presets live in **Documents/Pulseforge/Presets**, built-ins in the repo, thumbnails in `cache/` | data-formats §3 names "known folders" without fixing them | user work beside the asset library, in the user's backups; caches rebuildable | STATUS 4.44 |
 | The 3D field of view applies to the frame's **short side** | not specified | a 9:16 cut shows the same subject as the 16:9 one | STATUS 4.43 |

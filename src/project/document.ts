@@ -9,8 +9,8 @@
 //  - Nothing here is a class and nothing mutates: edits go through commands in a later step,
 //    and the engine only ever sees the snapshot produced by `toRenderProject`.
 //
-// Slots specified for later phases (lyrics, automation, export presets, the asset library)
-// are listed in RESERVED_DOCUMENT_KEYS rather than typed here. They round-trip verbatim and
+// Slots specified for later phases (automation, export presets) are listed in
+// RESERVED_DOCUMENT_KEYS rather than typed here. They round-trip verbatim and
 // are not reported as unknown, because their absence from this version is deliberate, not a
 // mistake in the file.
 
@@ -28,7 +28,6 @@ export const OLDEST_SUPPORTED_SCHEMA_VERSION = 1;
  * Carried through saves untouched; see the file header.
  */
 export const RESERVED_DOCUMENT_KEYS: readonly string[] = [
-  'lyrics', // lyrics-spec, P6
   'automation', // PROJECT.md S1, keyframe tracks
   'exportPresets', // export-spec §12, P5
 ];
@@ -373,6 +372,94 @@ export interface AssetRef {
   readonly extra: Extra;
 }
 
+// ---------------------------------------------------------------------------
+// Lyrics (lyrics-spec §1, P6)
+// ---------------------------------------------------------------------------
+
+/** lyrics-spec §1. Backing and ad-lib lines usually want different styling and often overlap. */
+export const LYRIC_ROLES = ['lead', 'backing', 'adlib', 'instrumental-note'] as const;
+export type LyricRole = (typeof LYRIC_ROLES)[number];
+
+/** Where the timings came from: typed or tapped, imported from a file, or aligned by WhisperX. */
+export const LYRICS_SOURCES = ['manual', 'import', 'aligned'] as const;
+export type LyricsSource = (typeof LYRICS_SOURCES)[number];
+
+export interface LyricWord {
+  readonly id: string;
+  readonly text: string;
+  readonly startTicks: number;
+  readonly endTicks: number;
+  /** 0..1 from alignment (lyrics-spec §4); null when a person set it. */
+  readonly confidence: number | null;
+  readonly extra: Extra;
+}
+
+/** Per-line deviation from the lyrics layer's style (D38: per line in v1). Null fields inherit. */
+export interface LyricLineStyle {
+  readonly scale: number | null;
+  readonly opacity: number | null;
+  /** em, right and down. */
+  readonly offsetX: number | null;
+  readonly offsetY: number | null;
+  /** sRGB hex; replaces the layer's `upcoming` colour on this line. */
+  readonly color: string | null;
+  readonly extra: Extra;
+}
+
+/**
+ * One sung line. Times are **timeline ticks**, not audio-file time, so trimming or padding the
+ * audio does not move the lyrics against the picture (lyrics-spec §1). A pasted line has no time
+ * until it is tapped, imported or aligned: `startTicks`/`endTicks` are null and it is not drawn.
+ */
+export interface LyricLine {
+  readonly id: string;
+  /** The authoritative string. One line: no newlines (wrapping is the layer's job). */
+  readonly text: string;
+  readonly startTicks: number | null;
+  readonly endTicks: number | null;
+  /**
+   * One per word of `text` (lyricTokens in engine/core/lyrics.ts), or empty. Word timing is an
+   * upgrade, never a prerequisite: an empty list interpolates by character count.
+   */
+  readonly words: readonly LyricWord[];
+  readonly role: LyricRole;
+  readonly style: LyricLineStyle | null;
+  /** Aggregate alignment confidence 0..1; null when not aligned. */
+  readonly confidence: number | null;
+  /** Human-verified: re-alignment never touches it (lyrics-spec §1, §4). */
+  readonly locked: boolean;
+  readonly extra: Extra;
+}
+
+/**
+ * An annotation stripped from pasted lyrics — "[Chorus]", "(x2)" — kept as a marker before a line
+ * rather than as displayed text (lyrics-spec §2.2). `beforeLineId` null means after the last line.
+ */
+export interface LyricSection {
+  readonly id: string;
+  readonly label: string;
+  readonly beforeLineId: string | null;
+  readonly extra: Extra;
+}
+
+/**
+ * The project's lyrics (lyrics-spec §1). Styling, karaoke and layout are **not** here: they are the
+ * lyrics layer's schema-declared parameters (lyrics-spec §7, §13), which is what makes them
+ * modulatable, per-aspect overridable and part of presets. A project can therefore show the same
+ * lyrics twice — lead on one layer, backing vocals styled differently on another.
+ */
+export interface Lyrics {
+  /** BCP 47-ish language code; drives the alignment model (lyrics-spec §4). */
+  readonly language: string;
+  readonly source: LyricsSource;
+  /** In reading order. Usually also time order; the validator reports lines that are not. */
+  readonly lines: readonly LyricLine[];
+  readonly sections: readonly LyricSection[];
+  readonly extra: Extra;
+}
+
+export const EMPTY_LYRICS: Lyrics = { language: 'en', source: 'manual', lines: [], sections: [], extra: {} };
+
 export interface ProjectDocument {
   readonly schemaVersion: number;
   readonly id: string;
@@ -393,6 +480,7 @@ export interface ProjectDocument {
   readonly globalEffects: readonly EffectSpec[];
   readonly globalModulations: readonly ModulationBinding[];
   readonly assets: readonly AssetRef[];
+  readonly lyrics: Lyrics;
   readonly extra: Extra;
 }
 

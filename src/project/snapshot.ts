@@ -14,13 +14,14 @@
 // which is what this did before group compositing existed — could not express that.
 
 import type { LayerTransform } from '../engine/core/layout.ts';
+import type { RenderLyricLine, RenderLyrics } from '../engine/core/lyrics.ts';
 import { hasPaletteLinks, resolvePaletteValue } from './palette.ts';
 import type { ModulationBinding } from '../engine/core/modulation.ts';
 import { BLEND_MODES, type BlendMode, type EffectSpec, type GroupSpec as GroupLayerSpec, type LayerSpec, type RenderProject } from '../engine/core/project.ts';
 import {
   aspectBucket, walkLayers, type AspectBucket, type AspectOverride, type Layer,
   type EffectSpec as DocumentEffect, type ModulationBinding as DocumentBinding,
-  type Palette, type ProjectDocument,
+  type Lyrics, type Palette, type ProjectDocument,
 } from './document.ts';
 
 /** Something the document specifies that this engine build does not yet render. */
@@ -209,6 +210,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     durationTicks: timelineDurationTicks(document),
     globalModulations: document.globalModulations.map(toEngineBinding),
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
+    ...(document.lyrics.lines.length > 0 ? { lyrics: toRenderLyrics(document.lyrics) } : {}),
     // Files are not the engine's business: it gets id → hash, and the host registers the pixels.
     ...(document.assets.length > 0
       ? { assets: Object.fromEntries(document.assets.filter((a) => a.kind === 'image' || a.kind === 'font' || a.kind === 'video').map((a) => [a.id, { kind: a.kind, hash: a.hash, name: a.name }])) }
@@ -216,6 +218,39 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
   };
 
   return { project, notes, aspect };
+}
+
+/**
+ * Document lyrics → the engine's: timed lines only, in time order (ties keep document order, so
+ * the sort is stable and the snapshot deterministic). Untimed lines are counted, so the layer can
+ * say "12 lines have no timing yet" instead of drawing an unexplained gap.
+ */
+export function toRenderLyrics(lyrics: Lyrics): RenderLyrics {
+  const timed: { line: RenderLyricLine; order: number }[] = [];
+  let untimedLines = 0;
+  lyrics.lines.forEach((line, order) => {
+    if (line.startTicks === null || line.endTicks === null) {
+      untimedLines += 1;
+      return;
+    }
+    const style = line.style;
+    timed.push({
+      order,
+      line: {
+        id: line.id,
+        text: line.text,
+        startTicks: line.startTicks,
+        endTicks: Math.max(line.startTicks, line.endTicks),
+        role: line.role,
+        words: line.words.map((word) => ({ startTicks: word.startTicks, endTicks: Math.max(word.startTicks, word.endTicks) })),
+        style: style === null
+          ? null
+          : { scale: style.scale, opacity: style.opacity, offsetX: style.offsetX, offsetY: style.offsetY, color: style.color },
+      },
+    });
+  });
+  timed.sort((a, b) => a.line.startTicks - b.line.startTicks || a.order - b.order);
+  return { lines: timed.map((entry) => entry.line), untimedLines };
 }
 
 /**

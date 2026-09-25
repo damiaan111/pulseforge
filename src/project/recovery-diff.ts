@@ -29,6 +29,10 @@ export function summarizeRecovery(saved: ProjectDocument | null, recovered: Proj
   if (json(saved.audio) !== json(recovered.audio)) lines.push('The audio clip changed (file, trim, fades or gain).');
   if (json(saved.canvas) !== json(recovered.canvas)) lines.push('The canvas changed.');
   if (json(saved.globalEffects) !== json(recovered.globalEffects)) lines.push('The global effects changed.');
+  if (json(saved.lyrics) !== json(recovered.lyrics)) {
+    const timed = (d: ProjectDocument) => d.lyrics.lines.filter((l) => l.startTicks !== null).length;
+    lines.push(`The lyrics changed (${recovered.lyrics.lines.length} lines, ${timed(recovered)} timed; the saved file has ${saved.lyrics.lines.length}, ${timed(saved)} timed).`);
+  }
   if (saved.name !== recovered.name) lines.push(`Renamed “${saved.name}” → “${recovered.name}”.`);
   return lines.length > 0 ? lines : ['Small changes (settings that are not layers, palette, audio or canvas).'];
 }

@@ -82,6 +82,8 @@
 | 4.47 | Blend modes, layer editing and the audio clip — M7, M9, M29 |
 | 4.48 | Stems end to end — M5, M27, M28 |
 | 4.49 | Autosave and crash recovery — M1 |
+| | **Lyrics (P6)** |
+| 4.50 | Lyrics data (P6 step 1) — M18 model, lyrics-spec §1–§2, §9, §10 |
 
 ---
 
@@ -96,7 +98,7 @@
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
-| P6 — Lyrics | ⬜ not started (text rasteriser with per-word metrics, M32, is ready for it) |
+| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data: model, timing, formats, commands, checklist, §4.50) done; the layer, the studio editor, tap-to-sync, the timeline track and WhisperX follow |
 | P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
 | P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
@@ -2081,6 +2083,132 @@ this run holds a fresh snapshot. The smoke exit also fails if this run's folder 
 lyrics — must call `autosave` when they are built (P7, P6); no "browse older snapshots" (five are
 kept, only the newest is offered); an autosave whose audio or assets were moved since restores with
 the usual missing-asset reporting, nothing more.
+
+### 4.50 Lyrics data (P6 step 1) — M18's model, lyrics-spec §1–§2, §6.4–§6.5, §9, §10
+
+The lyrics layer, the studio editor and WhisperX all build on this step. It is pure code with no
+GPU and no UI: the document model, the timing maths, text preparation, subtitle formats, undoable
+commands and the checklist. 52 tests in `tests/lyrics/`.
+
+**Document (`src/project/document.ts`).** `lyrics` was a reserved key; it is now typed:
+`Lyrics { language, source: manual|import|aligned, lines, sections }`, `LyricLine { id, text,
+startTicks|null, endTicks|null, words[], role: lead|backing|adlib|instrumental-note, style|null,
+confidence|null, locked }`, `LyricWord { id, text, startTicks, endTicks, confidence|null }`,
+`LyricSection { id, label, beforeLineId|null }`. Every node has `extra`, like the rest of the
+format.
+- **Untimed lines are allowed** (`startTicks: null`): pasted text has no time until it is tapped,
+  imported or aligned. Such lines are not drawn and the checklist counts them.
+- Times are **timeline ticks** (lyrics-spec §1), so trimming or padding the audio does not move the
+  lyrics against the picture.
+- **Parse:** a line's end before its start is moved to the start and reported, never swapped. Line
+  breaks inside a line are joined. An unknown role becomes `lead`, reported. Line, word and section
+  ids join the duplicate-id check, and a marker pointing at a missing line is reported.
+- **Serialize:** lyrics are written only when they differ from a new project's, so every existing
+  project and golden fixture saves to the same bytes as before. No schema version bump: adding an
+  optional field is not a breaking change (data-formats §2.3).
+
+**Styling is not in the document — a deliberate reading of the spec** (also in ROADMAP §4).
+lyrics-spec §1 sketches `style`/`karaoke`/`layout` inside `LyricsDocument`. §7 and §13 also require
+"everything is a schema-declared parameter … the lyrics layer is a text-kind module". Both can hold
+only if the styling lives on the lyrics **layer**. That way it is modulatable, per-aspect
+overridable (§7: vertical wants lyrics higher and larger) and carried by presets, and the inspector
+generates itself. It also means a project can show its lyrics twice, for example lead vocals on
+one layer and backing vocals styled differently on another. Only per-line overrides (D38:
+`scale`, `opacity`, `offsetX/Y`, `color`) live on the line.
+
+**Timing maths (`src/engine/core/lyrics.ts`, in the engine because the layer and the modulation
+sources both need it).**
+- `lyricTokens`: whitespace runs, the same rule as the text layout. A run with no letter or digit
+  attaches to the word before it (§2.3), so a free-standing "—" never fills as its own word. Tokens
+  carry character ranges into the text, which is how the renderer maps rasterised words onto them.
+- `wordSpans`: explicit word timings when there is exactly one per token, otherwise the line's
+  duration **by character count** (§6.4). A word list that does not match the text is ignored, never
+  mis-assigned.
+- `wordProgress` holds a finished word at 1 through a gap.
+- `lineWindows`: `appear = max(start − leadIn, previous end)`, never later than the start; `disappear =
+  min(end + holdOut, next appear)`, never earlier than the end. So a lead-in is clamped to the gap
+  (§6.5), and a line that leaves exactly as the next appears is marked `handover` (the layer animates
+  that with its advance mode rather than exit + entry).
+- `lyricSignals` gives the three modulation sources of modulation-spec §2.4 as pure samplers:
+  `lyricActive`, `lineProgress` and `wordActive` (an e^(−age/80 ms) impulse on every word start). An
+  `instrumental-note` line is on screen but not sung.
+- `toRenderProject` passes `RenderProject.lyrics = { lines (timed, sorted by start, stable),
+  untimedLines }`.
+
+**Text preparation (`src/lyrics/prepare.ts`).** Web lyrics come with annotations, which become
+**section markers**, not lines (§2.2):
+- `[Verse 1]`, `[Chorus: X]`, `(Chorus)`, `(x2)` alone on a line become markers.
+- A trailing repeat (`Hold on (x2)`, `Let go x3`) is stripped into a `×N` marker before its line.
+- A parenthesised line that is not a section name (`(ooh, yeah)`) is kept as a **backing** line. This
+  is a heuristic and the role is editable.
+- Text is NFC-normalised, exotic spaces and zero-width characters are removed, and runs of spaces
+  collapse.
+- `splitLongLine` splits at the punctuation nearest the middle, else at the nearest space, recursively.
+
+**Formats (`src/lyrics/formats.ts`).**
+- Import: `.lrc`, enhanced LRC with `<mm:ss.xx>` word tags, `.srt`, `.vtt` with inline word
+  timestamps, and `.ttml`. The format is detected from the extension, then from the content.
+- Export: `.lrc`, enhanced `.lrc`, `.srt`, `.vtt` (word timestamps when the line has explicit words) and
+  `.ass` (karaoke `\k` durations that sum to the line).
+- Choices worth knowing:
+  - **LRC has no line ends.** A line ends at the next start or at an empty tag (the usual "line off"
+    convention), capped at `max(3 s, 0.6 s × words)`, so a line does not "sing" through a break.
+    LRC export writes empty end tags only where the next line does not start at this one's end.
+  - `[offset:]` applies as LRC defines it: positive shows lyrics earlier.
+  - Repeated time tags make repeated lines.
+  - Word stamps covering several words are spread by character count. Stamps that do not line up
+    with the words leave the line with line timing only, and a warning.
+  - TTML span times are treated as absolute when they all fall inside their paragraph (how Apple's
+    lyrics TTML writes them), relative otherwise.
+- Round-trips are tested at each format's precision: SRT, VTT and TTML to the millisecond (exact in
+  ticks at 48 per ms), LRC and ASS to the centisecond.
+
+**Commands (`src/project/lyrics-commands.ts`).**
+- **`setLyricsText` keeps timings through editing.** The editor is plain text, re-read on every
+  keystroke, so it matches old lines to new ones in three steps:
+  1. Lines that are unchanged (longest common subsequence) keep everything.
+  2. Between those, an edited line pairs with its most similar old line (Levenshtein ≥ 0.5, in order)
+     and keeps its id, times, role, style and lock. Its **word timings survive only if every word
+     still matches** (compared as sung: case and punctuation ignored, so "tonight" → "Tonight!"
+     keeps them). Otherwise the line interpolates rather than attaching a timing to the wrong word.
+  3. Anything else is a new, untimed line.
+  Typing merges into one undo step; the same text is a no-op.
+- `lyricsToText` writes the editor text back out, with markers as `[label]`.
+- Timing:
+  - `setLineTimes` rescales explicit words with the line.
+  - `moveLines` moves words with their lines, and with `ripple` moves every line from the earliest
+    moved one on (§5). A move is clamped as a whole at 0, so spacing is kept.
+  - `setWordTimes` materialises interpolated words first, so moving one word leaves the others put.
+  - `clearLineTimes` clears unlocked lines only, unless given ids.
+- Structure: `splitLine` at a word (timing splits at that word's start), `mergeWithNext` (markers
+  move along).
+- Also: `setLinesLocked`, `setLinesRole`, `setLineStyle`, `setLyricsLanguage`, and `importLyrics`
+  (replaces the lines, keeps the language, `source: import`).
+- `applyAlignment` writes **unlocked lines only** and counts what it skipped: locked lines, words
+  that no longer match, lines that are gone (§4).
+
+**Checklist (`src/lyrics/validate.ts`) — lyrics-spec §9.** Checks: untimed lines; overlaps and
+out-of-order lines **per role** (backing over lead is normal, D35); lines under 0.25 s or over 15 s;
+reading speed over 25 letters per second; word timings out of order, zero-length or outside the line;
+a word list that does not match the text; low-confidence clusters (a line below 0.5, or three words
+in a row below it); and, given vocal segments, **a line with no singing under it** (under 15 %
+covered) and **singing with no line** (a segment of 1.5 s or more that is under 30 % covered).
+Sorted by severity, then time. Each check names its lines and a jump-to time. Safe-area overflow and
+missing fonts are reported by the layer itself, which has the renderer.
+
+**Vocal segments (`src/lyrics/vocal-segments.ts`)**, from the vocal stem's `rms` feature.
+- The threshold is **relative to the track**: between its 20th and 95th percentiles, because Demucs
+  leaves a bleed bed whose level depends on the mix.
+- Hysteresis (on at 45 %, off at 30 % of that range) keeps a dipping held note as one segment.
+  Blips under 0.2 s are dropped and gaps under 0.35 s bridged.
+- A stem that never rises above near-silence has no segments.
+
+Also: the M1 recovery summary now mentions lyrics changes.
+
+Verified here: `npm run check` **929 tests in 72 files** (52 new).
+
+**Not done in this step:** the lyrics layer and karaoke rendering (step 2), the studio editor,
+tap-to-sync and the timeline track (steps 3–4), WhisperX (step 5).
 
 ---
 

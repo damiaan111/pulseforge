@@ -14,6 +14,7 @@
 
 import {
   ANCHORS, ASPECT_BUCKETS, ASSET_KINDS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE, FADE_CURVES, type FadeCurve,
+  LYRIC_ROLES, LYRICS_SOURCES, type LyricLine, type LyricLineStyle, type Lyrics, type LyricSection, type LyricWord,
   DEFAULT_ENVELOPE, DEFAULT_LOOK_AHEAD_MS, ENVELOPE_MODES, IDENTITY_TRANSFORM,
   MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
@@ -609,6 +610,80 @@ function parseAsset(node: Node, issues: DocumentIssue[]): AssetRef {
   };
 }
 
+/**
+ * Lyrics (lyrics-spec §1). Times are whole ticks or null (untimed); a line whose end is before its
+ * start is reported and its end moved to the start, never swapped — swapping would invent a timing
+ * nobody set. Line breaks inside a line are joined: a line is one line, wrapping is the layer's job.
+ */
+function parseLyrics(node: Node, issues: DocumentIssue[]): Lyrics {
+  const lines = node.children('lines').map((n): LyricLine => {
+    const rawText = n.str('text', '');
+    const text = rawText.replace(/\s*[\r\n]+\s*/g, ' ');
+    if (text !== rawText) issues.push({ path: `${n.path}.text`, problem: 'invalid-value', detail: 'a lyric line cannot contain line breaks; joined with spaces' });
+    const startTicks = n.nullableTicks('startTicks');
+    let endTicks = n.nullableTicks('endTicks');
+    if (startTicks !== null && endTicks !== null && endTicks < startTicks) {
+      issues.push({ path: `${n.path}.endTicks`, problem: 'invalid-value', detail: `ends (${endTicks}) before it starts (${startTicks}); end moved to the start` });
+      endTicks = startTicks;
+    }
+    const words = n.children('words').map((w): LyricWord => {
+      const start = w.ticks('startTicks', 0);
+      let end = w.ticks('endTicks', start);
+      if (end < start) {
+        issues.push({ path: `${w.path}.endTicks`, problem: 'invalid-value', detail: `ends (${end}) before it starts (${start}); end moved to the start` });
+        end = start;
+      }
+      return {
+        id: w.id('id', w.path),
+        text: w.str('text', ''),
+        startTicks: start,
+        endTicks: end,
+        confidence: w.nullableNum('confidence', { min: 0, max: 1 }),
+        extra: w.rest(),
+      };
+    });
+    const styleRaw = n.take('style');
+    let style: LyricLineStyle | null = null;
+    if (styleRaw !== undefined && styleRaw !== null) {
+      if (!isPlainObject(styleRaw)) issues.push({ path: `${n.path}.style`, problem: 'wrong-type', detail: 'expected an object or null; the line uses the layer style' });
+      const s = new Node(isPlainObject(styleRaw) ? styleRaw : {}, `${n.path}.style`, issues);
+      style = {
+        scale: s.nullableNum('scale', { min: 0.05, max: 10 }),
+        opacity: s.nullableNum('opacity', { min: 0, max: 1 }),
+        offsetX: s.nullableNum('offsetX', { min: -100 }),
+        offsetY: s.nullableNum('offsetY', { min: -100 }),
+        color: s.nullableStr('color'),
+        extra: s.rest(),
+      };
+    }
+    return {
+      id: n.id('id', n.path),
+      text,
+      startTicks,
+      endTicks,
+      words,
+      role: n.oneOf('role', LYRIC_ROLES, 'lead'),
+      style,
+      confidence: n.nullableNum('confidence', { min: 0, max: 1 }),
+      locked: n.bool('locked', false),
+      extra: n.rest(),
+    };
+  });
+  const sections = node.children('sections').map((n): LyricSection => ({
+    id: n.id('id', n.path),
+    label: n.str('label', ''),
+    beforeLineId: n.nullableStr('beforeLineId'),
+    extra: n.rest(),
+  }));
+  return {
+    language: node.str('language', 'en'),
+    source: node.oneOf('source', LYRICS_SOURCES, 'manual'),
+    lines,
+    sections,
+    extra: node.rest(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cross-references
 // ---------------------------------------------------------------------------
@@ -649,6 +724,17 @@ function checkReferences(document: ProjectDocument, issues: DocumentIssue[]): vo
   for (const effect of document.globalEffects) claim(effect.id, `globalEffects.${effect.id}`);
   for (const asset of document.assets) claim(asset.id, `assets.${asset.id}`);
   for (const binding of document.globalModulations) claim(binding.id, `globalModulations.${binding.id}`);
+  document.lyrics.lines.forEach((line, i) => {
+    claim(line.id, `lyrics.lines[${i}]`);
+    line.words.forEach((word, j) => claim(word.id, `lyrics.lines[${i}].words[${j}]`));
+  });
+  const lineIds = new Set(document.lyrics.lines.map((line) => line.id));
+  document.lyrics.sections.forEach((section, i) => {
+    claim(section.id, `lyrics.sections[${i}]`);
+    if (section.beforeLineId !== null && !lineIds.has(section.beforeLineId)) {
+      issues.push({ path: `lyrics.sections[${i}].beforeLineId`, problem: 'broken-reference', detail: `no lyric line with id "${section.beforeLineId}"; the marker is kept and shown at the end` });
+    }
+  });
 
   index = 0;
   for (const { layer } of walkLayers(document.layers)) {
@@ -710,6 +796,7 @@ export function parseDocument(raw: unknown): ParseResult {
     globalEffects: root.children('globalEffects').map(parseEffect),
     globalModulations: root.children('globalModulations').map((n) => parseBinding(n, issues)),
     assets: root.children('assets').map((n) => parseAsset(n, issues)),
+    lyrics: parseLyrics(root.child('lyrics'), issues),
     extra: root.rest(RESERVED_DOCUMENT_KEYS),
   };
 
