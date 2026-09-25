@@ -22,12 +22,12 @@
 | P4 — Library | ✅ | 16 steps, 2026-09-15 → 09-18 |
 | P5 — Export | 🔶 | most of it landed early with the render pipeline; see M34 and §3 |
 | P6 — Lyrics | ✅ | five steps, 2026-09-25: STATUS 4.50–4.55 |
-| P7 — Auto-director | 🔶 | analysis, sections and classification only |
+| P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 34 done, 4 partly done, 2 not started.** By count that is about 90%; by
-effort — what remains is dominated by the auto-director (templates, generation, Surprise me), then
-operability — the v1 must-have work is **roughly four-fifths done**.
+**Must-haves (M1–M40): 36 done, 3 partly done, 1 not started.** By count that is 90%+; by effort —
+what remains is operability (cache screen, logs and diagnostics, the settings screen) and the P1
+remainder — the v1 must-have work is **roughly nine-tenths done**.
 
 ---
 
@@ -80,8 +80,8 @@ operability — the v1 must-have work is **roughly four-fifths done**.
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M21 | Auto-director: complete editable project from a track | 🔶 | 4.21, 4.26, 4.56, 4.57 | the director (match, palette, populate, calibrate, arrange, guardrails, decision log) and the seven templates are done and tested; **the Auto panel, Generate on import (D9), contact sheets** |
-| M22 | Surprise me: seeded reroll, per-aspect locks, history strip | 🔶 | 4.57 | reroll with diversity enforcement, per-aspect locks, kept edits and a restorable 10-roll history exist in the director; **the buttons, lock toggles and the history strip with thumbnails** |
+| M21 | Auto-director: complete editable project from a track | ✅ | 4.21, 4.26, 4.56–4.58 | Could-level: `derive-from-image` palettes, "Extract as template", palette shifts at chorus/drop |
+| M22 | Surprise me: seeded reroll, per-aspect locks, history strip | ✅ | 4.57, 4.58 | — |
 
 ### Output
 
@@ -129,8 +129,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 3. ✅ **Stems end to end (M5, M27, M28)** — done (STATUS 4.48). Per-stem waveform rows are still open.
 4. ✅ **Autosave and crash recovery (M1)** — done (STATUS 4.49).
 5. ✅ **Lyrics (P6: M18–M20, M26)** — done (STATUS 4.50–4.55).
-6. **Auto-director (P7: M21, M22)** — templates, slot filling against the now-complete module
-   library, the decision log, Surprise me with locks and history.
+6. ✅ **Auto-director (P7: M21, M22)** — done (STATUS 4.56–4.58).
 7. **Operability (M33, M34, M36)** — cache screen with prune and ceiling, rotating logs and
    copy-diagnostics, the settings screen with setup/repair.
 8. **P1 remainder** — extras tier, `htdemucs_ft`, Whisper `large-v3`, alignment models for more languages, an offline-rebuild check.
@@ -157,6 +156,7 @@ it was made; they are collected here so none is a surprise.
 | Arrangement (section intensity, drop impulses) is a **`curve` modulation source**, not keyframes | auto-director-spec §6 speaks of keyframed intensity | keyframes (S1) are unbuilt and need their own spec; a curve binding is deterministic, editable, listed in the matrix, and can be converted to keyframes when they exist | STATUS 4.56 |
 | **Layer opacity is a modulation target** (`layers.<id>.opacity`) | modulation-spec §4 targets module parameters | the director's section presence has to fade a layer in and out; one opacity binding does it for every module, and is editable in the matrix | STATUS 4.57 |
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
+| A **`split` harmony** (+90°, −110°) in template palettes | auto-director-spec §4 lists analogous, complementary, triad, duotone | the contact sheet showed a triad's sun lime-green; synthwave's magenta/orange/cyan needs it | STATUS 4.58 |
 | Multiplying bindings are **capped** at ×1.25 / ×1.6 / ×2.5 per band | §5.2: band share of the soft range | on a small base the range share becomes a ×13 factor | STATUS 4.57 |
 | The analysis cache key **includes band names** | data-formats §4.3: a band rename should keep the cache | cached tracks are stored by name, so a rename that hit the cache would silently disable every binding on the band; a rename now costs one re-analysis | STATUS 4.45 |
 

@@ -32,6 +32,9 @@ import { ALIGN_LANGUAGES, LyricsNeedStemsError, alignLyrics, type LyricsAlignPro
 import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
+import { readTemplateFiles } from '../director/template-store.ts';
+import { synthesizeTestTrack } from '../analysis/reference-track.ts';
+import { encodeWavFloat32 } from '../export/audio.ts';
 import { cacheOptionsFor, parseProjectAnalysisSettings } from '../analysis/project-settings.ts';
 import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
@@ -39,7 +42,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -234,6 +237,27 @@ function describe(error: unknown): Error {
  * the file type is associated. Electron's argv carries its own switches, so only a path that
  * exists and looks like a project is accepted — anything else is ignored rather than guessed at.
  */
+/** Set in smoke mode: "Import audio…" answers with this file instead of opening a dialog. */
+let smokeAudioPath: string | null = null;
+
+/**
+ * A minute of song-shaped audio for the smoke's auto-director check: the reference beat track with
+ * a quiet intro, a build, a loud part, a breakdown and a loud return, so there are sections to
+ * arrange. Written once to out/ (a cache: rebuildable, never committed).
+ */
+async function smokeSong(): Promise<string> {
+  const path = join(ROOT, 'out', 'smoke-song.wav');
+  if (!existsSync(path)) {
+    const seconds = 60;
+    const pcm = synthesizeTestTrack(seconds);
+    const shape: readonly (readonly [number, number])[] = [[12, 0.12], [20, 0.45], [38, 1], [48, 0.2], [60, 1]];
+    for (let i = 0; i < pcm.length; i += 1) pcm[i] = (pcm[i] as number) * (shape.find(([until]) => i / 48_000 < until)?.[1] ?? 1);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, encodeWavFloat32([pcm], 48_000));
+  }
+  return path;
+}
+
 function initialProjectPath(): string | undefined {
   return process.argv.slice(1).find((arg) => !arg.startsWith('-') && arg.endsWith('.pvproj') && existsSync(arg));
 }
@@ -366,6 +390,8 @@ function registerHandlers(): void {
   });
 
   ipcMain.handle(IPC.audioPick, async (): Promise<string | null> => {
+    // The smoke check's own song (smokeSong), instead of a dialog nobody is there to answer.
+    if (smokeAudioPath !== null) return smokeAudioPath;
     const result = await dialog.showOpenDialog({
       title: 'Import audio',
       properties: ['openFile'],
@@ -411,7 +437,8 @@ function registerHandlers(): void {
       return {
         container: encodeAnalysis(source, { source: 'mix', beatGrid: result.beatGrid, meta: { audioHash: result.audioHash } }),
         peaks: encodePeaks(result.peaks),
-        sections: result.sections.map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, label: s.label })),
+        sections: result.sections.map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, label: s.label, energy: s.energy })),
+        onsetTimes: result.onsetTimes,
         durationSeconds: decoded.pcm.length / 48_000,
         fromCache: result.fromCache,
         stems,
@@ -697,6 +724,18 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.presetsReveal, async (): Promise<void> => {
     await mkdir(presetsFolder(), { recursive: true });
     await shell.openPath(presetsFolder());
+  });
+
+  // Auto-director templates (M21): built-ins in the repo, the user's own in Documents beside their
+  // presets. Read fresh on every request, so an edited template is one "Reload" away.
+  const templatesFolder = () => process.env['PULSEFORGE_TEMPLATES'] ?? join(app.getPath('documents'), 'Pulseforge', 'Templates');
+  ipcMain.handle(IPC.templatesList, async (): Promise<TemplateListing> => ({
+    files: await readTemplateFiles({ builtin: join(ROOT, 'templates', 'builtin'), user: templatesFolder() }),
+    folder: templatesFolder(),
+  }));
+  ipcMain.handle(IPC.templatesReveal, async (): Promise<void> => {
+    await mkdir(templatesFolder(), { recursive: true });
+    await shell.openPath(templatesFolder());
   });
 
   // Video (M39): extracted under the repo's drive, like the CLI's cache — a frame cache runs to
@@ -1077,6 +1116,7 @@ app.whenReady().then(async () => {
     })`) as boolean;
     if (!settled) console.error('[smoke] FAIL the renderer did not finish starting within 10 s');
 
+    smokeAudioPath = await smokeSong();
     const checks = await window.webContents.executeJavaScript(`(async () => {
       // Does the renderer have Node? It must not — sandbox + contextIsolation.
       const noNode = typeof require === 'undefined' && typeof module === 'undefined'
@@ -1393,7 +1433,7 @@ app.whenReady().then(async () => {
       if (barsButton !== undefined) {
         barsButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await new Promise((done) => setTimeout(done, 100));
-        document.querySelector('#app .inspector [data-action="modulate"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('#app .inspector .param-group [data-action="modulate"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await new Promise((done) => setTimeout(done, 50));
         document.querySelector('#app .inspector [data-action="modulate-recipe-breathing"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const row = await waitFor(() => document.querySelector('#app .modulation-section .binding'), 40);
@@ -1555,6 +1595,45 @@ app.whenReady().then(async () => {
         }
       }
 
+      // The auto-director (M21, M22), end to end: import the smoke's song (the pick dialog answers
+      // with it), open Auto once the analysis is in, see the seven templates ranked, Generate (one
+      // undo step, a decision log, layers), Surprise me (a second roll in the strip, with a drawn
+      // thumbnail), restore the first roll, then undo all three.
+      let autoUi = false;
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const undoLabel = () => document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '';
+        const layerCount = () => document.querySelectorAll('#app .layer-list .layer-row').length;
+        click('#app [data-action="import-audio"]');
+        click('#app header [data-action="auto-drawer"]');
+        const ready = await waitFor(() => document.querySelector('#app [data-testid="auto-templates"]'), 600);
+        const templates = document.querySelectorAll('#app [data-testid="auto-templates"] input[name="auto-template"]').length;
+        const layersBefore = layerCount();
+        click('#app [data-action="auto-generate"]');
+        const generated = await waitFor(() => undoLabel().includes('Generate project'), 100);
+        const logged = await waitFor(() => (document.querySelector('#app [data-testid="auto-log"]')?.textContent ?? '').includes('Why it looks like this'), 40);
+        const layersAfter = layerCount();
+        click('#app [data-action="auto-surprise"]');
+        const surprised = await waitFor(() => undoLabel().includes('Surprise me'), 100);
+        const strip = await waitFor(() => document.querySelectorAll('#app [data-testid="auto-history"] .roll-tile').length >= 2, 40);
+        const thumbnail = await waitFor(() => document.querySelector('#app [data-testid="auto-history"] .roll-tile img') !== null, 200);
+        const older = [...document.querySelectorAll('#app [data-testid="auto-history"] .roll-tile')].find((tile) => !tile.disabled);
+        older?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const restored = await waitFor(() => undoLabel().includes('Restore roll'), 100);
+        for (let i = 0; i < 3; i += 1) {
+          click('#app header button[data-action="undo"]');
+          await new Promise((done) => setTimeout(done, 80));
+        }
+        const undone = await waitFor(() => layerCount() === layersBefore, 40);
+        click('#app header [data-action="auto-drawer"]');
+        const steps = {
+          ready: ready !== null && ready !== false, templates, generated: generated === true, logged: logged === true, grew: layersAfter > layersBefore,
+          surprised: surprised === true, strip: strip === true, thumbnail: thumbnail === true, restored: restored === true, undone: undone === true,
+        };
+        autoUi = steps.ready && templates >= 7 && steps.generated && steps.logged && steps.grew && steps.surprised && steps.strip && steps.thumbnail && steps.restored && steps.undone;
+        if (!autoUi) console.error('[smoke] autoUi steps ' + JSON.stringify(steps));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1601,6 +1680,7 @@ app.whenReady().then(async () => {
         modulationUi,
         layerEditing,
         globalChain,
+        autoUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
@@ -1766,6 +1846,19 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     // The audio clip panel (M29) — only there when the project has audio (open one with the tour).
     await js(`document.querySelector('#app [data-testid="clip-controls"]')?.scrollIntoView({ block: 'center' })`);
     await snap(`${label}-8-audio-clip`);
+    // The auto-director (P7): the smoke's song, a generated project, two rerolls, the log.
+    if (label === 'large') {
+      await js(`${click('#app [data-action="import-audio"]')}; await new Promise((d) => setTimeout(d, 4000))`);
+    }
+    await js(click('#app header button[data-action="auto-drawer"]'));
+    await js(`${click('#app [data-action="auto-generate"]')}; await new Promise((d) => setTimeout(d, 1500))`);
+    await snap(`${label}-10a-auto-generated`);
+    await js(`${click('#app [data-action="auto-surprise"]')}; await new Promise((d) => setTimeout(d, 800))`);
+    await js(`${click('#app [data-action="auto-surprise"]')}; await new Promise((d) => setTimeout(d, 1500))`);
+    await snap(`${label}-10b-auto-rolls`);
+    await js(`document.querySelector('#app [data-testid="auto-log"]')?.scrollIntoView()`);
+    await snap(`${label}-10c-auto-log`);
+    await js(click('#app header button[data-action="auto-drawer"]'));
   }
   console.log(`[smoke] ui tour written to ${dir}`);
 }

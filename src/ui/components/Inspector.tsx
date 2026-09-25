@@ -56,6 +56,8 @@ export function Inspector(): React.JSX.Element {
   const { manifests: MANIFESTS } = useModules();
 
   const layer = selectedId === null ? undefined : findLayer(document, selectedId);
+  // Before any early return: a hook's position must not depend on whether a layer is selected.
+  const liveOpacity = useLiveValue(selectedId === null ? undefined : layerOpacityTarget(selectedId));
 
   if (layer === undefined) {
     // With no layer selected, the inspector edits what applies to the whole frame: the global
@@ -109,6 +111,7 @@ export function Inspector(): React.JSX.Element {
         max={1}
         step={0.01}
         extra={<ModulateButton ownerId={layer.id} target={layerOpacityTarget(layer.id)} spec={OPACITY_SPEC} />}
+        live={typeof liveOpacity === 'number' ? liveOpacity : undefined}
         onChange={(v) => run(setLayerOpacity(layer.id, v), { seal: false })}
         onCommit={() => run(setLayerOpacity(layer.id, layer.opacity))}
       />
@@ -191,7 +194,7 @@ export function Inspector(): React.JSX.Element {
           // A group with nothing to show gets no heading — "Image" over nothing, in gradient mode.
           if (visible.length === 0) return null;
           return (
-          <div key={group}>
+          <div key={group} className="param-group" data-group={group}>
             <h2>{group}</h2>
             {shown
               .map((spec) => (

@@ -5,12 +5,12 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-09-25.** P0, P2, P3, P4 and **P6 (lyrics) are complete**; P1 is partly done (core,
+> **Last updated: 2026-09-25.** P0, P2, P3, P4, **P6 (lyrics) and P7 (the auto-director) are complete**; P1 is partly done (core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1057 tests, `npm run golden` 29/29 identical,
-> `--smoke` 23/23.
+> any aspect. Last full verification: `npm run check` 1059 tests, `npm run golden` 29/29 identical,
+> `--smoke` 24/24.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -25,9 +25,16 @@
 > the zoomable timeline with the vocal level behind it; and WhisperX transcription and word
 > alignment on the vocal stem, through the GPU queue, offline.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the auto-director (P7) is not
-> started beyond analysis and classification; operability (cache management M33, logs M34,
-> settings M36).
+> **P7, the auto-director (§4.56–§4.58):** a complete, editable project from a track. Seven
+> hand-authored templates are matched to the track's style, and the palette is generated with
+> contrast enforced. Modulation is calibrated to the track's own statistics. The arrangement follows
+> its sections (intensity, layers entering and leaving, drops, the title clearing before the
+> vocals), guardrails run last, and a plain-language decision log says why. In the studio: the Auto
+> drawer, Generate (offered on import), Surprise me with locks and a thumbnail history, and
+> `npm run contact-sheet` to check the templates across a folder of tracks.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): operability (cache management
+> M33, logs M34, settings M36); the P1 remainder; P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -97,6 +104,7 @@
 | | **Auto-director (P7)** |
 | 4.56 | Groundwork: the curve source, the whole-frame chain, group bindings fix (P7 step 1) |
 | 4.57 | The director and its seven templates (P7 step 2) — M21, auto-director-spec §1–§9, §11 |
+| 4.58 | The Auto drawer, Surprise me and the contact sheet (P7 step 3) — M21, M22 complete; D9 |
 
 ---
 
@@ -112,7 +120,7 @@
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
 | **P6 — Lyrics** | ✅ **complete** (2026-09-25) — lyrics data §4.50, karaoke layer §4.51, studio editor and tap-to-sync §4.53, timeline track §4.54, WhisperX §4.55 |
-| P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
+| **P7 — Auto-director** | ✅ **complete** (2026-09-25) — groundwork §4.56, the director and seven templates §4.57, the Auto drawer, Surprise me and contact sheets §4.58 |
 | P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
 P4 steps:
@@ -2846,6 +2854,99 @@ Golden frames are unchanged.
 - `derive-from-image` palettes;
 - "Extract as template" (§10.2);
 - palette shifts at chorus and drop (§6), which need keyframed palette roles.
+
+### 4.58 The Auto drawer, Surprise me and the contact sheet (P7 step 3) — M21, M22 complete; D9
+
+**The Auto drawer** (`src/ui/components/AutoPanel.tsx`; top bar **✦ Auto**). Top to bottom:
+- **Template**: every template ranked for this track, with a score bar and a tooltip saying why.
+  The best match and the current one are marked. An unavailable template is greyed and says what it
+  is missing (D29). Any available one can be picked.
+- **Generate project** (or **Generate again**) uses the picked template and the project's own seed,
+  so generating twice with the same template gives the same project.
+- **Surprise me**, with four **Keep** locks (Template, Palette, Layout, Motion; Layout implies
+  Template) and **Try other templates** (roulette among the top matches). The seed is drawn fresh
+  in the UI, the one place randomness is allowed, and recorded in the roll, so every result stays
+  reproducible.
+- **Rolls**: the current roll and up to ten earlier ones as thumbnails. The thumbnails are drawn on
+  the preview's stills engine, one frame from the middle of the loudest section. A roll loaded from
+  disk is re-derived and drawn on demand; until then it shows its palette as swatches. Clicking a
+  roll restores it exactly.
+- **Why it looks like this**: the decision log in plain language, grouped by step (the track,
+  template, palette, layers, modulation, arrangement, guardrails in amber, kept from before).
+- Template problems (files that did not parse, parse issues with hover detail), **Reload
+  templates**, **Open templates folder**, and a line saying that everything generated is ordinary
+  and edits survive rerolls.
+
+Generate, Surprise me and a restore are each **one undo step** (`applyDirection`, commands.ts). It
+replaces the look (layers, both global lists, palette, seed) and the director's record, and leaves
+audio, lyrics, assets, canvas and name alone. After a roll, a stopped preview **seeks to the
+loudest moment**: a generated project fades in from black, so its first frame would greet the new
+look with a black preview (found in the UI tour's screenshots).
+
+**Offered on import (D9).** When a track lands in a project with no layers and no director record,
+the audio section shows "Make a project from this track?" with **✦ Auto…** and a dismiss button. It
+is offered, never forced, and the drawer is always in the top bar.
+
+**Plumbing:**
+- The analysis payload now carries **onset times** and each section's **energy**. The digest's
+  drops depend on the energy, and it had been dropped on the way to the renderer.
+- The store's `Section` is the analysis type.
+- Templates are listed by IPC (`listTemplates`, `revealTemplates`). Built-ins come from
+  `templates/builtin/`, the user's from Documents/Pulseforge/Templates (`PULSEFORGE_TEMPLATES`
+  overrides it). The main process reads the files (`template-store.ts`); the studio parses them
+  (`template-library.ts`, pure).
+- `src/ui/director.ts` builds the director's input from the studio. The vocal segments come from
+  the vocal stem when stems exist, which is what times the title to the first vocal.
+
+**Layer opacity in the studio.** The engine records a modulated opacity's live value, so the
+Opacity slider shows its live marker like any modulated parameter.
+
+**The contact sheet (`npm run contact-sheet -- <folder>`, §10.4, §12).** It runs every template (or
+`--templates id,id`) on every track in a folder and renders one still each at the middle of the
+loudest section, through the Electron frame harness. It writes `out/contact-sheet/`: one PNG per
+tile, and `index.html`, a grid with each track's reading, BPM, sections and best match, and each
+tile's summary and guardrail count.
+- Tracks are read in place; analysis is cached under `cache/contact-sheet-analysis/`.
+- `renderFrames` now takes a precomputed analysis, so one track's analysis serves all its tiles.
+- Three tracks × seven templates took about 50 s.
+
+**What the first contact sheet found, and what changed** (three of the owner's tracks, read in
+place):
+- **Neon Grid** was blown out to flat pink: the camera sat below the terrain once bass drove its
+  amplitude, and glow, grid and bloom stacked up. The camera is now higher (height 6, look height
+  1), amplitude and glow lower, and bloom tighter. The triad harmony made the sun lime-green; a new
+  **`split` harmony** (+90°, −110°) gives synthwave's magenta, orange and cyan.
+- **Minimal Type**: the sound line ran through the title. The line moved down and the title up and
+  smaller.
+- **Cinematic Depth**: the object crowded the frame; the camera stands further back (distance 7.5).
+- **Cinematic Particles**: a candidate set `flare` at its soft maximum, so its modulation had no
+  room and was refused (the guardrail worked, the template was wrong). It is now 1.
+- The calibration log showed a multiplying binding on a small base at ×13; the caps in §4.57 came
+  from this.
+- After the fixes every column reads as intended on all three tracks. Neon Pulse, Minimal Mono and
+  Cinematic Particles were right the first time.
+
+**Verified here:**
+- `npm run check`: **1059 tests**. New: `tests/director/template-store.test.ts` (a user template
+  replacing a built-in by id; a broken file listed as a problem; a missing folder is empty).
+- `npm run golden` 29/29.
+- `--smoke` **24/24**. New **`autoUi`** runs the whole path in the real window:
+  - the import dialog answers with the smoke's own song (a minute of the reference beat track shaped
+    into sections, written to `out/smoke-song.wav`);
+  - the drawer ranks seven templates;
+  - Generate is one undo step, writes a decision log and adds layers;
+  - Surprise me adds a second roll, and a thumbnail is drawn;
+  - restoring the first roll works;
+  - three undos return to the layers it started with.
+- `modulationUi` now clicks a module parameter's ∿, since Opacity has one too.
+- `PULSEFORGE_UI_TOUR=1` adds `10a`–`10c` (generated, rolls, log) at both window sizes.
+
+**Not done (Could-level parts of the spec):**
+- `derive-from-image` palettes (§5.3);
+- "Extract as template" (§10.2);
+- palette shifts at chorus and drop (§6), which need keyframed palette roles;
+- camera kicks as drop impulses beyond what the templates target;
+- a starter pack of background images (D31: the user's own images are used).
 
 ---
 

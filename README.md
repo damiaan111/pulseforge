@@ -169,6 +169,7 @@ Some things you can pass it:
 | `npm run golden` | Re-render the reference frames and check nothing moved |
 | `npm run modules:check` | Check the modules in `modules/`: they compile, render the same twice, and fit every aspect |
 | `npm run presets:builtin` | Rebuild the presets that ship with the app |
+| `npm run contact-sheet -- <folder>` | Run every auto template on every track in a folder; a grid of stills in `out/contact-sheet/` |
 | `npm run validate` | The full hardware validation run, writes a report to `out/validate/` |
 | `npm run build` | Bundle the app without launching it |
 
@@ -240,6 +241,8 @@ src/shell/       Electron's main process.
 src/ui/          The studio.
 python/          The Python side, Demucs and WhisperX.
 modules/         Drop your own visualizers and effects in here, no rebuild needed.
+templates/       The auto director's looks, as JSON. Your own go in Documents/Pulseforge/Templates.
+src/director/    The auto director: matching, palettes, calibration, arrangement, the decision log.
 docs/            Specifications, decisions and build status.
 vendor/          Everything setup downloaded. Not in git, rebuild it any time.
 ```
@@ -276,10 +279,15 @@ file on disk, and lets you restore or discard it.
 isolated vocals in about a minute, or tap along yourself. Correct anything on the lyrics lane
 of the timeline, with the vocals drawn behind it. Words fill in as they are sung, in seven styles.
 
-**The gaps that matter most:** the auto director is still to come.
+**Auto:** import a track into an empty project and it offers to build one. Seven templates (Neon
+Pulse, Neon Grid, Minimal Type, Minimal Mono, Cinematic Depth, Cinematic Particles, Lyric Focus)
+are ranked for the song. The one you pick gets a palette, layers and connections calibrated to that
+track, sections that build and drop, and a title that clears before the singing starts. A "why it
+looks like this" list explains every choice. Surprise Me rolls another take while keeping anything
+you have edited, and anything you lock (palette, layout, motion, template). The last ten rolls
+stay as thumbnails you can go back to.
 
-**Still to come:** the auto director's templates and Surprise Me,
-and the settings and cache screens.
+**Still to come:** the settings, cache and diagnostics screens.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

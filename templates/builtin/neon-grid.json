@@ -14,7 +14,7 @@
   "aspects": ["16:9", "1:1"],
   "palette": {
     "strategy": "generate-from-style",
-    "harmony": "triad",
+    "harmony": "split",
     "baseHue": { "from": "darkness", "range": [320, 290] },
     "saturation": [0.75, 1],
     "background": [0.03, 0.1],
@@ -40,7 +40,7 @@
       "id": "HERO", "role": "HERO", "required": true,
       "candidates": [
         { "module": "core.scene3d.terrain", "weight": 4, "label": "Terrain",
-          "params": { "low": "@accent", "high": "@primary", "grid": 1.1, "glow": 1.2, "rig": "static", "flow": 12, "amplitude": 2.4, "height": 3, "distance": 14, "mirror": true, "valley": 0.6 } },
+          "params": { "low": "@accent", "high": "@primary", "grid": 0.8, "glow": 0.6, "rig": "static", "flow": 12, "amplitude": 1.6, "height": 6, "lookHeight": 1, "distance": 14, "mirror": true, "valley": 0.9 } },
         { "module": "core.visualizer.tunnel", "weight": 1, "label": "Tunnel", "minStyle": { "energy": 0.6 },
           "params": { "fill": "@primary", "rings": 9, "speed": 0.8, "haze": 0.7 } }
       ]
@@ -75,7 +75,7 @@
     {
       "id": "POST", "role": "POST", "required": true,
       "effects": [
-        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.8, "threshold": 0.55, "radius": 0.025 } },
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.55, "threshold": 0.8, "radius": 0.025 } },
         { "key": "scanlines", "module": "core.effect.scanlines", "params": { "lines": 540, "depth": 0.22, "mask": 0.1 }, "probability": 0.5 },
         { "key": "chromatic", "module": "core.effect.chromatic", "params": { "amount": 0.002 }, "probability": 0.4 },
         { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.04 }, "probability": 0.4 }

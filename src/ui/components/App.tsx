@@ -12,6 +12,7 @@ import { ModulationMatrix } from './Modulation.tsx';
 import { Inspector } from './Inspector.tsx';
 import { RecoveryDialog } from './RecoveryDialog.tsx';
 import { LyricsDrawer } from './LyricsPanel.tsx';
+import { AutoDrawer } from './AutoPanel.tsx';
 import { LeftRail } from './LeftRail.tsx';
 import { Timeline } from './Timeline.tsx';
 import { TopBar } from './TopBar.tsx';
@@ -55,6 +56,12 @@ export function App(): React.JSX.Element {
     return window.pulseforge.onModulesChanged(() => void loadModules());
   }, [loadModules]);
 
+  // The auto-director's templates (M21): read once; the Auto drawer can reload them.
+  const loadTemplates = useStudio((s) => s.loadTemplates);
+  useEffect(() => {
+    void loadTemplates();
+  }, [loadTemplates]);
+
   // Autosave (M1): once a minute, and only when there is unsaved work to keep. Crashed runs'
   // autosaves are offered once, at start.
   const autosave = useStudio((s) => s.autosave);
@@ -95,6 +102,7 @@ export function App(): React.JSX.Element {
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.matrixOpen) state.setMatrixOpen(false);
         else if (state.lyricsOpen) state.setLyricsOpen(false);
+        else if (state.autoOpen) state.setAutoOpen(false);
         else if (state.toast !== null) state.notify(null);
         return;
       }
@@ -142,6 +150,7 @@ export function App(): React.JSX.Element {
       <RenderQueue />
       <ModulationMatrix />
       <LyricsDrawer />
+      <AutoDrawer />
       <ExportDialog />
       <SavePresetDialog />
       <RecoveryDialog />

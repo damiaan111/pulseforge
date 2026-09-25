@@ -14,6 +14,8 @@ import type { JobStatus, RenderJob } from '../export/queue.ts';
 import type { RenderRequest } from './render-service.ts';
 import type { ModuleScan } from '../modules-folder/scan.ts';
 import type { Preset } from '../project/presets.ts';
+import type { TemplateFile } from '../director/template-library.ts';
+import type { Section } from '../analysis/sections.ts';
 import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
 
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
@@ -61,6 +63,8 @@ export const IPC = {
   presetsThumbnail: 'pf:presets:thumbnail',
   presetsStoreThumbnail: 'pf:presets:store-thumbnail',
   presetsReveal: 'pf:presets:reveal',
+  templatesList: 'pf:templates:list',
+  templatesReveal: 'pf:templates:reveal',
   videoImport: 'pf:video:import',
   videoPrepare: 'pf:video:prepare',
   videoFrame: 'pf:video:frame',
@@ -141,13 +145,22 @@ export interface AnalysisPayload {
   readonly container: Uint8Array;
   /** `src/analysis/peaks.ts` bytes: the waveform pyramid for the timeline. */
   readonly peaks: Uint8Array;
-  readonly sections: readonly { readonly startSeconds: number; readonly endSeconds: number; readonly label: string }[];
+  /** With each section's mean energy: the director's drops are boundaries into much louder sections. */
+  readonly sections: readonly Section[];
+  /** Detected onsets in source seconds: the director puts drop impulses exactly on them. */
+  readonly onsetTimes: readonly number[];
   readonly durationSeconds: number;
   readonly fromCache: boolean;
   /** The ready stems (M5), one container each — merged into the mix's analysis by the studio. */
   readonly stems: readonly { readonly name: string; readonly container: Uint8Array }[];
   /** Every stem's state in the cache: ready, pending (being separated) or failed with why. */
   readonly stemStatus: Readonly<Record<string, { readonly state: 'ready' | 'pending' | 'failed'; readonly error?: string }>>;
+}
+
+export interface TemplateListing {
+  readonly files: readonly TemplateFile[];
+  /** The user templates folder, for "Open folder". */
+  readonly folder: string;
 }
 
 /** A session that ended without a clean quit and left an autosave behind (M1). */
@@ -413,6 +426,10 @@ export interface PulseforgeApi {
   storePresetThumbnail(key: string, png: Uint8Array): Promise<void>;
   /** Opens the user presets folder in the file manager. */
   revealPresets(): Promise<void>;
+  /** The auto-director's templates as files, built-in and user (M21); the studio parses them. */
+  listTemplates(): Promise<TemplateListing>;
+  /** Opens the user templates folder in the file manager, creating it if needed. */
+  revealTemplates(): Promise<void>;
   /** Shows an open dialog for a video and identifies it. Extraction is `prepareVideo`. */
   importVideo(): Promise<VideoFile | null>;
   /**

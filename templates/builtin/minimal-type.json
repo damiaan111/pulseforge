@@ -33,7 +33,7 @@
       "id": "HERO", "role": "HERO", "required": true,
       "candidates": [
         { "module": "core.visualizer.curve", "weight": 3, "label": "Line",
-          "params": { "fill": "@primary", "thickness": 0.0025, "baseline": 0.72, "height": 0.16, "spread": 0.7, "fillBody": 0 } },
+          "params": { "fill": "@primary", "thickness": 0.0025, "baseline": 0.8, "height": 0.12, "spread": 0.7, "fillBody": 0 } },
         { "module": "core.visualizer.waves", "weight": 1, "label": "Threads",
           "params": { "fill": "@primary", "lines": 3, "spacing": 0.08, "amplitude": 0.035, "thickness": 0.0018, "speed": 0.1, "fade": 0.3 } }
       ],
@@ -43,9 +43,9 @@
       "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
       "candidates": [
         { "module": "core.text.title", "weight": 1,
-          "params": { "text": "$title", "color": "@text", "case": "upper", "size": 0.14, "letterSpacing": 0.06, "shadow": 0, "maxWidth": 0.8 } }
+          "params": { "text": "$title", "color": "@text", "case": "upper", "size": 0.12, "letterSpacing": 0.06, "shadow": 0, "maxWidth": 0.8 } }
       ],
-      "transform": { "y": 0.38 },
+      "transform": { "y": 0.36 },
       "aspectOverrides": { "9:16": { "transform": { "y": 0.34 } } }
     },
     {

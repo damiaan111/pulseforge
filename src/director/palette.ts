@@ -85,6 +85,7 @@ const HARMONY: Record<Harmony, readonly [number, number]> = {
   analogous: [35, -35],
   complementary: [180, 30],
   triad: [120, 240],
+  split: [90, -110],
   duotone: [180, 0],
   mono: [0, 0],
 };

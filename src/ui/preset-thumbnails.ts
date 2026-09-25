@@ -25,6 +25,11 @@ export function setThumbnailHost(next: PreviewHost | null): void {
   host = next;
 }
 
+/** The preview host stills are drawn on — the director's roll thumbnails use it too. */
+export function thumbnailHost(): PreviewHost | null {
+  return host;
+}
+
 let reference: AnalysisSet | undefined;
 function referenceAnalysis(): AnalysisSet {
   if (reference === undefined) {

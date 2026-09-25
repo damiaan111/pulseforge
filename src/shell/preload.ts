@@ -64,6 +64,8 @@ const api: PulseforgeApi = {
   presetThumbnail: (key) => ipcRenderer.invoke(IPC.presetsThumbnail, key) as ReturnType<PulseforgeApi['presetThumbnail']>,
   storePresetThumbnail: (key, png) => ipcRenderer.invoke(IPC.presetsStoreThumbnail, key, png) as Promise<void>,
   revealPresets: () => ipcRenderer.invoke(IPC.presetsReveal) as Promise<void>,
+  listTemplates: () => ipcRenderer.invoke(IPC.templatesList) as ReturnType<PulseforgeApi['listTemplates']>,
+  revealTemplates: () => ipcRenderer.invoke(IPC.templatesReveal) as Promise<void>,
   onModulesChanged(listener) {
     const handler = () => listener();
     ipcRenderer.on(IPC.modulesChanged, handler);

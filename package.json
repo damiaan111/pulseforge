@@ -21,7 +21,8 @@
     "dev": "node --disable-warning=ExperimentalWarning scripts/app.ts --dev",
     "build": "node --disable-warning=ExperimentalWarning scripts/app.ts",
     "modules:check": "node --disable-warning=ExperimentalWarning scripts/check-modules.ts",
-    "presets:builtin": "node --disable-warning=ExperimentalWarning scripts/make-builtin-presets.ts"
+    "presets:builtin": "node --disable-warning=ExperimentalWarning scripts/make-builtin-presets.ts",
+    "contact-sheet": "node --disable-warning=ExperimentalWarning scripts/contact-sheet.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

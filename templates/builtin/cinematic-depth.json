@@ -32,11 +32,11 @@
       "id": "HERO", "role": "HERO", "required": true,
       "candidates": [
         { "module": "core.scene3d.shapes", "weight": 3, "label": "Knot",
-          "params": { "shape": "knot", "color": "@primary", "rim": "@secondary", "glow": 0.8, "rig": "orbit", "speed": 8, "metalness": 0.45, "roughness": 0.3, "faceted": false, "displace": 0.35 } },
+          "params": { "shape": "knot", "color": "@primary", "rim": "@secondary", "glow": 0.8, "rig": "orbit", "distance": 7.5, "speed": 8, "metalness": 0.45, "roughness": 0.3, "faceted": false, "displace": 0.35 } },
         { "module": "core.scene3d.shapes", "weight": 2, "label": "Torus",
-          "params": { "shape": "torus", "color": "@primary", "rim": "@secondary", "glow": 0.8, "rig": "orbit", "speed": 8, "metalness": 0.5, "roughness": 0.25, "faceted": false, "displace": 0.3 } },
+          "params": { "shape": "torus", "color": "@primary", "rim": "@secondary", "glow": 0.8, "rig": "orbit", "distance": 7.5, "speed": 8, "metalness": 0.5, "roughness": 0.25, "faceted": false, "displace": 0.3 } },
         { "module": "core.scene3d.shapes", "weight": 2, "label": "Sphere",
-          "params": { "shape": "sphere", "color": "@primary", "rim": "@secondary", "glow": 0.7, "rig": "dolly", "speed": 6, "metalness": 0.3, "roughness": 0.4, "faceted": true, "displace": 0.5 } },
+          "params": { "shape": "sphere", "color": "@primary", "rim": "@secondary", "glow": 0.7, "rig": "dolly", "distance": 7.5, "speed": 6, "metalness": 0.3, "roughness": 0.4, "faceted": true, "displace": 0.5 } },
         { "module": "core.scene3d.city", "weight": 1, "label": "City", "minStyle": { "energy": 0.5 },
           "params": { "low": "@secondary", "high": "@primary", "glow": 0.9, "rig": "dolly", "speed": 5 } }
       ],

@@ -18,6 +18,7 @@ import { create } from 'zustand';
 import { decodeAnalysis } from '../analysis/container.ts';
 import { decodePeaks, type PeakPyramid } from '../analysis/peaks.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
+import type { Section as AnalysisSection } from '../analysis/sections.ts';
 import { withAbsolutePaths, withStoredPaths } from '../project/asset-paths.ts';
 import {
   addAsset, addLayer, findAssetByHash, relinkAsset, sequence, type EditTarget,
@@ -42,17 +43,16 @@ import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
 import { sourceToTimelineSeconds } from '../engine/core/time.ts';
 import type { LyricsAlignMode, LyricsAlignProgress, UserSettings } from '../shell/ipc.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
+import { loadTemplates as loadTemplateLibrary, type LoadedTemplate, type TemplateProblem } from '../director/template-library.ts';
+import type { DirectorLock } from '../project/document.ts';
 import type { PreviewStats, Transport } from './clock.ts';
 import type { LiveModulation } from './preview/host.ts';
 
 /** The one history for the open project. Module-level: there is exactly one document. */
 export const history = new History(createDocument({ name: 'Untitled' }));
 
-export interface Section {
-  readonly startSeconds: number;
-  readonly endSeconds: number;
-  readonly label: string;
-}
+/** A structural section of the loaded track, as analysed (sections.ts): label and mean energy. */
+export type Section = AnalysisSection;
 
 export interface AudioState {
   readonly path: string;
@@ -130,6 +130,8 @@ export interface StudioState {
   analysis: AnalysisSet | null;
   peaks: PeakPyramid | null;
   sections: readonly Section[];
+  /** Detected onsets of the loaded track, source seconds (the director's drop placement). */
+  onsetTimes: readonly number[];
   analysisState: AnalysisState;
   analysisMessage: string | null;
 
@@ -243,6 +245,25 @@ export interface StudioState {
   /** The modulation matrix panel (ui-spec §6). */
   matrixOpen: boolean;
   setMatrixOpen(open: boolean): void;
+
+  /** The auto-director's drawer (M21, M22, D9: offered on import, always available). */
+  autoOpen: boolean;
+  setAutoOpen(open: boolean): void;
+  /** The template library, parsed; problems are files that did not parse. */
+  templates: readonly LoadedTemplate[];
+  templateProblems: readonly TemplateProblem[];
+  templatesFolder: string | null;
+  loadTemplates(): Promise<void>;
+  /** What Surprise me keeps (auto-director-spec §9) and whether it may change the template. */
+  autoLocks: readonly DirectorLock[];
+  setAutoLocks(locks: readonly DirectorLock[]): void;
+  autoRoulette: boolean;
+  setAutoRoulette(on: boolean): void;
+  /** Thumbnails of director rolls for the history strip, by roll key; drawn per session. */
+  rollThumbs: Readonly<Record<string, string>>;
+  /** A track was just imported into an empty project: offer to generate one (D9). */
+  autoOffer: boolean;
+  dismissAutoOffer(): void;
 
   /** The lyrics editor drawer (ui-spec §5 "Lyrics", lyrics-spec §5) and which tab it shows. */
   lyricsOpen: boolean;
@@ -371,6 +392,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   analysis: null,
   peaks: null,
   sections: [],
+  onsetTimes: [],
   analysisState: 'idle',
   analysisMessage: null,
 
@@ -713,7 +735,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     set({ exportOpen: open });
   },
   setQueueOpen(open) {
-    set(open ? { queueOpen: true, matrixOpen: false, lyricsOpen: false } : { queueOpen: false });
+    set(open ? { queueOpen: true, matrixOpen: false, lyricsOpen: false, autoOpen: false } : { queueOpen: false });
   },
 
   run(command, options) {
@@ -792,6 +814,8 @@ export const useStudio = create<StudioState>((set, get) => ({
       analysis: null,
       peaks: null,
       sections: [],
+      onsetTimes: [],
+      autoOffer: false,
       analysisState: 'idle' as const,
       analysisMessage: null,
     }));
@@ -831,7 +855,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       audioRequest += 1;
       const previous = get().audio;
       if (previous !== null) URL.revokeObjectURL(previous.url);
-      set({ audio: null, analysis: null, peaks: null, sections: [], analysisState: 'idle', analysisMessage: null });
+      set({ audio: null, analysis: null, peaks: null, sections: [], onsetTimes: [], analysisState: 'idle', analysisMessage: null });
     }
     set({ images: new Map(), fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
@@ -927,6 +951,9 @@ export const useStudio = create<StudioState>((set, get) => ({
         analysis,
         peaks: decodePeaks(payload.peaks),
         sections: payload.sections,
+        onsetTimes: payload.onsetTimes,
+        // D9: a track in an empty project is the moment to offer a generated one — offered, never forced.
+        autoOffer: history.current.layers.length === 0 && history.current.director === null,
         analysisState: 'ready',
         analysisMessage: payload.fromCache ? 'Analysis: cache hit' : 'Analysed and cached',
         stems: stemsFromPayload(payload),
@@ -1033,14 +1060,44 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   setMatrixOpen(open) {
     // One drawer at a time on the right edge.
-    set(open ? { matrixOpen: true, queueOpen: false, lyricsOpen: false } : { matrixOpen: false });
+    set(open ? { matrixOpen: true, queueOpen: false, lyricsOpen: false, autoOpen: false } : { matrixOpen: false });
+  },
+
+  autoOpen: false,
+  setAutoOpen(open) {
+    set(open ? { autoOpen: true, queueOpen: false, matrixOpen: false, lyricsOpen: false, autoOffer: false } : { autoOpen: false });
+  },
+  templates: [],
+  templateProblems: [],
+  templatesFolder: null,
+  async loadTemplates() {
+    try {
+      const listing = await window.pulseforge.listTemplates();
+      const { templates, problems } = loadTemplateLibrary(listing.files);
+      set({ templates, templateProblems: problems, templatesFolder: listing.folder });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the templates'), kind: 'bad' } });
+    }
+  },
+  autoLocks: [],
+  setAutoLocks(locks) {
+    set({ autoLocks: locks });
+  },
+  autoRoulette: false,
+  setAutoRoulette(on) {
+    set({ autoRoulette: on });
+  },
+  rollThumbs: {},
+  autoOffer: false,
+  dismissAutoOffer() {
+    set({ autoOffer: false });
   },
 
   lyricsOpen: false,
   lyricsTab: 'text',
   setLyricsOpen(open, tab) {
     set(open
-      ? { lyricsOpen: true, queueOpen: false, matrixOpen: false, ...(tab === undefined ? {} : { lyricsTab: tab }) }
+      ? { lyricsOpen: true, queueOpen: false, matrixOpen: false, autoOpen: false, ...(tab === undefined ? {} : { lyricsTab: tab }) }
       : { lyricsOpen: false });
   },
 

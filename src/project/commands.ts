@@ -670,6 +670,29 @@ export function replaceLook(
   };
 }
 
+/**
+ * The auto-director's result (M21, M22), as one undo step: the look — layers, both global lists,
+ * palette, seed — and the director's record. Everything else (audio, lyrics, assets, canvas, name)
+ * is the project's own and stays as it is at the moment the command runs.
+ */
+export function applyDirection(
+  result: Pick<ProjectDocument, 'seed' | 'palette' | 'layers' | 'globalEffects' | 'globalModulations' | 'director'>,
+  label = 'Generate project',
+): Command {
+  return {
+    label,
+    apply: (document) => ({
+      ...document,
+      seed: result.seed,
+      palette: result.palette,
+      layers: result.layers,
+      globalEffects: result.globalEffects,
+      globalModulations: result.globalModulations,
+      director: result.director,
+    }),
+  };
+}
+
 /** Rerolls the master seed — "Surprise me" (M22). */
 export function setSeed(seed: number): Command {
   return { label: 'Reroll seed', apply: (document) => ({ ...document, seed }) };

@@ -10,6 +10,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
+import type { BeatGrid, SourceAnalysis } from '../../src/engine/core/analysis.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import { encodeAnalysis } from '../../src/analysis/container.ts';
 import type { DecodedImage } from '../../src/engine/core/image.ts';
@@ -28,6 +29,11 @@ export interface FramesOptions {
   readonly name: string;
   /** Defaults to a two-second synthetic track — enough for any analysis lookup a check makes. */
   readonly pcm?: Float32Array;
+  /**
+   * The mix analysis, when the caller already has it (the contact sheet renders many projects from
+   * one track): skips analysing `pcm` again. Must be the analysis of that audio.
+   */
+  readonly analysis?: { readonly mix: SourceAnalysis; readonly beatGrid: BeatGrid | undefined };
   /** Off by default: dither noise is exactly what a pixel-position check does not want. */
   readonly dither?: boolean;
   /** Decoded images by content hash, for layers that reference assets. */
@@ -80,9 +86,12 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
 
   const pcm = options.pcm ?? synthesizeTestTrack(2);
   const pcmSha256 = createHash('sha256').update(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)).digest('hex');
-  const { analysis, beatGrid } = analyzeMix(pcm);
+  const given = options.analysis;
+  const computed = given === undefined ? analyzeMix(pcm) : undefined;
+  const mix = given?.mix ?? computed!.analysis.sources.get('mix')!;
+  const beatGrid = given === undefined ? computed!.beatGrid : given.beatGrid;
   const analysisFile = join(SPIKE_OUT, `analysis-${options.name}.bin`);
-  await writeFile(analysisFile, encodeAnalysis(analysis.sources.get('mix')!, { source: 'mix', beatGrid, meta: { pcmSha256 } }));
+  await writeFile(analysisFile, encodeAnalysis(mix, { source: 'mix', ...(beatGrid === undefined ? {} : { beatGrid }), meta: { pcmSha256 } }));
 
   const images: ImageFile[] = [];
   for (const [hash, image] of options.images ?? []) {

@@ -437,6 +437,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           // presence curves fade optional layers in and out on section boundaries this way.
           const opacityTarget = `layers.${layer.id}.opacity`;
           const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, layer.opacity, t) : layer.opacity));
+          if (program.targets.has(opacityTarget)) modulatedValues.set(opacityTarget, opacity);
           // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
           if (opacity <= 0) continue;
           const common = {

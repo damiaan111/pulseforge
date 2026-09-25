@@ -24,6 +24,8 @@ export function TopBar(): React.JSX.Element {
   const setQueueOpen = useStudio((s) => s.setQueueOpen);
   const matrixOpen = useStudio((s) => s.matrixOpen);
   const setMatrixOpen = useStudio((s) => s.setMatrixOpen);
+  const autoOpen = useStudio((s) => s.autoOpen);
+  const setAutoOpen = useStudio((s) => s.setAutoOpen);
   const lyricsOpen = useStudio((s) => s.lyricsOpen);
   const setLyricsOpen = useStudio((s) => s.setLyricsOpen);
   const activeRenders = useStudio((s) => s.renders.filter((job) => job.status === 'queued' || job.status === 'running').length);
@@ -52,6 +54,9 @@ export function TopBar(): React.JSX.Element {
       <span className="project-name" title={path ?? 'not saved yet'}>
         {name}{dirty ? ' •' : ''}
       </span>
+      <button type="button" data-action="auto-drawer" className={autoOpen ? 'active' : ''} title="The auto-director: a complete project from the track, Surprise me, and why it chose what it chose" onClick={() => setAutoOpen(!autoOpen)}>
+        ✦ Auto
+      </button>
       <button type="button" data-action="lyrics-drawer" className={lyricsOpen ? 'active' : ''} title="The lyrics: text, timings, checklist, tap to sync" onClick={() => setLyricsOpen(!lyricsOpen)}>
         ♪ Lyrics
       </button>

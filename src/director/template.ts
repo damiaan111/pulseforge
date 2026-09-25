@@ -48,7 +48,8 @@ export const SECTION_STATES = ['intro', 'build', 'main', 'breakdown', 'outro'] a
 
 export const PALETTE_STRATEGIES = ['generate-from-style', 'fixed', 'user'] as const;
 export type PaletteStrategy = (typeof PALETTE_STRATEGIES)[number];
-export const HARMONIES = ['analogous', 'complementary', 'triad', 'duotone', 'mono'] as const;
+/** `split`: secondary a quarter turn on, accent the other way — magenta, orange and cyan: synthwave. */
+export const HARMONIES = ['analogous', 'complementary', 'triad', 'split', 'duotone', 'mono'] as const;
 export type Harmony = (typeof HARMONIES)[number];
 
 export interface TemplateAffinity {

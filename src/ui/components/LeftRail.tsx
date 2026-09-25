@@ -16,6 +16,7 @@ import { PresetsPanel } from './PresetsPanel.tsx';
 import { ClipControls } from './ClipControls.tsx';
 import { StemsControls } from './StemsControls.tsx';
 import { LyricsSection } from './LyricsPanel.tsx';
+import { AutoOffer } from './AutoPanel.tsx';
 import { useModules } from '../modules.ts';
 import { useState } from 'react';
 
@@ -71,7 +72,7 @@ export function LeftRail(): React.JSX.Element {
       <PresetsPanel />
 
       <h2>Audio</h2>
-      <button type="button" className="wide" onClick={() => void importAudio()}>
+      <button type="button" className="wide" data-action="import-audio" onClick={() => void importAudio()}>
         {audio === null ? 'Import audio…' : 'Replace audio…'}
       </button>
       {audio === null ? (
@@ -96,6 +97,8 @@ export function LeftRail(): React.JSX.Element {
           {analysisMessage}
         </p>
       )}
+
+      <AutoOffer />
 
       <LyricsSection />
 
