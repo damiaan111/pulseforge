@@ -9,6 +9,7 @@
 //  6. Allocate in init/resize, not per frame.
 
 import type { AnalysisSet } from './analysis.ts';
+import type { RenderLyrics } from './lyrics.ts';
 import type { ImageTexture } from './image.ts';
 import type { ParamSpec, ParamValues } from './params.ts';
 import type { TextRasterizer } from './text.ts';
@@ -119,6 +120,8 @@ export interface RenderContext {
   readonly layer: { readonly inSeconds: number; readonly outSeconds: number | null };
   /** Glyph rasterisation, when the host supplied it (core/text.ts). Undefined: text cannot be drawn. */
   readonly text: TextRasterizer | undefined;
+  /** The project's timed lyrics (core/lyrics.ts), for lyrics layers; undefined when it has none. */
+  readonly lyrics: RenderLyrics | undefined;
   /**
    * A font asset, by the id a `font` asset param holds. `''` resolves to the default font
    * (`{ hash: null }`). `missing` names why a chosen font cannot be used — not in the project, or

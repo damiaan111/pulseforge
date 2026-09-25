@@ -21,13 +21,16 @@
 // Missing fonts draw with the default font and **say so** (§8.13: reported, never silently
 // substituted). A host without a rasteriser draws nothing and says so.
 
-import { parseHexColor, srgbToLinear } from '../core/color.ts';
 import type { ModuleDefinition, ModuleInstance, ModuleManifest, RenderContext } from '../core/module.ts';
 import { num, str, type ParamValues } from '../core/params.ts';
 import type { TextRaster, TextRequest } from '../core/text.ts';
 import { FULLSCREEN_VERT, createProgram, drawFullscreenTriangle, uniformLocation } from '../render/gl.ts';
+import {
+  TEXT_SAMPLING_GLSL, bindTexture, clamp01, createWordMaskPass, linearHex, releaseTextRaster,
+  unbindTextures, uploadTextRaster, type UploadedText,
+} from './text-gpu.ts';
 
-const ANIMATIONS = [
+export const TEXT_ANIMATIONS = [
   { value: 'none', label: 'None' },
   { value: 'fade', label: 'Fade' },
   { value: 'slide-up', label: 'Slide up' },
@@ -38,7 +41,7 @@ const ANIMATIONS = [
   { value: 'stagger', label: 'Stagger (per word)' },
 ] as const;
 
-export type TextAnimation = (typeof ANIMATIONS)[number]['value'];
+export type TextAnimation = (typeof TEXT_ANIMATIONS)[number]['value'];
 
 export const textManifest: ModuleManifest = {
   id: 'core.text.title',
@@ -96,15 +99,12 @@ export const textManifest: ModuleManifest = {
 
     // 'none' by default, deliberately: with a fade-in the layer is fully transparent *at* its in
     // point, so a text layer added to a stopped preview looked broken until you scrubbed.
-    { key: 'animIn', label: 'In', group: 'Animation', type: 'enum', default: 'none', options: ANIMATIONS, modulatable: false },
-    { key: 'animOut', label: 'Out', group: 'Animation', type: 'enum', default: 'none', options: ANIMATIONS, modulatable: false },
+    { key: 'animIn', label: 'In', group: 'Animation', type: 'enum', default: 'none', options: TEXT_ANIMATIONS, modulatable: false },
+    { key: 'animOut', label: 'Out', group: 'Animation', type: 'enum', default: 'none', options: TEXT_ANIMATIONS, modulatable: false },
     { key: 'animSeconds', label: 'Duration', group: 'Animation', type: 'float', default: 0.6, min: 0, max: 10, softMax: 3, unit: 's', description: 'Timed from the layer’s in and out points' },
   ],
 };
 
-const MAX_WORDS = 4096;
-
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
 
 export interface AnimationState {
@@ -187,28 +187,6 @@ export function textAnimation(
   return { opacity, offsetEm, scale, blurLod, words };
 }
 
-/**
- * Pass 1, only while a per-word animation runs: fill (R) and outline (G) multiplied by each word's
- * visibility, into the layer's own mask texture, whose mipmaps are then rebuilt. Blur samples that
- * texture, so a hidden word contributes nothing to its neighbours' glow — sampling the static mask's
- * mipmaps and masking afterwards smeared hidden words into hard-edged streaks.
- */
-const MASK_FRAG = /* glsl */ `#version 300 es
-precision highp float;
-uniform sampler2D u_base;    // RG8: fill, outline
-uniform sampler2D u_ids;     // RG8: 1-based word id, little-endian
-uniform sampler2D u_wordVis; // R8: visibility per id, [0] = not in a word
-uniform float u_wordCount;
-out vec4 outColor;
-void main() {
-  ivec2 texel = ivec2(gl_FragCoord.xy);
-  vec2 rg = texelFetch(u_ids, texel, 0).rg;
-  float id = floor(rg.r * 255.0 + 0.5) + 256.0 * floor(rg.g * 255.0 + 0.5);
-  float vis = texelFetch(u_wordVis, ivec2(int(min(id, u_wordCount)), 0), 0).r;
-  outColor = vec4(texelFetch(u_base, texel, 0).rg * vis, 0.0, 1.0);
-}
-`;
-
 const FRAG = /* glsl */ `#version 300 es
 precision highp float;
 uniform vec2 u_canvas;
@@ -229,34 +207,7 @@ uniform vec3 u_plate;       // opacity, padding px, radius px
 uniform vec4 u_anim;        // offset y px, scale, blur lod, opacity
 out vec4 outColor;
 
-float inside(vec2 uv) {
-  return step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
-}
-
-vec2 maskAt(vec2 uv, float lod) {
-  return textureLod(u_mask, uv, lod).rg * inside(uv);
-}
-
-// Fill and outline together, softened: a ring of eight taps one mip level finer than asked, plus
-// the centre. Smoother than a single coarse mip, which shows its block structure as a halo.
-float coverage(vec2 uv, float lod) {
-  float level = max(0.0, lod - 1.0);
-  vec2 radius = pow(2.0, lod) * 0.8 / u_bitmap;
-  vec2 m = maskAt(uv, level);
-  float sum = max(m.r, m.g) * 2.0;
-  for (int i = 0; i < 8; i++) {
-    float a = float(i) * 0.785398;
-    vec2 s = maskAt(uv + vec2(cos(a), sin(a)) * radius, level);
-    sum += max(s.r, s.g);
-  }
-  return sum / 10.0;
-}
-
-float roundedBox(vec2 p, vec2 half_, float r) {
-  vec2 q = abs(p) - half_ + r;
-  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-}
-
+${TEXT_SAMPLING_GLSL}
 void main() {
   vec2 p = vec2(gl_FragCoord.x, u_canvas.y - gl_FragCoord.y);
   vec2 center = u_origin + u_content.xy + u_content.zw * 0.5;
@@ -294,146 +245,27 @@ void main() {
 }
 `;
 
-interface Uploaded {
-  readonly key: string;
-  readonly raster: TextRaster;
-  /** RG8 fill + outline as rasterised; sampled directly when no per-word animation runs. */
-  readonly base: WebGLTexture;
-  /** RG8 word ids. */
-  readonly ids: WebGLTexture;
-  /** RG8 base × word visibility, rebuilt per frame during per-word animation. */
-  readonly masked: WebGLTexture;
-  readonly maskedFramebuffer: WebGLFramebuffer;
-}
-
 function createText(gl: WebGL2RenderingContext): ModuleInstance {
   const program = createProgram(gl, textManifest.id, FULLSCREEN_VERT, FRAG);
-  const maskProgram = createProgram(gl, `${textManifest.id}.mask`, FULLSCREEN_VERT, MASK_FRAG);
+  const maskPass = createWordMaskPass(gl, textManifest.id);
   const names = [
     'u_canvas', 'u_mask', 'u_bitmap', 'u_origin', 'u_content', 'u_colorA', 'u_colorB', 'u_gradient', 'u_strokeColor',
     'u_shadow', 'u_shadowColor', 'u_glowColor', 'u_glow', 'u_plateColor', 'u_plate', 'u_anim',
   ] as const;
   const u = Object.fromEntries(names.map((name) => [name, uniformLocation(gl, program, name)])) as Record<(typeof names)[number], WebGLUniformLocation>;
-  const mu = {
-    base: uniformLocation(gl, maskProgram, 'u_base'),
-    ids: uniformLocation(gl, maskProgram, 'u_ids'),
-    wordVis: uniformLocation(gl, maskProgram, 'u_wordVis'),
-    wordCount: uniformLocation(gl, maskProgram, 'u_wordCount'),
-  };
   const vao = gl.createVertexArray();
-  const wordVis = gl.createTexture();
-  let wordVisWidth = 0;
-  let uploaded: Uploaded | undefined;
-
-  const texture = (width: number, height: number, data: Uint8Array | null, mipmaps: boolean) => {
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, width, height, 0, gl.RG, gl.UNSIGNED_BYTE, data);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    if (mipmaps) {
-      gl.generateMipmap(gl.TEXTURE_2D);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    } else {
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    }
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    return tex;
-  };
+  let uploaded: UploadedText | undefined;
 
   const release = () => {
     if (uploaded === undefined) return;
-    gl.deleteTexture(uploaded.base);
-    gl.deleteTexture(uploaded.ids);
-    gl.deleteTexture(uploaded.masked);
-    gl.deleteFramebuffer(uploaded.maskedFramebuffer);
+    releaseTextRaster(gl, uploaded);
     uploaded = undefined;
   };
 
-  const upload = (key: string, raster: TextRaster, strokePx: number): Uploaded => {
+  const upload = (key: string, raster: TextRaster, strokePx: number): UploadedText => {
     release();
-    const { width, height } = raster;
-    const base = new Uint8Array(width * height * 2);
-    for (let i = 0; i < width * height; i += 1) {
-      base[i * 2] = raster.fill[i] ?? 0;
-      base[i * 2 + 1] = raster.stroke?.[i] ?? 0;
-    }
-    // Word ids, 1-based, over each word's box grown by the outline so the outline animates with its
-    // word. Vertically a box stops halfway into the gap to the neighbouring line: with tight line
-    // height, boxes overlap, and a later line's box used to overwrite the descenders above it.
-    const ids = new Uint8Array(width * height * 2);
-    const grow = Math.ceil(strokePx) + 1;
-    const lineTop = (line: number) => raster.words.find((w) => w.line === line)?.y;
-    const lineBottom = (line: number) => {
-      const word = raster.words.find((w) => w.line === line);
-      return word === undefined ? undefined : word.y + word.height;
-    };
-    raster.words.slice(0, MAX_WORDS).forEach((word, index) => {
-      const id = index + 1;
-      const wordBottom = word.y + word.height;
-      const above = lineBottom(word.line - 1);
-      const below = lineTop(word.line + 1);
-      const top = Math.max(word.y - grow, above === undefined ? -Infinity : (above + word.y) / 2);
-      const bottom = Math.min(wordBottom + grow, below === undefined ? Infinity : (wordBottom + below) / 2);
-      const x0 = Math.max(0, Math.floor(word.x) - grow);
-      const y0 = Math.max(0, Math.floor(top));
-      const x1 = Math.min(width, Math.ceil(word.x + word.width) + grow);
-      const y1 = Math.min(height, Math.ceil(bottom));
-      for (let y = y0; y < y1; y += 1) {
-        for (let x = x0; x < x1; x += 1) {
-          const o = (y * width + x) * 2;
-          ids[o] = id & 0xff;
-          ids[o + 1] = id >> 8;
-        }
-      }
-    });
-    const masked = texture(width, height, null, true);
-    const maskedFramebuffer = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, maskedFramebuffer);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, masked, 0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    uploaded = { key, raster, base: texture(width, height, base, true), ids: texture(width, height, ids, false), masked, maskedFramebuffer };
+    uploaded = uploadTextRaster(gl, key, raster, strokePx);
     return uploaded;
-  };
-
-  const writeWordVisibility = (visibility: Float32Array, wordCount: number) => {
-    const width = wordCount + 1;
-    const data = new Uint8Array(width);
-    data[0] = 255;
-    for (let i = 0; i < wordCount; i += 1) data[i + 1] = Math.round(clamp01(visibility[i] ?? 1) * 255);
-    gl.bindTexture(gl.TEXTURE_2D, wordVis);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    if (wordVisWidth !== width) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, width, 1, 0, gl.RED, gl.UNSIGNED_BYTE, data);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      wordVisWidth = width;
-    } else {
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, 1, gl.RED, gl.UNSIGNED_BYTE, data);
-    }
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-  };
-
-  const bind = (unit: number, tex: WebGLTexture, location: WebGLUniformLocation) => {
-    gl.activeTexture(gl.TEXTURE0 + unit);
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.uniform1i(location, unit);
-  };
-  const unbind = (units: number) => {
-    for (let unit = units - 1; unit >= 0; unit -= 1) {
-      gl.activeTexture(gl.TEXTURE0 + unit);
-      gl.bindTexture(gl.TEXTURE_2D, null);
-    }
-  };
-
-  const linear = (hex: string, fallback: string): [number, number, number] => {
-    const c = parseHexColor(hex) ?? parseHexColor(fallback) ?? { r: 1, g: 1, b: 1, a: 1 };
-    return [srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b)];
   };
 
   return {
@@ -490,26 +322,8 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       if (raster.clamped) ctx.warn('text: the text block is larger than the maximum texture size and was scaled down');
 
       const animation = textAnimation(ctx.time.t, ctx.layer, str(params, 'animIn'), str(params, 'animOut'), num(params, 'animSeconds'), raster.words.length);
-      const wordCount = Math.min(MAX_WORDS, raster.words.length);
-      let mask = current.base;
-      if (animation.words !== null) {
-        writeWordVisibility(animation.words, wordCount);
-        // Pass 1 writes into the layer's own mask; the host's output target is restored after.
-        gl.bindFramebuffer(gl.FRAMEBUFFER, current.maskedFramebuffer);
-        gl.viewport(0, 0, raster.width, raster.height);
-        gl.disable(gl.BLEND);
-        gl.useProgram(maskProgram);
-        bind(0, current.base, mu.base);
-        bind(1, current.ids, mu.ids);
-        bind(2, wordVis, mu.wordVis);
-        gl.uniform1f(mu.wordCount, wordCount);
-        drawFullscreenTriangle(gl, vao);
-        unbind(3);
-        gl.bindTexture(gl.TEXTURE_2D, current.masked);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        mask = current.masked;
-      }
+      // Pass 1 writes into the layer's own mask; the host's output target is restored after.
+      const mask = animation.words !== null ? maskPass.apply(current, animation.words) : current.base;
       // Always, not only after the mask pass: uploading a new raster creates a framebuffer too, and
       // that unbinds the host's target — static text once drew into the void because of it.
       gl.bindFramebuffer(gl.FRAMEBUFFER, ctx.outputTarget.framebuffer);
@@ -523,12 +337,12 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       const angle = (num(params, 'shadowAngle') * Math.PI) / 180;
       const lodFor = (px: number) => Math.max(0, Math.log2(Math.max(1, px)));
 
-      const a = linear(str(params, 'color'), '#ffffff');
-      const b = linear(str(params, 'colorB'), '#ff2d95');
-      const sc = linear(str(params, 'strokeColor'), '#000000');
-      const shc = linear(str(params, 'shadowColor'), '#000000');
-      const gc = linear(str(params, 'glowColor'), '#ff2d95');
-      const pc = linear(str(params, 'plateColor'), '#000000');
+      const a = linearHex(str(params, 'color'), '#ffffff');
+      const b = linearHex(str(params, 'colorB'), '#ff2d95');
+      const sc = linearHex(str(params, 'strokeColor'), '#000000');
+      const shc = linearHex(str(params, 'shadowColor'), '#000000');
+      const gc = linearHex(str(params, 'glowColor'), '#ff2d95');
+      const pc = linearHex(str(params, 'plateColor'), '#000000');
 
       gl.disable(gl.BLEND);
       gl.useProgram(program);
@@ -547,17 +361,16 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       gl.uniform3f(u.u_plateColor, pc[0], pc[1], pc[2]);
       gl.uniform3f(u.u_plate, params['plate'] === true ? num(params, 'plateOpacity') : 0, num(params, 'platePadding') * em, num(params, 'plateRadius') * em);
       gl.uniform4f(u.u_anim, animation.offsetEm * em, Math.max(0.01, animation.scale), animation.blurLod, animation.opacity);
-      bind(0, mask, u.u_mask);
+      bindTexture(gl, 0, mask, u.u_mask);
       drawFullscreenTriangle(gl, vao);
-      unbind(1);
+      unbindTextures(gl, 1);
       gl.useProgram(null);
     },
 
     dispose() {
       release();
-      gl.deleteTexture(wordVis);
+      maskPass.dispose();
       gl.deleteProgram(program);
-      gl.deleteProgram(maskProgram);
       gl.deleteVertexArray(vao);
     },
   };

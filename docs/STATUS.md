@@ -9,7 +9,7 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 877 tests, `npm run golden` 21/21 identical,
+> any aspect. Last full verification: `npm run check` 948 tests, `npm run golden` 29/29 identical,
 > `--smoke` 21/21.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -84,6 +84,7 @@
 | 4.49 | Autosave and crash recovery — M1 |
 | | **Lyrics (P6)** |
 | 4.50 | Lyrics data (P6 step 1) — M18 model, lyrics-spec §1–§2, §9, §10 |
+| 4.51 | The karaoke layer (P6 step 2) — M20, lyrics-spec §6–§8 |
 
 ---
 
@@ -98,7 +99,7 @@
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
-| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data: model, timing, formats, commands, checklist, §4.50) done; the layer, the studio editor, tap-to-sync, the timeline track and WhisperX follow |
+| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data, §4.50) and step 2 (the karaoke layer, §4.51) done; the studio editor, tap-to-sync, the timeline track and WhisperX follow |
 | P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
 | P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
@@ -189,14 +190,14 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 877 tests in 69 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 948 tests in 74 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
 | `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
-| `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
+| `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d, lyrics) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
 | `npm run presets:builtin` | regenerate `presets/builtin/` from `scripts/make-builtin-presets.ts` (refuses unknown modules/keys); commit the diff | ~2 s |
 | `npm run modules:check` | conformance test for drop-in modules in `modules/` (params, compile, determinism, reflow) → `out/modules-check.json`; `-- <dir>` for another folder | ~15 s |
 | `npm run spike:determinism` | engine determinism on GPU; `--4k`, `--seconds N`, `--audio <file>` | ~30 s |
@@ -2209,6 +2210,113 @@ Verified here: `npm run check` **929 tests in 72 files** (52 new).
 
 **Not done in this step:** the lyrics layer and karaoke rendering (step 2), the studio editor,
 tap-to-sync and the timeline track (steps 3–4), WhisperX (step 5).
+
+### 4.51 The karaoke layer (P6 step 2) — M20, lyrics-spec §6–§8, modulation-spec §2.4, §11
+
+`core.text.lyrics` (`src/engine/modules/lyrics.ts`) draws the project's lyrics, timed to the music,
+with karaoke fill. Its content comes from the project (`RenderProject.lyrics`, §4.50). Its look is
+its own schema (≈50 params in Text, Lines, Karaoke, Outline, Shadow, Glow, Plate, Animation and
+Roles), so the inspector generates itself and everything is modulatable and per-aspect overridable.
+
+**Shared GPU code with the text layer.** The raster upload, the word-id map, the per-word
+visibility pass, the blur sampling and the colour helpers moved from `text.ts` into
+`src/engine/modules/text-gpu.ts`. A title and a karaoke line with the same style are drawn by the
+same code. **Verified pixel-identical**: text frames exercising the plain path, the typewriter mask
+pass, glow, outline, gradient and plate hashed the same before and after the move. (Text is not in
+the golden set, so this was an A/B render with `text.ts` stashed.)
+
+**Karaoke fill (§6.1, §6.2).**
+- Each line is rasterised once per (text, style, resolution) and cached: 24 lines, least recently
+  used (§11). The fill is computed per pixel from a small per-word table, a 2-row RGBA32F texture
+  uploaded each frame: box, progress, the row's sweep front, pop and lift. It never re-rasterises.
+- Rasterised words map onto lyric tokens **by character offset**, so a "—" standing alone fills
+  with the word it belongs to, left to right across both.
+- Modes:
+  - `wipe`: hard or feathered edge (`softEdge`, em).
+  - `wordSwap`: the whole word switches at its start.
+  - `wordPop`: the word brightens and rises, decaying with a 0.18 s time constant. The id map is
+    grown upward so the lift has room.
+  - `fillStroke`: the outline is always there and the fill pours in; it forces at least a
+    0.04 em outline.
+  - `gradientSweep`: a front at least one em wide, crossing word boundaries on each row. Colour is
+    "being sung" near the front and "sung" behind it.
+  - `bouncingBall`: lands on each word as it starts, a sine hop between word centres, and settles
+    onto the first word before it.
+  - `none`: static, line-timed only.
+- Colours: `upcoming` / `active` / `sung`, each palette-linkable. A line's own `style.color` replaces
+  `upcoming`.
+
+**The window (§6.3, §6.5).**
+- Lead lines (and instrumental notes) form the sequence. The current line sits at the layer's
+  anchor, with up to `lines − 1` previews below at `nextOpacity`. Spacing follows each line's
+  actual height (a wrapped line is taller) plus `lineGap`.
+- A **hand-over** (the next line appears as this one leaves, `lineWindows`) is animated by
+  `advance`:
+  - `scroll`: the stack slides up; the old line fades as it rises and the next preview fades in at
+    the bottom.
+  - `crossfade`: the old and new windows blend.
+  - `cut`: an instant switch.
+- **The hand-over is centred on the boundary**, starting half the advance time before the next line
+  is sung (`windowCursor`). The first golden render showed why: starting at the boundary left the
+  new line filling its first word while still dimmed in the preview slot. The half is capped at
+  40 % of either line, so short lines still get a complete, faster move.
+- A line that appears out of an empty screen, or leaves into one, plays the entry and exit
+  animations instead: the text layer's `textAnimation`, including per-word typewriter and stagger.
+- `leadIn` (0.6 s) and `holdOut` (0.4 s) follow the clamping rules of §4.50.
+
+**Roles (D35).**
+- With `roles: all`, backing and ad-lib lines are **satellites**: they never join the sequence
+  (where they would push the lead line away).
+- Backing lines sit **below the whole window, as actually laid out**. The first golden render put
+  them one line below the current line, on top of the next-line preview, and a fixed estimate then
+  failed when a 9:16 line wrapped.
+- Ad-libs are offset to the side (`adlibOffsetX`, a fraction of the width).
+- Each satellite role has its own scale and opacity, and concurrent satellites stack.
+- A layer set to one role shows only that role, as its own sequence. So backing vocals can have
+  their own layer, styled and placed independently.
+
+**Legibility (§7) and checks (§9).**
+- A shadow is on by default, and a plate per line is available.
+- The layer reports **a line outside the title-safe area** (5 % margins) at the current canvas, for
+  lines at more than half opacity.
+- It also reports **missing fonts** (as the text layer does), **no lyrics** and **no timed lines**,
+  each with where to fix it.
+- Each line is scissored to its animated bitmap (plus the ball's airspace), so a window of four
+  lines at 4K does not cost four full-screen passes.
+
+**Modulation (modulation-spec §2.4, §11).**
+- `lyricActive`, `lineProgress` and `wordActive` are live (§4.50's `lyricSignals`, cached per
+  project) and fixed-range 0..1, like the generators.
+- Without timed sung lines, a binding on them is **reported and inactive**, never a silent 0.
+- The studio offers them as *Singing*, *Line progress* and *Words*.
+- New recipes:
+  - **Lyric dim**: `lyricActive`, 200 ms linear envelope, 200 ms look-ahead, `multiply −0.4` — the
+    spec's "cheapest legibility win".
+  - **Word accent**: `wordActive`, 150 ms release, +15 % of the parameter.
+
+**A bug the determinism test caught.** The per-word mask pass ran with the previous line's scissor
+still enabled, so it updated only part of the mask and left words from an earlier frame in the rest:
+render order changed the pixels. The mask pass now disables the scissor itself.
+
+**Golden entry `lyrics`** (`tests/golden/projects/lyrics.pvproj`): a two-second project going
+through the real document path, at 16:9 and 9:16. Its first line has explicit word timings; it also
+has a backing line, a scroll hand-over, a Word-accent binding on glow, and a 9:16 override (higher,
+larger). Frames 30, 50, 64 and 100 were checked by eye before being accepted: mid-wipe, backing
+below the window, the hand-over complete, and the wrapped vertical line.
+
+Verified here:
+- `npm run check`: **948 tests in 74 files**. New ones cover the pure layout (window, scroll,
+  crossfade, cut, satellites, entry/exit, stack geometry, sweep fronts, punctuation fill, all fill
+  modes offered) in `tests/lyrics/layout.test.ts`. `tests/golden/lyrics-gpu.test.ts` runs on the RTX
+  3060 and checks: nothing before the lead-in; mid-line the band reads sung-then-unsung left to
+  right; a finished line is all sung; the preview is lit but never full white; all seven fill modes
+  draw and all differ, and `none` never uses the sung colour; the output is deterministic across
+  runs and render order; and a project without lyrics says so.
+- `npm run golden`: **29/29 identical**. `--smoke`: **21/21**.
+
+**Not done:** contrast enforcement against the backdrop (§7, shared with auto-director-spec §7);
+gradient fills and per-word styling (D38: per word is a Could-have); a lyrics layer is added from the
+module list like any other layer, but lyrics cannot yet be *entered* in the studio (next step).
 
 ---
 

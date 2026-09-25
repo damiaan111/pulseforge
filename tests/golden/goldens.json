@@ -28,6 +28,15 @@
         { "aspect": "9:16", "width": 360, "height": 640 }
       ],
       "frames": [0, 45, 90]
+    },
+    {
+      "name": "lyrics",
+      "project": "projects/lyrics.pvproj",
+      "canvases": [
+        { "aspect": "16:9", "width": 640, "height": 360 },
+        { "aspect": "9:16", "width": 360, "height": 640 }
+      ],
+      "frames": [30, 50, 64, 100]
     }
   ]
 }

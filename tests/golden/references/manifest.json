@@ -1,6 +1,6 @@
 {
   "engineVersion": "0.1.0-p0",
-  "generatedOn": "2026-09-18T18:28:29.453Z",
+  "generatedOn": "2026-09-25T10:55:04.022Z",
   "records": [
     {
       "key": "neon-bars-16x9-00000",
@@ -147,6 +147,62 @@
       "width": 360,
       "height": 640,
       "sha256": "cf25033c21e9e2730fafecf1bdc53003d448f576926b2e9a11e25152f0ecb81c",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00030",
+      "width": 640,
+      "height": 360,
+      "sha256": "f62e5c8bcb31a74a101d0053dc2509fc0cb3e15c789c8a54b83646de1706e616",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00050",
+      "width": 640,
+      "height": 360,
+      "sha256": "19047169bfe29255e64491e4cdd436f032a8feb8f2849196e609a79503242ef5",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00064",
+      "width": 640,
+      "height": 360,
+      "sha256": "282b52df44364633ea1acffe3c17bcb5c1c1430702085fdd81389c2b66356e50",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00100",
+      "width": 640,
+      "height": 360,
+      "sha256": "dac500b8f6be601525351be7890dac1211870e3ff3965ce1f3c7bf3eba9e6715",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00030",
+      "width": 360,
+      "height": 640,
+      "sha256": "7440630ba4a8dba7a1ac083e06001a6c3212ebc6a23fcf0b56d62f7d9744cb77",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00050",
+      "width": 360,
+      "height": 640,
+      "sha256": "ae10bbd09035fbc19bab5e18f769f13ff439db97b0585f24788d90d37d7409ea",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00064",
+      "width": 360,
+      "height": 640,
+      "sha256": "a86b8abe254a7aa0e22374b177cbbeca01084c7b3227c36eb414bd6819a7fecb",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00100",
+      "width": 360,
+      "height": 640,
+      "sha256": "1187eaea173fb04eaca4e51865640df7c9b2d5d3bf86224cd8c457a08528d634",
       "notes": []
     }
   ]

@@ -21,7 +21,7 @@
 | P3 — Studio | ✅ | |
 | P4 — Library | ✅ | 16 steps, 2026-09-15 → 09-18 |
 | P5 — Export | 🔶 | most of it landed early with the render pipeline; see M34 and §3 |
-| P6 — Lyrics | 🔶 | step 1 done: the lyrics data layer (STATUS 4.50) |
+| P6 — Lyrics | 🔶 | steps 1–2 done: lyrics data (STATUS 4.50), the karaoke layer (4.51) |
 | P7 — Auto-director | 🔶 | analysis, sections and classification only |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
@@ -73,7 +73,7 @@ both large — the v1 must-have work is **roughly two-thirds done**.
 |---|---|---|---|
 | M18 | Lyrics editor: paste, `.lrc`/`.srt` import, per-line times | 🔶 | the model, text preparation, `.lrc`/`.srt`/`.vtt`/`.ttml` import and export, commands and checklist are done (4.50); **the studio editor** is not |
 | M19 | Tap-to-sync with beat snapping, vocal-stem waveform, drag-adjust | ⬜ | all; the vocal waveform needs M5 |
-| M20 | Karaoke word-fill rendering | ⬜ | the text engine already reports per-word boxes (M32), which is what word-fill needs |
+| M20 | Karaoke word-fill rendering | ✅ | 4.51 — seven fill modes, line window with scroll/crossfade/cut, roles, lyric modulation sources. Not built: contrast enforcement against the backdrop, gradient fills |
 | M26 | WhisperX transcription + alignment on the vocal stem | ⬜ | needs M5, M28 and the lyrics setup tier (M2) |
 
 ### Auto (P7)
@@ -161,9 +161,9 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 877 tests — unit tests, and GPU tests that render through Electron |
-| `npm run golden` | 21 reference frames (bars, layered, 3D scenes at 16:9, 9:16, 1:1) are byte-identical |
-| `npm run dev -- --smoke` | 20 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
+| `npm run check` | typecheck, lint (including the engine boundary) and 948 tests — unit tests, and GPU tests that render through Electron |
+| `npm run golden` | 29 reference frames (bars, layered, 3D scenes, lyrics at 16:9, 9:16, 1:1) are byte-identical |
+| `npm run dev -- --smoke` | 21 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |
 | `npm run render -- <project> -o <mp4>` | a real NVENC export, verified after encoding |
 | `npm run validate` | the P0 hardware checks (determinism, readback, NVENC, stems, sync) |

@@ -36,6 +36,9 @@ export const SOURCE_CHOICES: readonly SourceChoice[] = [
   { type: 'noise', label: 'Drift', hint: 'Smooth seeded random wandering.', audio: false },
   { type: 'ramp', label: 'Ramp', hint: 'From one value to another over the whole track.', audio: false },
   { type: 'progress', label: 'Progress', hint: 'Zero at the start of the track, one at the end.', audio: false },
+  { type: 'lyricActive', label: 'Singing', hint: 'One while a lyric line is being sung, zero between lines (needs timed lyrics).', audio: false },
+  { type: 'lineProgress', label: 'Line progress', hint: 'Zero to one through the line being sung (needs timed lyrics).', audio: false },
+  { type: 'wordActive', label: 'Words', hint: 'A short pulse on every sung word — karaoke-synced accents (needs timed lyrics).', audio: false },
 ];
 
 export const STEM_CHOICES = ['mix', 'drums', 'bass', 'vocals', 'other'] as const;
@@ -135,9 +138,9 @@ function recipe(
 }
 
 /**
- * The gestures most bindings are, as one click. Sources are the mix until stems are wired into the
- * studio (M5); a recipe re-pointed at a stem later keeps everything else. The spec's structural and
- * lyric recipes (build riser, drop flash, lyric dim) wait for those sources.
+ * The gestures most bindings are, as one click. Audio recipes read the mix; re-pointed at a stem
+ * they keep everything else. The spec's structural recipes (build riser, drop flash) wait for the
+ * structural sources.
  */
 export const RECIPES: readonly Recipe[] = [
   recipe('kick-pump', 'Kick pump', 'A snappy push on every hit.', (b, span) => ({
@@ -180,6 +183,21 @@ export const RECIPES: readonly Recipe[] = [
     source: { ...b.source, type: 'beat' },
     envelope: { ...b.envelope, attackMs: 1, releaseMs: 120 },
     amount: span * 0.2,
+  })),
+  recipe('lyric-dim', 'Lyric dim', 'Steps back while words are on screen — the cheapest legibility win.', (b) => ({
+    ...b,
+    source: { ...b.source, type: 'lyricActive' },
+    envelope: { ...b.envelope, attackMs: 200, releaseMs: 200, mode: 'linear' },
+    lookAheadMs: 200,
+    mode: 'multiply',
+    amount: -0.4,
+  })),
+  recipe('word-accent', 'Word accent', 'A small kick on every sung word.', (b, span) => ({
+    ...b,
+    source: { ...b.source, type: 'wordActive' },
+    envelope: { ...b.envelope, attackMs: 1, releaseMs: 150 },
+    lookAheadMs: 0,
+    amount: span * 0.15,
   })),
   recipe('breathing', 'Breathing', 'A slow wave that keeps still moments alive.', (b, span) => ({
     ...b,

@@ -82,6 +82,13 @@ describe('recipes', () => {
       if (['lfo', 'noise', 'ramp', 'progress'].includes(b.source.type)) {
         expect(program.issues).toEqual([]);
         expect(Number.isFinite(modulateValue(program, b.target, 0.4, 3))).toBe(true);
+      } else if (['lyricActive', 'lineProgress', 'wordActive'].includes(b.source.type)) {
+        // Lyric sources are reported without timed lyrics, and live with them.
+        expect(program.issues.map((i) => i.problem)).toEqual(['unsupported']);
+        const lyrics = { lines: [{ id: 'l', text: 'one two', startTicks: 48_000, endTicks: 96_000, role: 'lead', words: [], style: null }], untimedLines: 0 };
+        const live = compileModulation({ bindings: [b], analysis, durationSeconds: 10, seed: 1, lyrics });
+        expect(live.issues).toEqual([]);
+        expect(modulateValue(live, b.target, 0.4, 1.5)).not.toBe(modulateValue(live, b.target, 0.4, 8));
       } else {
         expect(program.issues.map((i) => i.problem)).toEqual(['missing-stem']);
       }

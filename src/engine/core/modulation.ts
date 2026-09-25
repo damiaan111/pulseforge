@@ -17,6 +17,7 @@
 // nothing anywhere reads a clock or a frame counter.
 
 import { ANALYSIS_RATE, sampleTrack, type AnalysisSet, type AnalysisTrack } from './analysis.ts';
+import { isSungRole, lyricSignals, type RenderLyrics } from './lyrics.ts';
 import { random01 } from './prng.ts';
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,8 @@ export interface CompileOptions {
   readonly seed: number;
   /** Samples per second for derived tracks. Defaults to the analysis rate (D11). */
   readonly rate?: number;
+  /** The project's timed lyrics, for the lyric sources (modulation-spec §2.4). */
+  readonly lyrics?: RenderLyrics;
 }
 
 interface CompiledBinding {
@@ -246,6 +249,12 @@ export interface ModulationProgram {
 
 /** Generators are already 0..1 by construction; auto-calibrating one would be meaningless. */
 const GENERATORS = new Set(['lfo', 'ramp', 'progress', 'noise']);
+
+/** Sources that are 0..1 by definition, so `inputRange: 'auto'` leaves them alone. */
+const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive']);
+
+/** Built once per compile and shared by every lyric binding: the signals scan the lines. */
+const lyricSignalCache = new WeakMap<RenderLyrics, ReturnType<typeof lyricSignals>>();
 
 type TrackLookup = AnalysisTrack | { error: ModulationProblem; detail: string };
 
@@ -338,8 +347,19 @@ function rawSampler(
       return { error: 'unsupported', detail: `structural source "${source.type}" needs section detection (auto-director-spec); the binding is kept and inactive` };
     case 'lyricActive':
     case 'lineProgress':
-    case 'wordActive':
-      return { error: 'unsupported', detail: `lyric source "${source.type}" needs the lyrics system (P6); the binding is kept and inactive` };
+    case 'wordActive': {
+      const lyrics = options.lyrics;
+      // Said, not silently zero: a flat 0 would look exactly like a binding that is broken.
+      if (lyrics === undefined || !lyrics.lines.some((line) => isSungRole(line.role))) {
+        return { error: 'unsupported', detail: `"${source.type}" follows the lyrics, and the project has no timed sung lines yet; the binding is kept and inactive` };
+      }
+      let signals = lyricSignalCache.get(lyrics);
+      if (signals === undefined) {
+        signals = lyricSignals(lyrics);
+        lyricSignalCache.set(lyrics, signals);
+      }
+      return signals[source.type];
+    }
     case 'parameter':
       return { error: 'unsupported', detail: 'parameter chaining needs the dependency graph (modulation-spec §9.3); the binding is kept and inactive' };
     default:
@@ -436,7 +456,7 @@ export function compileModulation(options: CompileOptions): ModulationProgram {
     const lookAhead = binding.lookAheadMs / 1000;
     const shifted = (t: number) => raw(t + lookAhead);
     const range = binding.inputRange === 'auto'
-      ? (GENERATORS.has(binding.source.type) ? { min: 0, max: 1 } : autoRange(shifted, options.durationSeconds, rate))
+      ? (FIXED_RANGE.has(binding.source.type) ? { min: 0, max: 1 } : autoRange(shifted, options.durationSeconds, rate))
       : binding.inputRange;
 
     const shaped = (t: number) => applyCurve(normalise(shifted(t), range), binding.curve);

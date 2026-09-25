@@ -27,6 +27,7 @@ import { ImageStore } from './render/images.ts';
 import { backgroundModule } from './modules/background.ts';
 import type { DecodedImage } from './core/image.ts';
 import type { TextRasterizer } from './core/text.ts';
+import { lyricsModule } from './modules/lyrics.ts';
 import { textModule } from './modules/text.ts';
 import { logoModule } from './modules/logo.ts';
 import { videoModule } from './modules/video.ts';
@@ -62,7 +63,7 @@ import { dofModule } from './modules/dof.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Sources (M14), text (M16), visualizers (M11), 3D scenes (M37), then effects (M12), then the test modules the validator uses.
-  backgroundModule, textModule, logoModule, videoModule,
+  backgroundModule, textModule, lyricsModule, logoModule, videoModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
   gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
   // 3D scenes (M37).
@@ -227,6 +228,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       analysis,
       durationSeconds: ticksToSeconds(project.durationTicks ?? 0),
       seed: project.seed,
+      ...(project.lyrics === undefined ? {} : { lyrics: project.lyrics }),
     });
     compiled = { project, analysis, program };
     return program;
@@ -320,6 +322,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           return ref === undefined || ref.kind !== 'video' ? undefined : videos.get(ref.hash);
         },
         text: options.text,
+        lyrics: project.lyrics,
         font: (assetId: string) => {
           if (assetId === '') return { hash: null, name: 'default' };
           const ref = project.assets?.[assetId];
