@@ -205,6 +205,8 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     audio: {
       leadInTicks: document.audio.leadInTicks,
       clipInTicks: document.audio.clipInTicks,
+      // "To the end of the file" is the file's length, when it is known.
+      clipOutTicks: document.audio.clipOutTicks ?? (document.audio.durationTicks > 0 ? document.audio.durationTicks : null),
     },
     layers,
     durationTicks: timelineDurationTicks(document),

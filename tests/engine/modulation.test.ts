@@ -437,3 +437,23 @@ describe("binding levels (the studio's meters, M13)", () => {
     expect(program.issues.map((i) => i.bindingId)).toEqual(['M']);
   });
 });
+
+describe('audio sources follow the clip, not the timeline (PROJECT.md §8.10)', () => {
+  // A band silent for the first second of the file and loud after it.
+  const step = [...new Array<number>(ANALYSIS_RATE).fill(0), ...new Array<number>(ANALYSIS_RATE * 4).fill(1)];
+  // One second of lead-in; the clip starts half a second into the file and ends at 2 s.
+  const placement = { leadInTicks: 48_000, clipInTicks: 24_000, clipOutTicks: 96_000 };
+  const program = compileModulation({ bindings: [binding()], analysis: analysisWith(step), durationSeconds: DURATION, seed: 7, placement });
+
+  it('reads the source at the mapped time', () => {
+    // Timeline 1.2 s is 0.7 s into the file: still the silent part. 1.8 s is 1.3 s in: loud.
+    expect(modulateValue(program, TARGET, 0, 1.2)).toBeCloseTo(0);
+    expect(modulateValue(program, TARGET, 0, 1.8)).toBeCloseTo(1);
+  });
+
+  it('is silent in the lead-in and after the clip ends, whatever the file holds there', () => {
+    expect(modulateValue(program, TARGET, 0, 0.5)).toBe(0);
+    // Timeline 2.6 s would be 2.1 s into the file — loud there, but past the clip's out-point.
+    expect(modulateValue(program, TARGET, 0, 2.6)).toBe(0);
+  });
+});

@@ -203,7 +203,7 @@ describe('toRenderProject', () => {
     const { project } = toRenderProject(document);
     expect(project.seed).toBe(1337);
     expect(project.canvas).toEqual({ width: 1920, height: 1080, fps: { num: 60, den: 1 }, background: '#050510' });
-    expect(project.audio).toEqual({ leadInTicks: 96_000, clipInTicks: 48_000 });
+    expect(project.audio).toEqual({ leadInTicks: 96_000, clipInTicks: 48_000, clipOutTicks: 11_472_000 });
   });
 });
 

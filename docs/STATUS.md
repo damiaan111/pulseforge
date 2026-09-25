@@ -9,7 +9,7 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 948 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 950 tests, `npm run golden` 29/29 identical,
 > `--smoke` 21/21.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -85,6 +85,7 @@
 | | **Lyrics (P6)** |
 | 4.50 | Lyrics data (P6 step 1) — M18 model, lyrics-spec §1–§2, §9, §10 |
 | 4.51 | The karaoke layer (P6 step 2) — M20, lyrics-spec §6–§8 |
+| 4.52 | Fix: audio modulation read the wrong moment with a lead-in or a trim — M13, M29 |
 
 ---
 
@@ -190,7 +191,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 948 tests in 74 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 950 tests in 74 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -2318,6 +2319,36 @@ Verified here:
 gradient fills and per-word styling (D38: per word is a Could-have); a lyrics layer is added from the
 module list like any other layer, but lyrics cannot yet be *entered* in the studio (next step).
 
+### 4.52 Fix: audio modulation read the wrong moment with a lead-in or a trim — M13, M29
+
+Found while building tap-to-sync (P6 step 3), by reading how the analysis is sampled. Modules
+sample the analysis at `ctx.audioSeconds`, the **source** time (lead-in and trim already mapped).
+The modulation compiler sampled every audio source (bands and features) at the **timeline** time
+`t`. With lead-in 0 and clip-in 0 the two are the same, which is every test and golden project,
+so nothing caught it. With a 2 s lead-in, every binding reacted to the music 2 s early; with a
+trimmed clip, to the wrong part of the song.
+
+**Fix (`src/engine/core/modulation.ts` `trackReader`).**
+- `CompileOptions.placement` maps timeline time to source time for audio sources.
+- Before the clip starts and after it ends, an audio source reads **0**, because there is no
+  sound there. It no longer reads the file's level at some other moment.
+- Generators (LFO, noise, ramp, progress) and the lyric sources stay on timeline time.
+- `RenderProject.audio` gained an optional `clipOutTicks`. The snapshot fills it from the clip's
+  out-point, or the file length when the clip runs to the end.
+
+Test: `tests/engine/modulation.test.ts` ("audio sources follow the clip, not the timeline").
+Written first and seen to fail, then passing.
+
+**One golden change, explained:** `layered` frame 75 at both aspects (SSIM 0.998). Its band binding
+looks 30 ms ahead, so auto-range calibration samples a few points past the end of the 2-second
+clip. Those used to read the file's last value and now read silence, which shifts the percentile
+range slightly. References updated. Every other frame is byte-identical.
+
+**Still open (§7):** modules themselves still see `audioSeconds` outside the clip. During the
+lead-in it is negative and clamps to the file's first sample; past a trimmed out-point it keeps
+reading the file. A visualizer can therefore still react during a lead-out to music that is not
+playing.
+
 ---
 
 ## 5. Measured results
@@ -2397,6 +2428,10 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
 - **Three.js internals:** `scene3d/host.ts` reads `renderer.properties.get(texture).__webglTexture`
   to copy a scene and hand on its depth. Re-check on any Three upgrade (the scene3d GPU tests and
   the `scene3d` golden entry fail loudly if it breaks).
+- **Modules sample `audioSeconds` outside the clip** (§4.52): in a lead-in it clamps to the file's first
+  sample, past a trimmed out-point it keeps reading the file, so a visualizer can react during a
+  lead-out to music that is not playing. Modulation reads silence there since §4.52; modules should get
+  an "audible" flag or a silenced analysis view.
 - A quit while a render is running cancels the render first, *then* the window asks about unsaved
   changes; answering Cancel keeps the app open with the render already cancelled.
 

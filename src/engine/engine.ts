@@ -229,6 +229,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       durationSeconds: ticksToSeconds(project.durationTicks ?? 0),
       seed: project.seed,
       ...(project.lyrics === undefined ? {} : { lyrics: project.lyrics }),
+      placement: project.audio,
     });
     compiled = { project, analysis, program };
     return program;

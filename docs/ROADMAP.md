@@ -161,7 +161,7 @@ it was made; they are collected here so none is a surprise.
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | typecheck, lint (including the engine boundary) and 948 tests — unit tests, and GPU tests that render through Electron |
+| `npm run check` | typecheck, lint (including the engine boundary) and 950 tests — unit tests, and GPU tests that render through Electron |
 | `npm run golden` | 29 reference frames (bars, layered, 3D scenes, lyrics at 16:9, 9:16, 1:1) are byte-identical |
 | `npm run dev -- --smoke` | 21 end-to-end checks in the real studio window, each confirmed to fail when its feature is broken |
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |

@@ -18,6 +18,7 @@
 
 import { ANALYSIS_RATE, sampleTrack, type AnalysisSet, type AnalysisTrack } from './analysis.ts';
 import { isSungRole, lyricSignals, type RenderLyrics } from './lyrics.ts';
+import { TICKS_PER_SECOND, timelineToSourceSeconds } from './time.ts';
 import { random01 } from './prng.ts';
 
 // ---------------------------------------------------------------------------
@@ -233,6 +234,19 @@ export interface CompileOptions {
   readonly rate?: number;
   /** The project's timed lyrics, for the lyric sources (modulation-spec §2.4). */
   readonly lyrics?: RenderLyrics;
+  /**
+   * Where the audio clip sits on the timeline (PROJECT.md §8.10). Audio sources read the analysis
+   * at the **source** time a timeline moment maps to, and silence outside the clip. Absent: the
+   * timeline is the file (lead-in and trim both zero).
+   */
+  readonly placement?: ClipPlacement;
+}
+
+export interface ClipPlacement {
+  readonly leadInTicks: number;
+  readonly clipInTicks: number;
+  /** End of the clip in the source file; null or absent for "to the end of the analysis". */
+  readonly clipOutTicks?: number | null;
 }
 
 interface CompiledBinding {
@@ -298,6 +312,23 @@ function featureTrack(analysis: AnalysisSet, source: ModulationSource, feature: 
   return track;
 }
 
+/**
+ * Reads an analysis track at a **timeline** time. The analysis is of the source file, so the time is
+ * mapped through the clip placement first; before the clip starts and after it ends there is no
+ * sound, so the reading is 0 — never the file's level at some other moment. This mapping was
+ * missing until P6: with a lead-in or a trimmed clip, every audio binding read the wrong moment.
+ */
+function trackReader(track: AnalysisTrack, placement: ClipPlacement | undefined): (t: number) => number {
+  if (placement === undefined) return (t) => sampleTrack(track, t);
+  const clipStart = placement.leadInTicks / TICKS_PER_SECOND;
+  const clipOut = placement.clipOutTicks == null ? Infinity : placement.clipOutTicks / TICKS_PER_SECOND;
+  return (t) => {
+    if (t < clipStart) return 0;
+    const source = timelineToSourceSeconds(t, placement);
+    return source >= clipOut ? 0 : sampleTrack(track, source);
+  };
+}
+
 /** The raw source before any shaping: `(t) => number`, pure, unnormalised. */
 function rawSampler(
   binding: ModulationBinding,
@@ -309,7 +340,7 @@ function rawSampler(
     case 'band': {
       const track = bandTrack(options.analysis, source);
       if ('error' in track) return track;
-      return (t) => sampleTrack(track, t);
+      return trackReader(track, options.placement);
     }
     case 'progress':
       return (t) => (durationSeconds > 0 ? Math.min(1, Math.max(0, t / durationSeconds)) : 0);
@@ -337,7 +368,7 @@ function rawSampler(
     case 'stereoWidth': {
       const track = featureTrack(options.analysis, source, source.type);
       if ('error' in track) return track;
-      return (t) => sampleTrack(track, t);
+      return trackReader(track, options.placement);
     }
     case 'sectionIndex':
     case 'sectionProgress':

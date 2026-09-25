@@ -120,6 +120,11 @@ export interface RenderProject {
   readonly audio: {
     readonly leadInTicks: number;
     readonly clipInTicks: number;
+    /**
+     * Where the clip ends in the source file. Modulation reads silence past it. Absent or null:
+     * to the end of the analysis.
+     */
+    readonly clipOutTicks?: number | null;
   };
   /** Bottom → top. Entries may be groups, whose children are composited first (M38). */
   readonly layers: readonly AnyLayerSpec[];
