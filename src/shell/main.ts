@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
+import { BrowserWindow, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { ALIGN_LANGUAGES, LyricsNeedStemsError, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
@@ -33,6 +33,8 @@ import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { readTemplateFiles } from '../director/template-store.ts';
+import { Logger, splitScope, type LogLevel } from './logger.ts';
+import { buildDiagnostics } from './diagnostics.ts';
 import { CACHE_CATEGORIES, CacheStore, sizeOf, type CacheCategory } from '../cache/cache-store.ts';
 import { synthesizeTestTrack } from '../analysis/reference-track.ts';
 import { encodeWavFloat32 } from '../export/audio.ts';
@@ -43,7 +45,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -263,6 +265,18 @@ function lockDownSession(): void {
 
 function guardWebContents(): void {
   app.on('web-contents-created', (_event, contents) => {
+    // The studio's own warnings and errors reach the log (M34); its info lines only at debug level.
+    contents.on('console-message', (...args: unknown[]) => {
+      const details = args[0] as { level?: unknown; message?: unknown };
+      const level = typeof details.level === 'string' ? details.level : ['debug', 'info', 'warning', 'error'][Number(args[1])] ?? 'info';
+      const message = typeof details.message === 'string' ? details.message : String(args[2] ?? '');
+      const mapped: LogLevel = level === 'error' ? 'error' : level === 'warning' ? 'warn' : 'debug';
+      const { scope, msg } = splitScope(message, 'studio');
+      log().write(mapped, scope, msg);
+    });
+    contents.on('render-process-gone', (_e, details) => {
+      log().error('studio', `the renderer process ended: ${details.reason} (exit code ${details.exitCode})`);
+    });
     contents.on('will-navigate', (event, url) => {
       // The app is one local page; there is no legitimate navigation.
       if (url !== contents.getURL()) {
@@ -324,6 +338,38 @@ function describe(error: unknown): Error {
  * the file type is associated. Electron's argv carries its own switches, so only a path that
  * exists and looks like a project is accepted — anything else is ignored rather than guessed at.
  */
+/**
+ * The log (M34): JSON lines in the profile's logs folder, rotated by size, at the level the
+ * settings say. `PULSEFORGE_LOGS` points it elsewhere — the smoke check does.
+ */
+let logger: Logger | null = null;
+function log(): Logger {
+  logger ??= new Logger({ dir: process.env['PULSEFORGE_LOGS'] ?? join(app.getPath('userData'), 'logs'), level: currentSettings.logLevel });
+  return logger;
+}
+
+/**
+ * Everything the main process says on the console goes to the log too, scoped by its "[tag]":
+ * the code already writes "[render-queue] could not start: …", so no call site has to change.
+ */
+function captureConsole(): void {
+  const original = { error: console.error.bind(console), warn: console.warn.bind(console), log: console.log.bind(console) };
+  const route = (level: LogLevel, args: unknown[]) => {
+    const text = args.map((a) => (a instanceof Error ? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+    const { scope, msg } = splitScope(text, 'main');
+    log().write(level, scope, msg);
+  };
+  console.error = (...args: unknown[]) => { original.error(...args); route('error', args); };
+  console.warn = (...args: unknown[]) => { original.warn(...args); route('warn', args); };
+  console.log = (...args: unknown[]) => { original.log(...args); route('info', args); };
+}
+
+async function gpuDescription(): Promise<string> {
+  const gpu = await app.getGPUInfo('basic').catch(() => null) as { gpuDevice?: { deviceId?: number; active?: boolean; driverVersion?: string; deviceString?: string }[] } | null;
+  const active = gpu?.gpuDevice?.find((d) => d.active === true) ?? gpu?.gpuDevice?.[0];
+  return active === undefined ? 'unknown' : `${active.deviceString ?? `device ${active.deviceId ?? '?'}`}${active.driverVersion === undefined ? '' : ` · driver ${active.driverVersion}`}`;
+}
+
 /** The settings as last read or saved; what the main process consults (models, caches, logs). */
 let currentSettings: UserSettings = DEFAULT_SETTINGS;
 
@@ -338,6 +384,9 @@ function presetsFolderPath(): string {
 function templatesFolderPath(): string {
   return process.env['PULSEFORGE_TEMPLATES'] ?? join(app.getPath('documents'), 'Pulseforge', 'Templates');
 }
+
+/** The render queue's jobs, for "Copy diagnostics" on a failed one; set once the queue starts. */
+let rendersForDiagnostics: (() => readonly RenderJob[]) | null = null;
 
 /** Set in smoke mode: "Import audio…" answers with this file instead of opening a dialog. */
 let smokeAudioPath: string | null = null;
@@ -620,6 +669,7 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.settingsUpdate, async (_event, raw: unknown): Promise<UserSettings> => {
     // Every field checked by the store's own rules; a bad value is refused with the reason.
     currentSettings = await settingsStore().update(validateSettingsPatch(raw));
+    log().setLevel(currentSettings.logLevel);
     return currentSettings;
   });
   ipcMain.handle(IPC.settingsInfo, async (): Promise<SettingsInfo> => {
@@ -630,12 +680,10 @@ function registerHandlers(): void {
         return [];
       }
     };
-    const gpu = await app.getGPUInfo('basic').catch(() => null) as { gpuDevice?: { vendorId?: number; deviceId?: number; active?: boolean; driverVersion?: string; deviceString?: string }[] } | null;
-    const active = gpu?.gpuDevice?.find((d) => d.active === true) ?? gpu?.gpuDevice?.[0];
     return {
       stemModels: await listed(join(MODELS, 'demucs'), (n) => (n.endsWith('.yaml') ? n.slice(0, -5) : null)),
       whisperModels: await listed(join(MODELS, 'whisper'), (n) => (n.startsWith('faster-whisper-') ? n : null)),
-      gpu: active === undefined ? 'unknown' : `${active.deviceString ?? `device ${active.deviceId ?? '?'}`}${active.driverVersion === undefined ? '' : ` · driver ${active.driverVersion}`}`,
+      gpu: await gpuDescription(),
       paths: {
         settings: settingsPath(),
         userData: app.getPath('userData'),
@@ -691,6 +739,47 @@ function registerHandlers(): void {
     await mkdir(cacheRootPath(), { recursive: true });
     await shell.openPath(cacheRootPath());
   });
+  // Diagnostics (M34).
+  ipcMain.handle(IPC.logInfo, async (): Promise<LogInfo> => {
+    const current = log();
+    let bytes: number;
+    try {
+      bytes = (await stat(current.path)).size;
+    } catch {
+      bytes = 0;
+    }
+    return { path: current.path, level: current.getLevel(), bytes };
+  });
+  ipcMain.handle(IPC.revealLogs, async (): Promise<void> => {
+    await mkdir(log().dir, { recursive: true });
+    await shell.openPath(log().dir);
+  });
+  ipcMain.handle(IPC.copyDiagnostics, async (_event, raw: unknown): Promise<{ readonly lines: number; readonly text: string }> => {
+    const jobId = typeof raw === 'object' && raw !== null && typeof (raw as { jobId?: unknown }).jobId === 'string' ? (raw as { jobId: string }).jobId : null;
+    const job = jobId === null ? undefined : rendersForDiagnostics?.().find((j) => j.id === jobId);
+    let cache: { root: string; totalBytes: number; freeBytes: number | null; units: number } | null;
+    try {
+      const inventory = await cacheStore().inventory();
+      cache = { root: inventory.root, totalBytes: inventory.totalBytes, freeBytes: inventory.freeBytes, units: inventory.units.length };
+    } catch {
+      cache = null;
+    }
+    const text = buildDiagnostics({
+      generatedAt: new Date().toISOString(),
+      environment: { ...environmentReport() },
+      gpu: await gpuDescription(),
+      settings: { ...currentSettings },
+      cache,
+      job: job === undefined ? undefined : {
+        id: job.id, label: job.label, status: job.status, error: job.error, outputPath: job.outputPath, reportPath: job.reportPath, startedAt: job.startedAt, finishedAt: job.finishedAt,
+      },
+      logPath: log().path,
+      log: log().tail(200),
+    });
+    await clipboard.writeText(text);
+    log().info('diagnostics', `copied to the clipboard${job === undefined ? '' : ` for render ${job.id}`}`);
+    return { lines: text.split('\n').length, text };
+  });
   ipcMain.handle(IPC.revealPath, async (_event, which: unknown): Promise<void> => {
     const paths: Record<string, string> = { userData: app.getPath('userData'), settings: dirname(settingsPath()) };
     const path = typeof which === 'string' ? paths[which] : undefined;
@@ -719,6 +808,7 @@ function registerHandlers(): void {
         windowsHide: true,
       });
       setupChild = child;
+      log().info('setup', `started: npm run setup -- ${args.join(' ')}`);
       send(`$ npm run setup -- ${args.join(' ')}`);
       let pending = '';
       const onData = (chunk: Buffer) => {
@@ -736,6 +826,7 @@ function registerHandlers(): void {
       });
       child.on('close', (code) => {
         if (pending !== '') send(pending);
+        log().write(code === 0 ? 'info' : 'error', 'setup', `npm run setup -- ${args.join(' ')} exited with code ${code ?? 'none'}`);
         setupChild = null;
         done({ code });
       });
@@ -1228,7 +1319,14 @@ app.enableSandbox();
 app.whenReady().then(async () => {
   lockDownSession();
   guardWebContents();
+  if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LOGS'] === undefined) {
+    // The smoke's own log folder, fresh each run: its checks read the log back.
+    process.env['PULSEFORGE_LOGS'] = join(ROOT, 'out', 'smoke-logs');
+    await rm(process.env['PULSEFORGE_LOGS'], { recursive: true, force: true });
+  }
   currentSettings = (await settingsStore().read()).settings;
+  captureConsole();
+  log().info('app', `Pulseforge ${packageVersion()} started`, { electron: process.versions['electron'], gpu: await gpuDescription() });
   registerHandlers();
   // The ceiling and the free space, once at start (after that, after every cache write).
   scheduleCacheUpkeep();
@@ -1251,6 +1349,7 @@ app.whenReady().then(async () => {
     // And its own cache root: the cache check clears things, and it must never clear the owner's.
     await settingsStore().update({ cacheRoot: join(ROOT, 'out', 'smoke-cache') });
     currentSettings = (await settingsStore().read()).settings;
+    log().setLevel(currentSettings.logLevel);
 
     // Its own recovery folder too: the smoke must not offer (or clear) the owner's autosaves.
     const recovery = join(ROOT, 'out', 'smoke-recovery');
@@ -1284,6 +1383,7 @@ app.whenReady().then(async () => {
   // machine (STATUS §2) — and %APPDATA%\Electron is a redirected folder there (rename-into-place.ts).
   // A queue that cannot start must not take the studio down with it: editing still works, and
   // rendering explains itself when used.
+  const loggedJobStatus = new Map<string, string>();
   let renders: RenderService;
   try {
     renders = await createRenderService({
@@ -1293,6 +1393,12 @@ app.whenReady().then(async () => {
       videoCacheRoot: () => cacheRootPath(),
       gpu: gpuQueue,
       onChange: (jobs) => {
+        // Each job's transitions, once each: queued, started, done or failed and why.
+        for (const job of jobs) {
+          if (loggedJobStatus.get(job.id) === job.status) continue;
+          loggedJobStatus.set(job.id, job.status);
+          log().write(job.status === 'failed' ? 'error' : 'info', 'render', `${job.label}: ${job.status}${job.error === null ? '' : ` — ${job.error}`}`, { id: job.id, output: job.outputPath, report: job.reportPath });
+        }
         for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.renderChanged, jobs);
       },
     });
@@ -1302,6 +1408,7 @@ app.whenReady().then(async () => {
     renders = unavailableRenderService(reason);
   }
   registerRenderHandlers(renders);
+  rendersForDiagnostics = () => renders.list();
 
   // A render runs in its own Electron process, which would outlive the app if the app simply
   // quit. Cancel it first; the queue records it as cancelled and the child is killed.
@@ -1916,6 +2023,21 @@ app.whenReady().then(async () => {
         if (!storageUi) console.error('[smoke] storageUi steps ' + JSON.stringify(steps) + ' rows ' + before + '→' + after);
       }
 
+      // Diagnostics (M34): the log is where Settings says (the smoke's own folder), and Copy
+      // diagnostics reports success. The main process then checks the clipboard and the log file.
+      let diagnosticsUi = false;
+      {
+        document.querySelector('#app header [data-action="settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const path = await waitFor(() => /smoke-logs/.test(document.querySelector('#app [data-testid="log-path"]')?.textContent ?? ''), 100);
+        // A warning from the page itself: it must reach the log through the renderer's console.
+        console.warn('[smoke-renderer] console capture check');
+        document.querySelector('#app [data-action="copy-diagnostics"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const copied = await waitFor(() => /Diagnostics copied/.test(document.querySelector('#app .toast')?.textContent ?? ''), 100);
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        diagnosticsUi = path === true && copied === true;
+        if (!diagnosticsUi) console.error('[smoke] diagnosticsUi steps ' + JSON.stringify({ path, copied }));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1935,9 +2057,14 @@ app.whenReady().then(async () => {
         const summary = offered.textContent ?? '';
         window.confirm = () => true;
         document.querySelector('#app [data-action="recovery-restore"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        const restored = await waitFor(() => [...document.querySelectorAll('#app .layer-list .layer-row')].some((row) => row.textContent?.includes('Recovered smoke layer')), 60);
+        // Generous: this check runs last, after the heavy ones (setup verify, cache clearing), and on
+        // a busy machine the restore and its snapshot can take a few seconds.
+        const restored = await waitFor(() => [...document.querySelectorAll('#app .layer-list .layer-row')].some((row) => row.textContent?.includes('Recovered smoke layer')), 200);
         recoveryDialog = summary.includes('Smoke crash') && summary.includes('never saved') && restored === true
           && document.querySelector('#app .recovery-dialog') === null;
+        if (!recoveryDialog) console.error('[smoke] recoveryDialog steps ' + JSON.stringify({ summary: summary.slice(0, 120), restored, open: document.querySelector('#app .recovery-dialog') !== null }));
+      } else if (recoveryDialog === false) {
+        console.error('[smoke] recoveryDialog: the dialog was not offered');
       }
 
       return {
@@ -1965,6 +2092,7 @@ app.whenReady().then(async () => {
         autoUi,
         settingsUi,
         storageUi,
+        diagnosticsUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
@@ -1973,16 +2101,36 @@ app.whenReady().then(async () => {
       };
     })()`) as Record<string, boolean>;
 
+    // The other half of the diagnostics check: the clipboard holds the report, and the log file has
+    // the app's start, the copy itself, and lines captured from the studio's own console.
+    if (checks['diagnosticsUi'] === true) {
+      const text = await clipboard.readText();
+      let logText: string;
+      try {
+        logText = await readFile(log().path, 'utf8');
+      } catch {
+        logText = '';
+      }
+      const entries = logText.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as { scope?: string; msg?: string });
+      const ok = text.startsWith('# Pulseforge diagnostics') && text.includes('## Environment')
+        && entries.some((e) => e.scope === 'app' && /started/.test(e.msg ?? ''))
+        && entries.some((e) => e.scope === 'diagnostics')
+        && entries.some((e) => e.scope === 'smoke-renderer');
+      if (!ok) console.error(`[smoke] diagnostics: clipboard ${text.slice(0, 40)}…, ${entries.length} log lines`);
+      checks['diagnosticsUi'] = ok;
+    }
+
     // The other half of the recovery check: restoring let the crashed run's folder go and took a
     // fresh snapshot into this run's own (a crash from here on recovers the restored work).
     if (checks['recoveryDialog'] === true) {
       let sessions: readonly string[] = [];
-      for (let i = 0; i < 40; i += 1) {
+      for (let i = 0; i < 200; i += 1) {
         sessions = (await recoveryStore().listRecoverable('none')).map((session) => session.sessionId);
         if (!sessions.includes('smokecrashed') && sessions.includes(recoverySessionId)) break;
         await new Promise((done) => setTimeout(done, 50));
       }
       checks['recoveryDialog'] = !sessions.includes('smokecrashed') && sessions.includes(recoverySessionId);
+      if (!checks['recoveryDialog']) console.error(`[smoke] recovery sessions after restore: ${JSON.stringify(sessions)} (this run: ${recoverySessionId})`);
     }
 
     // A real render through the studio's queue, from inside Electron's main process. This is the

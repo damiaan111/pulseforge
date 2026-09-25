@@ -48,6 +48,9 @@ const api: PulseforgeApi = {
     };
   },
   pickFolder: (title) => ipcRenderer.invoke(IPC.pickFolder, title) as Promise<string | null>,
+  logInfo: () => ipcRenderer.invoke(IPC.logInfo) as ReturnType<PulseforgeApi['logInfo']>,
+  revealLogs: () => ipcRenderer.invoke(IPC.revealLogs) as Promise<void>,
+  copyDiagnostics: (options) => ipcRenderer.invoke(IPC.copyDiagnostics, options ?? {}) as ReturnType<PulseforgeApi['copyDiagnostics']>,
   revealPath: (which) => ipcRenderer.invoke(IPC.revealPath, which) as Promise<void>,
   runSetup: (request) => ipcRenderer.invoke(IPC.setupRun, request) as ReturnType<PulseforgeApi['runSetup']>,
   cancelSetup: () => ipcRenderer.invoke(IPC.setupCancel) as Promise<void>,

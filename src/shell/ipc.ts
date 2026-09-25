@@ -49,6 +49,9 @@ export const IPC = {
   /** Main → renderer: the cache ceiling evicted something, or the disk is low (M33). */
   cacheNotice: 'pf:cache:notice',
   pickFolder: 'pf:pick-folder',
+  logInfo: 'pf:log:info',
+  revealLogs: 'pf:log:reveal',
+  copyDiagnostics: 'pf:diagnostics:copy',
   revealPath: 'pf:reveal-path',
   setupRun: 'pf:setup:run',
   setupCancel: 'pf:setup:cancel',
@@ -168,6 +171,12 @@ export interface AnalysisPayload {
   readonly stems: readonly { readonly name: string; readonly container: Uint8Array }[];
   /** Every stem's state in the cache: ready, pending (being separated) or failed with why. */
   readonly stemStatus: Readonly<Record<string, { readonly state: 'ready' | 'pending' | 'failed'; readonly error?: string }>>;
+}
+
+export interface LogInfo {
+  readonly path: string;
+  readonly level: 'error' | 'warn' | 'info' | 'debug';
+  readonly bytes: number;
 }
 
 export type CacheAction =
@@ -451,6 +460,11 @@ export interface PulseforgeApi {
   revealCache(): Promise<void>;
   /** The ceiling evicted something, or the disk is low. */
   onCacheNotice(listener: (text: string) => void): () => void;
+  /** Where the log is, how big, at what level (M34). */
+  logInfo(): Promise<LogInfo>;
+  revealLogs(): Promise<void>;
+  /** Environment, settings, cache, the log's tail — and a failed job's details — to the clipboard. */
+  copyDiagnostics(options?: { readonly jobId?: string }): Promise<{ readonly lines: number; readonly text: string }>;
   /** A folder picker; null when cancelled. */
   pickFolder(title: string): Promise<string | null>;
   /** What the Settings screen offers: installed models, the GPU in use, where things live. */

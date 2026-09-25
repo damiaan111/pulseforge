@@ -5,12 +5,12 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-09-25.** P0, P2, P3, P4, **P6 (lyrics) and P7 (the auto-director) are complete**; P1 is partly done (core,
+> **Last updated: 2026-09-25.** P0, P2, P3, P4, **P6 (lyrics), P7 (the auto-director) and operability are complete**; P1 is partly done (core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1067 tests, `npm run golden` 29/29 identical,
-> `--smoke` 26/26.
+> any aspect. Last full verification: `npm run check` 1072 tests, `npm run golden` 29/29 identical,
+> `--smoke` 27/27.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -36,10 +36,12 @@
 > **Operability (§4.59–):** the Settings screen (M36) — theme, autosave interval, models, export
 > default, setup verify and repair from the app, the environment and a shortcut reference; and
 > Storage (M33) — one cache root, a breakdown by category and track, remove/clear/keep-the-last-N,
-> an LRU size limit that never touches what is in use, and a low-disk warning.
+> an LRU size limit that never touches what is in use, and a low-disk warning; and diagnostics
+> (M34) — rotating JSON-lines logs of the main process and the studio, a level setting, Open log
+> folder and Copy diagnostics (also on a failed render).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): rotating logs with
-> copy-diagnostics (M34); the P1 remainder; P8.
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the P1 remainder (extras tier,
+> `htdemucs_ft`, Whisper `large-v3`, more alignment languages, an offline-rebuild check); P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -113,6 +115,7 @@
 | | **Operability** |
 | 4.59 | The Settings screen (operability step 1) — M36, PROJECT.md §8.16, ui-spec §8 |
 | 4.60 | Storage: one cache root, breakdown, prune, LRU limit, low disk (operability step 2) — M33 |
+| 4.61 | Logs and diagnostics (operability step 3) — M34 complete |
 
 ---
 
@@ -3083,6 +3086,52 @@ the window opens), because its storage check clears everything and must never cl
 - `--smoke` **26/26**. New `storageUi`: the breakdown lists the smoke song as in use; Clear
   everything frees the rest and keeps it.
 - The UI tour adds `11c-storage`.
+
+### 4.61 Logs and diagnostics (operability step 3) — M34, PROJECT.md §8.15, ui-spec §7, §11
+
+**The log (`src/shell/logger.ts`, plain Node).**
+- Format: one JSON object per line, `{"t","level","scope","msg","data"?}`, in the profile's `logs`
+  folder (`PULSEFORGE_LOGS` overrides it; the smoke uses its own).
+- Rotation: by size, `pulseforge.log` → `.1` … keeping five files of up to 5 MB.
+- Level: the setting (error · warn · info · debug), applied at once.
+- Writes are synchronous appends, because the line lost in a crash is the one that was needed. A log
+  that cannot be written never throws into the work being logged.
+- A line that is not JSON is kept as text when the log is read back.
+
+**What goes in:**
+- **Everything the main process says on the console**, scoped by its existing `[tag]` (so
+  "[render-queue] could not start" is scope `render-queue`). No call site changed.
+- **The studio's own console**: warnings and errors always, info at debug level
+  (`console-message`), and a renderer that dies (`render-process-gone`).
+- The app's start (version, Electron, the GPU).
+- Every render job's transitions, with the error and report path when it fails.
+- Setup runs and their exit codes.
+- Cache evictions and low-disk warnings.
+- Each "copy diagnostics".
+
+**Copy diagnostics (`src/shell/diagnostics.ts`, pure).** One plain-text block to the clipboard:
+the environment and GPU, the failed job when there is one (label, status, output, report path,
+error), the settings, the cache at a glance, and the log's last 200 lines. Nothing is sent anywhere.
+- **Settings → Diagnostics**: log detail, the log file's path and size, Open log folder, Copy
+  diagnostics.
+- **Failed render jobs** have **Copy diagnostics** in the queue (ui-spec §7).
+
+Already there before this step: the per-render report beside each output (§4.5) and the startup
+environment report, now also in Settings → Environment.
+
+**Found by this step's smoke runs:** `recoveryDialog` failed in two of five runs. It runs last, after
+the new heavy checks (setup verify, cache clearing, the upkeep scan), and its restore-and-snapshot
+window was 2–3 s. Both halves now wait up to 10 s and say which half failed if it ever does again;
+five runs since, all green.
+
+**Verified here:**
+- `npm run check` **1072 tests**. New `tests/shell/logger.test.ts`: JSON lines and level filtering;
+  rotation keeping three files, and the tail read across it; non-JSON lines kept; an unwritable
+  folder never throws; scope splitting; the diagnostics text.
+- `--smoke` **27/27**. New `diagnosticsUi`: Settings shows the smoke's log path; Copy diagnostics
+  reports success; the main process confirms that the clipboard holds the report and that the log
+  file has the app's start, the copy, and a warning emitted by the studio page itself (renderer
+  console capture).
 
 ---
 

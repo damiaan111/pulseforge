@@ -2,8 +2,8 @@
 //
 // Every setting saves as it changes — there is no Apply button to forget — and a refused value
 // says why beside the control that sent it. Sections, in the order they are reached for:
-// General, Audio & models, Export, Storage (M33, StorageSection.tsx), Setup & repair, Environment,
-// Keyboard.
+// General, Audio & models, Export, Storage (M33, StorageSection.tsx), Diagnostics (M34), Setup &
+// repair, Environment, Keyboard.
 //
 // Setup & repair runs the same `npm run setup` a terminal would (verify, or re-run one tier), with
 // its output streamed here. It is the entry point ui-spec §8 asks for: a feature that is not
@@ -140,6 +140,8 @@ export function SettingsDialog(): React.JSX.Element | null {
 
           <StorageSection settings={settings} defaultRoot={info?.paths.defaultCacheRoot ?? null} save={save} />
 
+          <DiagnosticsSection level={settings.logLevel} save={save} />
+
           <SetupSection />
 
           <section data-testid="settings-environment">
@@ -177,6 +179,46 @@ function FragmentRow(props: { label: string; value: string; bad: boolean }): Rea
       <dt>{props.label}</dt>
       <dd className={props.bad ? 'bad' : ''}>{props.value}</dd>
     </>
+  );
+}
+
+/** The log's level, where it is, and "Copy diagnostics" (M34). */
+function DiagnosticsSection(props: { readonly level: UserSettings['logLevel']; readonly save: (patch: Partial<UserSettings>) => Promise<void> }): React.JSX.Element {
+  const notify = useStudio((s) => s.notify);
+  const [info, setInfo] = useState<{ path: string; bytes: number } | null>(null);
+  useEffect(() => {
+    void window.pulseforge.logInfo().then((next) => setInfo({ path: next.path, bytes: next.bytes }));
+  }, [props.level]);
+  const copy = async () => {
+    try {
+      const { lines } = await window.pulseforge.copyDiagnostics();
+      notify({ text: `Diagnostics copied (${lines} lines) — paste them into a message.`, kind: 'ok' });
+    } catch (error) {
+      notify({ text: error instanceof Error ? error.message : String(error), kind: 'bad' });
+    }
+  };
+  return (
+    <section data-testid="settings-diagnostics">
+      <h3>Diagnostics</h3>
+      <label className="field">
+        <span>Log detail</span>
+        <select value={props.level} data-setting="logLevel" onChange={(e) => void props.save({ logLevel: e.target.value as UserSettings['logLevel'] })}>
+          <option value="error">Errors only</option>
+          <option value="warn">Warnings and errors</option>
+          <option value="info">Normal</option>
+          <option value="debug">Everything (for chasing a problem)</option>
+        </select>
+      </label>
+      <div className="field">
+        <span>Log file</span>
+        <code className="path" data-testid="log-path">{info === null ? '…' : `${info.path} (${info.bytes < 1e6 ? `${Math.round(info.bytes / 1e3)} KB` : `${(info.bytes / 1e6).toFixed(1)} MB`})`}</code>
+      </div>
+      <div className="setup-actions">
+        <button type="button" onClick={() => void window.pulseforge.revealLogs()}>Open log folder</button>
+        <button type="button" data-action="copy-diagnostics" onClick={() => void copy()}>Copy diagnostics</button>
+      </div>
+      <p className="dim note">Diagnostics are the environment, the settings, the cache at a glance and the log's last 200 lines, copied to your clipboard — nothing is sent anywhere.</p>
+    </section>
   );
 }
 

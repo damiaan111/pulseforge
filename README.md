@@ -287,7 +287,13 @@ looks like this" list explains every choice. Surprise Me rolls another take whil
 you have edited, and anything you lock (palette, layout, motion, template). The last ten rolls
 stay as thumbnails you can go back to.
 
-**Still to come:** the settings, cache and diagnostics screens.
+**Looking after itself:** a Settings screen (theme, autosave, models, the export default), setup
+verify and repair from inside the app, a Storage view that shows what the cache holds, per track,
+with a size limit and one-click cleanup, and logs plus "copy diagnostics" for when something
+goes wrong.
+
+**Still to come:** the optional extras (the finer stem model, the larger Whisper model, more lyric
+languages) and the Should-have list: keyframes, masking, motion blur and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

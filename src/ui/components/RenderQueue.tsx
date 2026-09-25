@@ -49,6 +49,12 @@ function Job({ job }: { job: RenderJob }): React.JSX.Element {
           ? <button type="button" onClick={() => void act(() => api.retryRender(job.id))}>Retry</button>
           : null}
         {job.status === 'done' ? <button type="button" onClick={() => void act(() => api.revealRender(job.outputPath))}>Show file</button> : null}
+        {job.status === 'failed'
+          ? <button type="button" data-action="render-diagnostics" title="The error, the environment and the log, to the clipboard for a bug report" onClick={() => void act(async () => {
+            const { lines } = await api.copyDiagnostics({ jobId: job.id });
+            useStudio.getState().notify({ text: `Diagnostics copied (${lines} lines) — paste them into a message.`, kind: 'ok' });
+          })}>Copy diagnostics</button>
+          : null}
         {finished ? <button type="button" onClick={() => void act(() => api.removeRender(job.id))}>Remove</button> : null}
       </div>
     </li>
