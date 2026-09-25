@@ -15,6 +15,7 @@ import type { RenderRequest } from './render-service.ts';
 import type { ModuleScan } from '../modules-folder/scan.ts';
 import type { Preset } from '../project/presets.ts';
 import type { TemplateFile } from '../director/template-library.ts';
+import type { CacheCategory, CacheInventory } from '../cache/cache-store.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
 
@@ -42,6 +43,12 @@ export const IPC = {
   settingsGet: 'pf:settings:get',
   settingsUpdate: 'pf:settings:update',
   settingsInfo: 'pf:settings:info',
+  cacheInventory: 'pf:cache:inventory',
+  cacheAction: 'pf:cache:action',
+  revealCache: 'pf:cache:reveal',
+  /** Main → renderer: the cache ceiling evicted something, or the disk is low (M33). */
+  cacheNotice: 'pf:cache:notice',
+  pickFolder: 'pf:pick-folder',
   revealPath: 'pf:reveal-path',
   setupRun: 'pf:setup:run',
   setupCancel: 'pf:setup:cancel',
@@ -161,6 +168,29 @@ export interface AnalysisPayload {
   readonly stems: readonly { readonly name: string; readonly container: Uint8Array }[];
   /** Every stem's state in the cache: ready, pending (being separated) or failed with why. */
   readonly stemStatus: Readonly<Record<string, { readonly state: 'ready' | 'pending' | 'failed'; readonly error?: string }>>;
+}
+
+export type CacheAction =
+  | { readonly kind: 'remove'; readonly ids: readonly string[] }
+  | { readonly kind: 'clear'; readonly category: CacheCategory | 'all' }
+  | { readonly kind: 'keepRecent'; readonly keep: number }
+  | { readonly kind: 'clearLegacy' };
+
+export interface CacheListing extends CacheInventory {
+  /** Unit ids the studio is using now: never removed, by any action. */
+  readonly inUse: readonly string[];
+  readonly ceilingBytes: number;
+  readonly lowDiskBytes: number;
+  /** The analysis cache's old location (before the one cache root), when anything is left there. */
+  readonly legacy: { readonly path: string; readonly bytes: number } | null;
+}
+
+export interface CacheActionResult {
+  readonly removed: number;
+  readonly freedBytes: number;
+  /** Units left because they are in use. */
+  readonly skipped: number;
+  readonly listing: CacheListing;
 }
 
 export interface SettingsInfo {
@@ -414,6 +444,15 @@ export interface PulseforgeApi {
   getSettings(): Promise<{ readonly settings: UserSettings; readonly problems: readonly string[] }>;
   /** Merges and saves; resolves to the settings as saved. */
   updateSettings(patch: Partial<UserSettings>): Promise<UserSettings>;
+  /** Everything in the cache, by unit, biggest first, with free space and the ceiling (M33). */
+  cacheInventory(): Promise<CacheListing>;
+  /** Removes units, clears a category, keeps the last N tracks, or clears the pre-0.x location. */
+  cacheAction(action: CacheAction): Promise<CacheActionResult>;
+  revealCache(): Promise<void>;
+  /** The ceiling evicted something, or the disk is low. */
+  onCacheNotice(listener: (text: string) => void): () => void;
+  /** A folder picker; null when cancelled. */
+  pickFolder(title: string): Promise<string | null>;
   /** What the Settings screen offers: installed models, the GPU in use, where things live. */
   settingsInfo(): Promise<SettingsInfo>;
   /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */

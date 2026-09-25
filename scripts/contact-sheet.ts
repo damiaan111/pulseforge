@@ -7,8 +7,9 @@
 // tile's summary and the director's reading of the track. Problems are obvious at a glance in a grid
 // and invisible one track at a time.
 //
-// The tracks are read in place and nothing is written beside them. Analysis goes through its own
-// cache under cache/, so a second run over the same folder skips straight to rendering.
+// The tracks are read in place and nothing is written beside them. Analysis goes through the
+// studio's default cache root (cache/), so a track the studio has analysed is a hit here and the
+// other way round; a second run over the same folder skips straight to rendering.
 //
 // Usage:
 //   npm run contact-sheet -- <folder> [--templates id,id] [--seed N] [--width 320] [--limit N]
@@ -94,7 +95,7 @@ async function main(): Promise<void> {
   console.log(`${tracks.length} track(s) × ${templates.length} template(s)`);
 
   await bundleElectron();
-  const cache = new AnalysisCache({ root: join(ROOT, 'cache', 'contact-sheet-analysis') });
+  const cache = new AnalysisCache({ root: join(ROOT, 'cache') });
   const modules = { get: (id: string) => BUILTIN_MODULES.find((m) => m.manifest.id === id)?.manifest, all: BUILTIN_MODULES.map((m) => m.manifest) };
   const rows: string[] = [];
 

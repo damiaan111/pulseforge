@@ -57,6 +57,9 @@ export function App(): React.JSX.Element {
     return window.pulseforge.onModulesChanged(() => void loadModules());
   }, [loadModules]);
 
+  // The cache ceiling evicted something, or the disk is low (M33): said, never silent.
+  useEffect(() => window.pulseforge.onCacheNotice((text) => notify({ text, kind: 'warn' })), [notify]);
+
   // The auto-director's templates (M21): read once; the Auto drawer can reload them.
   const loadTemplates = useStudio((s) => s.loadTemplates);
   useEffect(() => {

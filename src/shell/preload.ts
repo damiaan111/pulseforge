@@ -37,6 +37,17 @@ const api: PulseforgeApi = {
   getSettings: () => ipcRenderer.invoke(IPC.settingsGet) as ReturnType<PulseforgeApi['getSettings']>,
   updateSettings: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch) as ReturnType<PulseforgeApi['updateSettings']>,
   settingsInfo: () => ipcRenderer.invoke(IPC.settingsInfo) as ReturnType<PulseforgeApi['settingsInfo']>,
+  cacheInventory: () => ipcRenderer.invoke(IPC.cacheInventory) as ReturnType<PulseforgeApi['cacheInventory']>,
+  cacheAction: (action) => ipcRenderer.invoke(IPC.cacheAction, action) as ReturnType<PulseforgeApi['cacheAction']>,
+  revealCache: () => ipcRenderer.invoke(IPC.revealCache) as Promise<void>,
+  onCacheNotice(listener) {
+    const handler = (_event: unknown, text: string) => listener(text);
+    ipcRenderer.on(IPC.cacheNotice, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.cacheNotice, handler);
+    };
+  },
+  pickFolder: (title) => ipcRenderer.invoke(IPC.pickFolder, title) as Promise<string | null>,
   revealPath: (which) => ipcRenderer.invoke(IPC.revealPath, which) as Promise<void>,
   runSetup: (request) => ipcRenderer.invoke(IPC.setupRun, request) as ReturnType<PulseforgeApi['runSetup']>,
   cancelSetup: () => ipcRenderer.invoke(IPC.setupCancel) as Promise<void>,

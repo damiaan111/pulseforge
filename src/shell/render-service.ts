@@ -23,10 +23,13 @@ export interface RenderServiceOptions {
   readonly root: string;
   /** Per-job scratch: analysis blob, export audio, result JSON. Can be large — keep it off a full drive. */
   readonly workRoot: string;
-  /** The analysis cache root, the same one the studio's preview analysis uses, so a render is a cache hit. */
-  readonly cacheRoot: string;
+  /**
+   * The analysis cache root, the same one the studio's preview analysis uses, so a render is a
+   * cache hit. A function is read per job, so a cache root changed in Settings applies at once.
+   */
+  readonly cacheRoot: string | (() => string);
   /** Where video clips are extracted; on a drive with room (M39). */
-  readonly videoCacheRoot?: string;
+  readonly videoCacheRoot?: string | (() => string);
   readonly onChange?: (jobs: readonly RenderJob[]) => void;
   /** How often a running job checks for cancellation. */
   readonly cancelPollMs?: number;
@@ -87,8 +90,8 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           codec: preset.codec,
           outputPath: job.outputPath,
           workDir: join(options.workRoot, job.id),
-          cacheRoot: options.cacheRoot,
-          videoCacheRoot: options.videoCacheRoot,
+          cacheRoot: typeof options.cacheRoot === 'function' ? options.cacheRoot() : options.cacheRoot,
+          videoCacheRoot: typeof options.videoCacheRoot === 'function' ? options.videoCacheRoot() : options.videoCacheRoot,
           name: 'job',
           signal: controller.signal,
           onProgress: (progress) => {

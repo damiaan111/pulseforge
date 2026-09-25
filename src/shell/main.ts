@@ -33,6 +33,7 @@ import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { readTemplateFiles } from '../director/template-store.ts';
+import { CACHE_CATEGORIES, CacheStore, sizeOf, type CacheCategory } from '../cache/cache-store.ts';
 import { synthesizeTestTrack } from '../analysis/reference-track.ts';
 import { encodeWavFloat32 } from '../export/audio.ts';
 import { cacheOptionsFor, parseProjectAnalysisSettings } from '../analysis/project-settings.ts';
@@ -42,7 +43,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -72,9 +73,82 @@ import { stringifyDocument } from '../project/serialize.ts';
 /** Library thumbnails: decoded this small, so a panel of fifty costs little. */
 const THUMBNAIL_SIDE = 160;
 
+/**
+ * The one cache root (M33, PROJECT.md §8.14): analysis, stems, video proxies, preset thumbnails and
+ * scratch all live under it, so the cache screen can account for every byte. A setting; by default
+ * `<repo>/cache`, the same root the CLI and the contact sheet use, so a track analysed by one is a
+ * cache hit for the others. Read per use, so changing it in Settings applies at once (what is
+ * already cached stays where it was, and is rebuildable).
+ */
+function cacheRootPath(): string {
+  return currentSettings.cacheRoot ?? join(ROOT, 'cache');
+}
+
 /** The analysis cache the preview and the render queue share, so a queued render is a cache hit. */
 function analysisCacheRoot(): string {
-  return join(app.getPath('userData'), 'cache', 'analysis');
+  return cacheRootPath();
+}
+
+function scratchPath(): string {
+  return currentSettings.scratchDir ?? join(cacheRootPath(), 'scratch');
+}
+
+/** Where analysis was cached before the one cache root (0.x): offered for clearing, never read. */
+function legacyCachePath(): string {
+  return join(app.getPath('userData'), 'cache');
+}
+
+function cacheStore(): CacheStore {
+  return new CacheStore({ root: cacheRootPath() });
+}
+
+/**
+ * Cache units the studio is using this session — the track last analysed, the videos prepared —
+ * which the LRU ceiling never evicts. Main does not see the renderer's project, so it keeps what it
+ * served: a ceiling that deleted the stems being listened to would look exactly like data loss.
+ */
+const cacheInUse = new Set<string>();
+let lastTrackInUse: string | null = null;
+
+let upkeepTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * After anything is written to the cache: enforce the ceiling (least recently used first) and check
+ * the free space, a few seconds later so a burst of writes costs one scan. What it did is reported
+ * to the studio (and the log) rather than done silently.
+ */
+function scheduleCacheUpkeep(): void {
+  if (upkeepTimer !== null) clearTimeout(upkeepTimer);
+  upkeepTimer = setTimeout(() => {
+    upkeepTimer = null;
+    void cacheUpkeep();
+  }, 3000);
+}
+
+async function cacheUpkeep(): Promise<void> {
+  const notices: string[] = [];
+  try {
+    const store = cacheStore();
+    const ceiling = currentSettings.cacheCeilingGb * 1e9;
+    if (ceiling > 0) {
+      const result = await store.enforceCeiling(ceiling, cacheInUse);
+      if (result.removed.length > 0) {
+        const freed = result.removed.reduce((a, u) => a + u.bytes, 0);
+        notices.push(`Cache over its ${currentSettings.cacheCeilingGb} GB ceiling: removed ${result.removed.length} least recently used item${result.removed.length === 1 ? '' : 's'} (${(freed / 1e9).toFixed(2)} GB) — ${result.removed.map((u) => u.label).slice(0, 3).join(', ')}${result.removed.length > 3 ? '…' : ''}. They are rebuilt when needed.`);
+      }
+      if (result.overBy > 0) notices.push(`The cache is over its ceiling by ${(result.overBy / 1e9).toFixed(2)} GB with only what is in use left in it.`);
+    }
+    const warn = currentSettings.lowDiskWarningGb * 1e9;
+    if (warn > 0) {
+      const free = (await store.inventory()).freeBytes;
+      if (free !== null && free < warn) notices.push(`Only ${(free / 1e9).toFixed(1)} GB free on the cache drive (warning below ${currentSettings.lowDiskWarningGb} GB). Settings → Storage shows what can go.`);
+    }
+  } catch (error) {
+    notices.push(`Checking the cache failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  for (const text of notices) {
+    console.warn(`[cache] ${text}`);
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.cacheNotice, text);
+  }
 }
 
 /**
@@ -452,6 +526,12 @@ function registerHandlers(): void {
       const decoded = await decodeMono48k(FFMPEG_EXE, path);
       const cache = new AnalysisCache({ root: analysisCacheRoot() });
       const result = await analyzeCached(decoded.pcm, cache, { ...cacheOptionsFor(settings), audioHash: decoded.pcmSha256 });
+      // The open track is in use (never evicted) and just used (last in the LRU queue).
+      if (lastTrackInUse !== null) cacheInUse.delete(lastTrackInUse);
+      lastTrackInUse = `track:${result.audioHash}`;
+      cacheInUse.add(lastTrackInUse);
+      await cacheStore().touch(lastTrackInUse, basename(path));
+      scheduleCacheUpkeep();
       const source = result.analysis.sources.get('mix');
       if (source === undefined) throw new Error('the analyser produced no mix source');
       // Stems (M5) that have been separated live in the same cache entry, so a hit brings them.
@@ -501,8 +581,8 @@ function registerHandlers(): void {
         ffmpegExe: FFMPEG_EXE,
         sidecar: sidecar(),
         cacheRoot: analysisCacheRoot(),
-        stemsRoot: join(ROOT, 'cache', 'stems'),
-        scratchDir: join(ROOT, 'cache', 'scratch'),
+        stemsRoot: join(cacheRootPath(), 'stems'),
+        scratchDir: scratchPath(),
         modelRepo: join(MODELS, 'demucs'),
         audioPath: path,
         settings,
@@ -565,6 +645,51 @@ function registerHandlers(): void {
       },
       environment: environmentReport(),
     };
+  });
+  // The cache screen (M33).
+  const cacheListing = async (): Promise<CacheListing> => {
+    const inventory = await cacheStore().inventory();
+    const legacy = await sizeOf(legacyCachePath());
+    return {
+      ...inventory,
+      inUse: [...cacheInUse],
+      ceilingBytes: currentSettings.cacheCeilingGb * 1e9,
+      lowDiskBytes: currentSettings.lowDiskWarningGb * 1e9,
+      legacy: legacy.bytes > 0 ? { path: legacyCachePath(), bytes: legacy.bytes } : null,
+    };
+  };
+  ipcMain.handle(IPC.cacheInventory, async (): Promise<CacheListing> => cacheListing());
+  ipcMain.handle(IPC.cacheAction, async (_event, raw: unknown): Promise<CacheActionResult> => {
+    const action = (typeof raw === 'object' && raw !== null ? raw : {}) as { kind?: unknown; ids?: unknown; category?: unknown; keep?: unknown };
+    const store = cacheStore();
+    let result: { removed: readonly { bytes: number }[]; skipped?: readonly string[] };
+    if (action.kind === 'remove' && Array.isArray(action.ids) && action.ids.every((id) => typeof id === 'string')) {
+      result = await store.remove(action.ids as string[], cacheInUse);
+    } else if (action.kind === 'clear' && (action.category === 'all' || (CACHE_CATEGORIES as readonly unknown[]).includes(action.category))) {
+      result = await store.clear(action.category as CacheCategory | 'all', cacheInUse);
+    } else if (action.kind === 'keepRecent' && typeof action.keep === 'number' && Number.isInteger(action.keep) && action.keep >= 0) {
+      result = await store.keepRecentTracks(action.keep, cacheInUse);
+    } else if (action.kind === 'clearLegacy') {
+      const legacy = await sizeOf(legacyCachePath());
+      await rm(legacyCachePath(), { recursive: true, force: true });
+      result = { removed: [{ bytes: legacy.bytes }] };
+    } else {
+      throw new Error('That is not something the cache screen can do.');
+    }
+    return {
+      removed: result.removed.length,
+      freedBytes: result.removed.reduce((a, u) => a + u.bytes, 0),
+      skipped: result.skipped?.length ?? 0,
+      listing: await cacheListing(),
+    };
+  });
+  ipcMain.handle(IPC.pickFolder, async (_event, title: unknown): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({ title: typeof title === 'string' ? title.slice(0, 120) : 'Choose a folder', properties: ['openDirectory', 'createDirectory'] });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.handle(IPC.revealCache, async (): Promise<void> => {
+    await mkdir(cacheRootPath(), { recursive: true });
+    await shell.openPath(cacheRootPath());
   });
   ipcMain.handle(IPC.revealPath, async (_event, which: unknown): Promise<void> => {
     const paths: Record<string, string> = { userData: app.getPath('userData'), settings: dirname(settingsPath()) };
@@ -685,7 +810,7 @@ function registerHandlers(): void {
       const result = await gpuQueue.run('ml', `Lyrics: ${basename(request.audioPath)}`, () => alignLyrics({
         ffmpegExe: FFMPEG_EXE,
         sidecar: sidecar(),
-        stemsRoot: join(ROOT, 'cache', 'stems'),
+        stemsRoot: join(cacheRootPath(), 'stems'),
         stemModel: settings.stemModel,
         audioPath: request.audioPath as string,
         whisperDir: files.whisperDir,
@@ -768,7 +893,7 @@ function registerHandlers(): void {
   const presetStore = () => new PresetStore({
     root: presetsFolder(),
     builtinRoot: join(ROOT, 'presets', 'builtin'),
-    thumbnailRoot: join(ROOT, 'cache', 'preset-thumbnails'),
+    thumbnailRoot: join(cacheRootPath(), 'preset-thumbnails'),
   });
   const presetListing = async (): Promise<PresetLibraryListing> => {
     const store = presetStore();
@@ -839,7 +964,7 @@ function registerHandlers(): void {
   // Video (M39): extracted under the repo's drive, like the CLI's cache — a frame cache runs to
   // gigabytes and C: is nearly full on the build machine (STATUS §2). The studio and the CLI share
   // it, so a clip previewed here is already extracted when the queue renders it at the same size.
-  const videoCacheRoot = join(ROOT, 'cache');
+  const videoCacheRoot = () => cacheRootPath();
   const preparing = new Map<string, Promise<VideoPrepareResult>>();
 
   ipcMain.handle(IPC.videoImport, async (): Promise<VideoFile | null> => {
@@ -876,7 +1001,7 @@ function registerHandlers(): void {
     const job = extractSequence({
       ffmpegExe: FFMPEG_EXE,
       ffprobeExe: FFPROBE_EXE,
-      root: videoCacheRoot,
+      root: videoCacheRoot(),
       path,
       videoHash: hash,
       fps,
@@ -889,6 +1014,8 @@ function registerHandlers(): void {
       (sequence): VideoPrepareResult => ({ status: 'ok', sequence: { hash, frameCount: sequence.frameCount, width: sequence.width, height: sequence.height } }),
       (error: unknown): VideoPrepareResult => ({ status: 'error', path, message: describe(error).message }),
     ).finally(() => preparing.delete(key));
+    cacheInUse.add(`video:${hash}`);
+    void cacheStore().touch(`video:${hash}`, basename(path)).then(scheduleCacheUpkeep);
     preparing.set(key, job);
     return job;
   });
@@ -900,7 +1027,7 @@ function registerHandlers(): void {
       throw new Error('videoFrame needs a clip hash, an fps and a frame number');
     }
     // Only ever inside the frame cache: the hash is validated hex, so it cannot climb out of it.
-    const dir = sequenceDir(videoCacheRoot, hash, { num: f.num, den: f.den }, PROXY_WIDTH);
+    const dir = sequenceDir(videoCacheRoot(), hash, { num: f.num, den: f.den }, PROXY_WIDTH);
     return new Uint8Array(await readFile(framePath(dir, sourceFrame)));
   });
 
@@ -1103,6 +1230,8 @@ app.whenReady().then(async () => {
   guardWebContents();
   currentSettings = (await settingsStore().read()).settings;
   registerHandlers();
+  // The ceiling and the free space, once at start (after that, after every cache write).
+  scheduleCacheUpkeep();
 
   if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LIBRARY'] === undefined) {
     // A library of our own for the smoke check, with one generated image, set before the window
@@ -1119,6 +1248,9 @@ app.whenReady().then(async () => {
     const settingsFile = join(ROOT, 'out', 'smoke-settings.json');
     await rm(settingsFile, { force: true });
     process.env['PULSEFORGE_SETTINGS'] = settingsFile;
+    // And its own cache root: the cache check clears things, and it must never clear the owner's.
+    await settingsStore().update({ cacheRoot: join(ROOT, 'out', 'smoke-cache') });
+    currentSettings = (await settingsStore().read()).settings;
 
     // Its own recovery folder too: the smoke must not offer (or clear) the owner's autosaves.
     const recovery = join(ROOT, 'out', 'smoke-recovery');
@@ -1157,8 +1289,8 @@ app.whenReady().then(async () => {
     renders = await createRenderService({
       root: join(ROOT, 'out', 'studio-render', 'queue'),
       workRoot: join(ROOT, 'out', 'studio-render', 'work'),
-      cacheRoot: analysisCacheRoot(),
-      videoCacheRoot: join(ROOT, 'cache'),
+      cacheRoot: () => analysisCacheRoot(),
+      videoCacheRoot: () => cacheRootPath(),
       gpu: gpuQueue,
       onChange: (jobs) => {
         for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.renderChanged, jobs);
@@ -1764,6 +1896,26 @@ app.whenReady().then(async () => {
         if (!settingsUi) console.error('[smoke] settingsUi steps ' + JSON.stringify(steps) + ' ' + (document.querySelector('#app [data-testid="setup-result"]')?.textContent ?? ''));
       }
 
+      // Storage (M33): the breakdown lists the smoke song's track (analysed by autoUi) as in use,
+      // and Clear everything frees the rest but keeps it. The smoke has its own cache root.
+      let storageUi = false;
+      {
+        window.confirm = () => true;
+        document.querySelector('#app header [data-action="settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const shown = await waitFor(() => document.querySelector('#app [data-testid="cache-breakdown"]'), 200);
+        const songRow = () => [...document.querySelectorAll('#app .cache-units tr')].find((row) => (row.textContent ?? '').includes('smoke-song.wav'));
+        const inUse = (songRow()?.textContent ?? '').includes('in use');
+        const before = document.querySelectorAll('#app .cache-units tr').length;
+        document.querySelector('#app [data-action="cache-clear-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const cleared = await waitFor(() => /Freed .*kept/.test(document.querySelector('#app .toast')?.textContent ?? ''), 200);
+        const kept = songRow() !== undefined;
+        const after = document.querySelectorAll('#app .cache-units tr').length;
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        const steps = { shown: shown !== null && shown !== false, inUse, cleared: cleared === true, kept, fewer: after < before || before === 1 };
+        storageUi = Object.values(steps).every(Boolean);
+        if (!storageUi) console.error('[smoke] storageUi steps ' + JSON.stringify(steps) + ' rows ' + before + '→' + after);
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1812,6 +1964,7 @@ app.whenReady().then(async () => {
         globalChain,
         autoUi,
         settingsUi,
+        storageUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
@@ -1997,6 +2150,8 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
       await new Promise((d) => setTimeout(d, 300))`;
     await js(click('#app header button[data-action="settings"]'));
     await snap(`${label}-11a-settings`);
+    await js(`document.querySelector('#app [data-testid="settings-storage"]')?.scrollIntoView(); await new Promise((d) => setTimeout(d, 600))`);
+    await snap(`${label}-11c-storage`);
     await js(theme('light'));
     await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     await snap(`${label}-11b-light-theme`);

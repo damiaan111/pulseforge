@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1061 tests, `npm run golden` 29/29 identical,
-> `--smoke` 25/25.
+> any aspect. Last full verification: `npm run check` 1067 tests, `npm run golden` 29/29 identical,
+> `--smoke` 26/26.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -34,10 +34,12 @@
 > `npm run contact-sheet` to check the templates across a folder of tracks.
 >
 > **Operability (§4.59–):** the Settings screen (M36) — theme, autosave interval, models, export
-> default, setup verify and repair from the app, the environment and a shortcut reference.
+> default, setup verify and repair from the app, the environment and a shortcut reference; and
+> Storage (M33) — one cache root, a breakdown by category and track, remove/clear/keep-the-last-N,
+> an LRU size limit that never touches what is in use, and a low-disk warning.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): cache management (M33) and
-> rotating logs with copy-diagnostics (M34); the P1 remainder; P8.
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): rotating logs with
+> copy-diagnostics (M34); the P1 remainder; P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -110,6 +112,7 @@
 | 4.58 | The Auto drawer, Surprise me and the contact sheet (P7 step 3) — M21, M22 complete; D9 |
 | | **Operability** |
 | 4.59 | The Settings screen (operability step 1) — M36, PROJECT.md §8.16, ui-spec §8 |
+| 4.60 | Storage: one cache root, breakdown, prune, LRU limit, low disk (operability step 2) — M33 |
 
 ---
 
@@ -3018,6 +3021,68 @@ the version stays 1.
     out"**;
   - Esc closes the screen.
 - The UI tour adds `11a-settings` and `11b-light-theme` at both sizes.
+
+### 4.60 Storage (operability step 2) — M33, PROJECT.md §8.14
+
+**One cache root.** Analysis, stems, video frames, preset thumbnails and scratch now all live under
+one folder: a setting, by default `<repo>/cache`.
+- The app used to keep its analysis in the Electron profile (`%APPDATA%\Electron\cache\analysis`)
+  while the CLI and the contact sheet used `<repo>/cache`, so the same track was analysed twice. Now
+  all three share one cache, and a track analysed by one is a hit for the others.
+- The old profile location is not read any more. The Storage section shows what is left there (72 MB
+  on this machine) with **Clear it**.
+- Every path is resolved per use, the render queue's included, so a changed root applies at once.
+  What is already cached stays where it was; it is all rebuildable.
+- The scratch folder is its own setting (default: inside the cache).
+
+**The model (`src/cache/cache-store.ts`, plain Node).**
+- A **track** unit is a track's analysis and stems together: they are made from, and only useful
+  with, the same audio.
+- A **video** unit is one clip's extracted frames.
+- **Preset thumbnails** and **scratch** are one unit each.
+- Anything else under the root is listed as **other**, never ignored.
+- The cache is keyed by content hashes, so a small **usage index** (`usage.json`) records each
+  hash's file name and when it was last used. The studio updates it when it analyses a track or
+  prepares a video. It is itself rebuildable: without it, units are still listed, by hash, with
+  their newest file time.
+- Actions:
+  - remove units, clear a category, "keep the last N tracks", and clear everything;
+  - **what the studio is using this session is never removed** (the track last analysed and the
+    videos prepared);
+  - every path is checked to lie inside the root before anything is deleted.
+- **The LRU size limit** (default 20 GB, a setting; 0 for none) evicts least recently used units
+  until the cache fits. It runs a few seconds after any cache write (debounced) and once at start.
+  If what is in use alone is over the limit, it says so rather than evicting it.
+- **Low disk**: free space on the cache's drive (`statfs`) below the warning (default 5 GB, a
+  setting) is reported.
+- Both reach the studio as a warning toast and the log; nothing happens silently.
+
+**The Storage section** (Settings):
+- the cache folder with Choose / Use the default / Open, and the scratch folder;
+- the size limit and the low-disk threshold;
+- the total against the limit, free space (red when low), a bar per category with Clear;
+- keep-the-last-N and Clear everything;
+- up to 50 items biggest first (name, what it holds, e.g. "analysis 1.5 MB · stems 104 MB", last
+  used, size, and ✕), with **in use** items badged and not removable;
+- the old-location notice.
+
+Every destructive action asks first and reports what it freed and what it kept.
+
+**The smoke has its own cache root** (`out/smoke-cache`, written into its own settings file before
+the window opens), because its storage check clears everything and must never clear the owner's.
+
+**Verified here:**
+- `npm run check` **1067 tests**. New `tests/cache/cache-store.test.ts`:
+  - analysis and stems grouped per track and named from the index, biggest first, by category;
+  - an unknown folder is listed;
+  - clearing skips the protected;
+  - keep-the-last-N works;
+  - the LRU order under a limit, with the protected skipped;
+  - deletion outside the root is refused;
+  - a damaged index is ignored.
+- `--smoke` **26/26**. New `storageUi`: the breakdown lists the smoke song as in use; Clear
+  everything frees the rest and keeps it.
+- The UI tour adds `11c-storage`.
 
 ---
 

@@ -25,7 +25,7 @@
 | P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 37 done, 3 partly done, 0 not started.** By count that is 90%+; by effort —
+**Must-haves (M1–M40): 38 done, 2 partly done, 0 not started.** By count that is 90%+; by effort —
 what remains is operability (cache screen, logs and diagnostics, the settings screen) and the P1
 remainder — the v1 must-have work is **roughly nine-tenths done**.
 
@@ -98,7 +98,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M33 | Cache & disk management: root, breakdown, prune, LRU ceiling, low-disk warning | 🔶 | 4.17, 4.41 | caches are laid out and rebuildable; **no UI, no pruning, no ceiling, no warning** |
+| M33 | Cache & disk management: root, breakdown, prune, LRU ceiling, low-disk warning | ✅ | 4.17, 4.41, 4.60 | "per-project" view: the breakdown is per track and video, which is what a project's cache consists of |
 | M34 | Diagnostics: rotating logs, per-render report, environment report, copy diagnostics | 🔶 | 4.5, 4.14 | render reports beside each output and the environment report exist; **rotating logs and copy-diagnostics** do not |
 | M35 | Module authoring, `modules/` folder, conformance test | ✅ | 4.42 | see §4 for the deliberate difference from module-spec §12 |
 | M36 | Settings screen incl. setup/repair entry | ✅ | 4.59 | shortcut remapping and GPU choice are shown, not settable (§4) |
@@ -130,8 +130,8 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 4. ✅ **Autosave and crash recovery (M1)** — done (STATUS 4.49).
 5. ✅ **Lyrics (P6: M18–M20, M26)** — done (STATUS 4.50–4.55).
 6. ✅ **Auto-director (P7: M21, M22)** — done (STATUS 4.56–4.58).
-7. **Operability (M33, M34, M36)** — ✅ the settings screen with setup/repair (STATUS 4.59); next
-   the cache screen with prune and ceiling, then rotating logs and copy-diagnostics.
+7. **Operability (M33, M34, M36)** — ✅ the settings screen with setup/repair (STATUS 4.59), ✅ storage
+   (4.60); next rotating logs and copy-diagnostics (M34).
 8. **P1 remainder** — extras tier, `htdemucs_ft`, Whisper `large-v3`, alignment models for more languages, an offline-rebuild check.
 9. **P8** — keyframes (needs a short spec first), masking, motion blur, 6-stem model, and the rest
    of the Should-haves.

@@ -2,7 +2,8 @@
 //
 // Every setting saves as it changes — there is no Apply button to forget — and a refused value
 // says why beside the control that sent it. Sections, in the order they are reached for:
-// General, Audio & models, Export, Setup & repair, Environment, Keyboard.
+// General, Audio & models, Export, Storage (M33, StorageSection.tsx), Setup & repair, Environment,
+// Keyboard.
 //
 // Setup & repair runs the same `npm run setup` a terminal would (verify, or re-run one tier), with
 // its output streamed here. It is the entry point ui-spec §8 asks for: a feature that is not
@@ -10,13 +11,14 @@
 //
 // Two items of §8.16 are shown rather than chosen, and say why: the GPU (Chromium picks the device
 // for WebGL; the one in use is reported) and the keyboard map (a reference; remapping is not built
-// — ROADMAP §4). Storage and diagnostics settings live on their own screens.
+// — ROADMAP §4).
 
 import { useEffect, useRef, useState } from 'react';
 
 import { EXPORT_PRESETS } from '../../export/export-presets.ts';
 import type { SettingsInfo, UserSettings } from '../../shell/ipc.ts';
 import { useStudio } from '../store.ts';
+import { StorageSection } from './StorageSection.tsx';
 
 const SHORTCUTS: readonly (readonly [string, string])[] = [
   ['Space / K', 'Play or pause'],
@@ -135,6 +137,8 @@ export function SettingsDialog(): React.JSX.Element | null {
               </select>
             </label>
           </section>
+
+          <StorageSection settings={settings} defaultRoot={info?.paths.defaultCacheRoot ?? null} save={save} />
 
           <SetupSection />
 
