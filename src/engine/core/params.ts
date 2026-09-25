@@ -25,6 +25,8 @@ interface ParamCommon {
   readonly group: string;
   readonly description?: string;
   readonly modulatable?: boolean;
+  /** May carry keyframes (S1). The default is yes; a module opts a parameter out with false. */
+  readonly animatable?: boolean;
   readonly aspectOverridable?: boolean;
   /**
    * Conditional display (module-spec §3.1, §13). A hidden parameter **keeps its value and is

@@ -2092,6 +2092,50 @@ app.whenReady().then(async () => {
         if (!extrasUi) console.error('[smoke] extrasUi steps ' + JSON.stringify(steps));
       }
 
+      // Keyframes (S1): on a new Bars layer, the first parameter's diamond sets a key at the
+      // playhead; after seeking to 2 s, moving its slider sets a second key (auto-key); a key picked
+      // in the Keyframes section opens the editor, and an ease-in-out easing shows the curve editor.
+      let keyframeUi = false;
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const bars = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars');
+        bars?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 150));
+        const firstDiamond = () => document.querySelector('#app .inspector .param-group [data-action="keyframe"]');
+        firstDiamond()?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const keyed = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'on-key', 40);
+        // Seek to 2 s on the waveform lane.
+        const timeline = document.querySelector('#app [data-testid="timeline"]');
+        const box = timeline.getBoundingClientRect();
+        const total = 60;
+        const at = { clientX: box.left + 8 + (2 / total) * (box.width - 16), clientY: box.top + 10, pointerId: 7, bubbles: true };
+        timeline.dispatchEvent(new PointerEvent('pointerdown', at));
+        timeline.dispatchEvent(new PointerEvent('pointerup', at));
+        const moved = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'animated', 40);
+        const range = document.querySelector('#app .inspector .param-group input[type="range"]');
+        if (range !== null) {
+          const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          setValue.call(range, range.max);
+          range.dispatchEvent(new Event('input', { bubbles: true }));
+          range.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+        }
+        const twoKeys = await waitFor(() => document.querySelectorAll('#app [data-testid="keyframes-section"] .key-chip').length === 2, 40);
+        click('#app [data-testid="keyframes-section"] .key-chip');
+        const editor = await waitFor(() => document.querySelector('#app [data-testid="key-editor"]'), 40);
+        const easing = document.querySelector('#app [data-action="key-easing"]');
+        if (easing !== null) {
+          Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(easing, 'easeInOut');
+          easing.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const curve = await waitFor(() => document.querySelector('#app [data-testid="curve-editor"]'), 40);
+        // Delete removes the selected key (the timeline's handler); one is left.
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+        const deleted = await waitFor(() => document.querySelectorAll('#app [data-testid="keyframes-section"] .key-chip').length === 1, 40);
+        const steps = { keyed: keyed === true, moved: moved === true, twoKeys: twoKeys === true, editor: editor !== null && editor !== false, curve: curve !== null && curve !== false, deleted: deleted === true };
+        keyframeUi = Object.values(steps).every(Boolean);
+        if (!keyframeUi) console.error('[smoke] keyframeUi steps ' + JSON.stringify(steps));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2148,6 +2192,7 @@ app.whenReady().then(async () => {
         storageUi,
         diagnosticsUi,
         extrasUi,
+        keyframeUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
@@ -2340,6 +2385,11 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(click('#app header button[data-action="auto-drawer"]'));
     await js(`${click('#app [data-action="auto-generate"]')}; await new Promise((d) => setTimeout(d, 1500))`);
     await snap(`${label}-10a-auto-generated`);
+    // Keyframes (S1): the Bars layer from the smoke's keyframe check is animated; select it, so the
+    // inspector's Keyframes section and the timeline's keyframe row are both in view.
+    await js(`[...document.querySelectorAll('#app .layer-list .layer-row')].find((r) => (r.textContent ?? '').includes('Bars'))?.querySelector('.layer-name')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await js(`document.querySelector('#app [data-testid="keyframes-section"]')?.scrollIntoView(); ${click('#app [data-testid="keyframes-section"] .key-chip')}`);
+    await snap(`${label}-12-keyframes`);
     await js(`${click('#app [data-action="auto-surprise"]')}; await new Promise((d) => setTimeout(d, 800))`);
     await js(`${click('#app [data-action="auto-surprise"]')}; await new Promise((d) => setTimeout(d, 1500))`);
     await snap(`${label}-10b-auto-rolls`);

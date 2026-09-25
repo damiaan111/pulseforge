@@ -26,6 +26,8 @@ import { useModules } from '../modules.ts';
 import { useState } from 'react';
 import { OPACITY_SPEC, effectParamTarget, isModulatable, layerOpacityTarget, layerParamTarget } from '../../project/modulation-authoring.ts';
 import { ModulateButton, ModulationSection, useLiveValue } from './Modulation.tsx';
+import { KeyframeButton, KeyframesSection, useKeyframed } from './Keyframes.tsx';
+import type { Keyframe } from '../../project/document.ts';
 
 
 /**
@@ -68,6 +70,7 @@ export function Inspector(): React.JSX.Element {
         <p className="empty">Select a layer to edit it. Below: effects on the whole frame.</p>
         <EffectChain layerId={GLOBAL_OWNER} effects={document.globalEffects} hasDepth={false} />
         <ModulationSection layerId={GLOBAL_OWNER} bindings={document.globalModulations} />
+        <KeyframesSection ownerId={GLOBAL_OWNER} />
       </aside>
     );
   }
@@ -104,13 +107,14 @@ export function Inspector(): React.JSX.Element {
           {BLEND_MODES.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
         </select>
       </label>
-      <Slider
+      <KeyedSlider
+        target={layerOpacityTarget(layer.id)}
         label="Opacity"
         value={layer.opacity}
         min={0}
         max={1}
         step={0.01}
-        extra={<ModulateButton ownerId={layer.id} target={layerOpacityTarget(layer.id)} spec={OPACITY_SPEC} />}
+        modulate={<ModulateButton ownerId={layer.id} target={layerOpacityTarget(layer.id)} spec={OPACITY_SPEC} />}
         live={typeof liveOpacity === 'number' ? liveOpacity : undefined}
         onChange={(v) => run(setLayerOpacity(layer.id, v), { seal: false })}
         onCommit={() => run(setLayerOpacity(layer.id, layer.opacity))}
@@ -118,8 +122,9 @@ export function Inspector(): React.JSX.Element {
 
       <h2>Transform{editTarget === 'base' ? '' : ` · ${editTarget}`}</h2>
       {(['x', 'y'] as const).map((axis) => (
-        <Slider
+        <KeyedSlider
           key={axis}
+          target={`layers.${layer.id}.transform.${axis}`}
           label={axis.toUpperCase()}
           value={(override?.transform[axis] ?? layer.transform[axis])}
           min={-0.5}
@@ -132,8 +137,9 @@ export function Inspector(): React.JSX.Element {
         />
       ))}
       {(['scaleX', 'scaleY'] as const).map((axis) => (
-        <Slider
+        <KeyedSlider
           key={axis}
+          target={`layers.${layer.id}.transform.${axis}`}
           label={axis === 'scaleX' ? 'Scale X' : 'Scale Y'}
           value={(override?.transform[axis] ?? layer.transform[axis])}
           min={0}
@@ -144,7 +150,8 @@ export function Inspector(): React.JSX.Element {
           onCommit={() => run(setLayerTransform(layer.id, {}, editTarget))}
         />
       ))}
-      <Slider
+      <KeyedSlider
+        target={`layers.${layer.id}.transform.rotationDeg`}
         label="Rotation"
         value={override?.transform.rotationDeg ?? layer.transform.rotationDeg}
         min={-180}
@@ -222,6 +229,7 @@ export function Inspector(): React.JSX.Element {
       <EffectChain layerId={layer.id} effects={layer.effects} hasDepth={manifest?.kind === 'scene3d'} />
       <LayerTiming layerId={layer.id} range={layer.timeRange} />
       <ModulationSection layerId={layer.id} bindings={layer.modulations} />
+      <KeyframesSection ownerId={layer.id} />
       </fieldset>
     </aside>
   );
@@ -377,6 +385,9 @@ function LayerTiming(props: { layerId: string; range: TimeRange }): React.JSX.El
   );
 }
 
+/** Types a keyframe can hold (keyframes-spec §4); text and assets are not animated from the inspector. */
+const KEYABLE = new Set(['float', 'int', 'bool', 'enum', 'color']);
+
 /** One generated control. The type decides the widget; nothing is special-cased per module. */
 function ParamControl(props: {
   spec: ParamSpec;
@@ -389,12 +400,22 @@ function ParamControl(props: {
   /** Where a binding on this parameter lives and points (M13); absent where modulation does not apply. */
   modulation?: { readonly ownerId: string; readonly target: string } | undefined;
 }): React.JSX.Element {
-  const { spec, stored, overrideValue, onChange, onReset, assign, modulation } = props;
+  const { spec, stored, overrideValue, onReset, assign, modulation } = props;
   const overridden = overrideValue !== undefined;
-  const raw = overridden ? overrideValue : stored;
   const canModulate = modulation !== undefined && isModulatable(spec);
   const live = useLiveValue(canModulate ? modulation.target : undefined);
-  const modulate = canModulate ? <ModulateButton ownerId={modulation.ownerId} target={modulation.target} spec={spec} /> : null;
+  // Keyframes (S1): the same path as modulation. An animated control shows the keyed value at the
+  // playhead, and editing it sets a key there (auto-key) instead of the base.
+  const keyTarget = modulation !== undefined && spec.animatable !== false && KEYABLE.has(spec.type) ? modulation.target : undefined;
+  const keyed = useKeyframed(keyTarget, spec.type === 'float' || spec.type === 'int' ? 'number' : spec.type === 'color' ? 'color' : 'discrete');
+  const raw = keyed.track !== undefined && keyed.value !== undefined ? keyed.value : overridden ? overrideValue : stored;
+  const onChange = (value: unknown, seal: boolean) => (keyed.track !== undefined
+    ? keyed.setAtPlayhead(value as Keyframe['value'], seal)
+    : props.onChange(value, seal));
+  const keyButton = keyTarget === undefined ? null : <KeyframeButton target={keyTarget} keyed={keyed} current={(raw ?? spec.default) as Keyframe['value']} />;
+  const modulate = canModulate || keyButton !== null
+    ? <>{canModulate ? <ModulateButton ownerId={modulation.ownerId} target={modulation.target} spec={spec} /> : null}{keyButton}</>
+    : null;
 
   switch (spec.type) {
     case 'float':
@@ -634,6 +655,26 @@ function Badge(props: { onReset?: (() => void) | undefined }): React.JSX.Element
     <button type="button" className="override-badge" title="Overridden for this aspect — click to reset to base" onClick={props.onReset}>
       override
     </button>
+  );
+}
+
+/**
+ * A layer-property slider (opacity, transform) that can be keyframed: the diamond beside it, the
+ * keyed value at the playhead shown, and auto-key when animated (keyframes-spec §5).
+ */
+function KeyedSlider(props: Omit<Parameters<typeof Slider>[0], 'extra'> & { target: string; modulate?: React.ReactNode }): React.JSX.Element {
+  const { target, modulate, ...slider } = props;
+  const keyed = useKeyframed(target, 'number');
+  const animated = keyed.track !== undefined && typeof keyed.value === 'number';
+  const value = animated ? (keyed.value as number) : slider.value;
+  return (
+    <Slider
+      {...slider}
+      value={value}
+      extra={<>{modulate}<KeyframeButton target={target} keyed={keyed} current={value} /></>}
+      onChange={(v) => (animated ? keyed.setAtPlayhead(v, false) : slider.onChange(v))}
+      onCommit={() => (animated ? keyed.setAtPlayhead(value, true) : slider.onCommit?.())}
+    />
   );
 }
 

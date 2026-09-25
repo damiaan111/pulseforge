@@ -15,6 +15,12 @@
 // (Alt ripples everything after), drag an edge to resize, and on a selected line drag the boundary
 // between two words. Edges snap to vocal onsets, other lines, the playhead and — when asked — the
 // beat grid; Shift while dragging turns snapping off. Each drag is one undo step (timeline-edit.ts).
+//
+// **Keyframes** (S1, keyframes-spec §5): each animated parameter gets a row under its layer (the
+// whole frame's after the layers), its keys drawn as diamonds. Click selects a key (Shift adds),
+// drag moves the selection — snapping to beats and the playhead, not with Shift — Alt-drag copies,
+// Delete removes. A drag is computed from the document as it was when it started, so passing over
+// another key never destroys it mid-drag, and the whole drag is one undo step.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -24,7 +30,9 @@ import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds } from '../..
 import { onsetPeaks } from '../../lyrics/tap.ts';
 import { detectVocalSegments } from '../../lyrics/vocal-segments.ts';
 import { dragEdgeTicks, planLyricDrag, snapDelta, snapTargets, type LyricDrag } from '../../lyrics/timeline-edit.ts';
-import { walkLayers, type Layer, type LyricLine, type Lyrics, type ProjectDocument } from '../../project/document.ts';
+import { walkLayers, type AutomationTrack, type Layer, type LyricLine, type Lyrics, type ProjectDocument } from '../../project/document.ts';
+import { moveKeyframes, removeKeyframes, setKeyframe } from '../../project/automation-commands.ts';
+import { newId } from '../../project/ids.ts';
 import { setLineTimings } from '../../project/lyrics-commands.ts';
 import { timelineDurationTicks } from '../../project/snapshot.ts';
 import { history, useStudio } from '../store.ts';
@@ -110,6 +118,8 @@ export function Timeline(): React.JSX.Element {
   const setLyricsOpen = useStudio((s) => s.setLyricsOpen);
   const lyricSnap = useStudio((s) => s.lyricSnap);
   const run = useStudio((s) => s.run);
+  const keySelection = useStudio((s) => s.keySelection);
+  const setKeySelection = useStudio((s) => s.setKeySelection);
 
   const duration = Math.max(0.001, ticksToSeconds(timelineDurationTicks(document)));
   const { leadInTicks, clipInTicks } = document.audio;
@@ -323,10 +333,11 @@ export function Timeline(): React.JSX.Element {
       top += LYRIC_HEIGHT + 4;
     }
 
-    // Layer blocks, one row each, showing the time range the engine actually honours.
-    const rows = layerRows(document);
+    // Layer blocks, one row each, showing the time range the engine actually honours; under an
+    // animated layer, a row per keyframe track.
+    const rows = timelineRows(document);
     const fits = Math.max(0, Math.floor((rect.height - top) / ROW_HEIGHT));
-    for (const [row, layer] of rows.entries()) {
+    for (const [row, entry] of rows.entries()) {
       const rowTop = top + row * ROW_HEIGHT;
       if (row >= fits) break;
       if (row === fits - 1 && rows.length > fits) {
@@ -334,9 +345,14 @@ export function Timeline(): React.JSX.Element {
         ctx.fillStyle = dim;
         ctx.font = '11px "Segoe UI", system-ui, sans-serif';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`+${rows.length - fits + 1} more layers — select them in the layer list`, PADDING + 6, rowTop + (ROW_HEIGHT - 4) / 2);
+        ctx.fillText(`+${rows.length - fits + 1} more rows — select layers in the layer list`, PADDING + 6, rowTop + (ROW_HEIGHT - 4) / 2);
         break;
       }
+      if (entry.kind === 'track') {
+        drawTrack(ctx, entry.track, rowTop, { x, dim, control, accent, line, width: rect.width, selection: keySelection });
+        continue;
+      }
+      const layer = entry.layer;
       const from = ticksToSeconds(layer.timeRange.inTicks);
       const to = layer.timeRange.outTicks === null ? duration : ticksToSeconds(layer.timeRange.outTicks);
       const left = Math.max(PADDING, x(from));
@@ -380,7 +396,7 @@ export function Timeline(): React.JSX.Element {
     ctx.lineTo(px, rect.height);
     ctx.stroke();
     ctx.lineWidth = 1;
-  }, [document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection]);
+  }, [document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection]);
 
   useEffect(() => {
     draw();
@@ -422,11 +438,26 @@ export function Timeline(): React.JSX.Element {
       if (typing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
       if (event.key.toLowerCase() === 'f') setView(fitView(duration));
     };
+    const onDelete = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      if (typing || event.key !== 'Delete') return;
+      const state = useStudio.getState();
+      if (state.keySelection.length === 0) return;
+      event.preventDefault();
+      state.run(removeKeyframes(state.keySelection));
+      state.setKeySelection([]);
+    };
+    window.addEventListener('keydown', onDelete);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onDelete);
+    };
   }, [duration]);
 
   const drag = useRef<DragState | null>(null);
+  const keyDrag = useRef<KeyDragState | null>(null);
   const scrubbing = useRef(false);
   const [cursor, setCursor] = useState('pointer');
 
@@ -486,11 +517,35 @@ export function Timeline(): React.JSX.Element {
       };
       return;
     }
-    // Below the lanes, the click picks a layer row.
+    // Below the lanes, the click picks a layer row — or, on a keyframe row, a key.
     const rowsTop = WAVE_HEIGHT + 4 + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
     const index = Math.floor((y - rowsTop) / ROW_HEIGHT);
-    const layer = layerRows(document)[index];
-    if (layer !== undefined) select(layer.id);
+    const entry = timelineRows(document)[index];
+    if (entry === undefined) return;
+    if (entry.kind === 'layer') {
+      select(entry.layer.id);
+      return;
+    }
+    if (entry.layer !== null) select(entry.layer.id);
+    const hit = entry.track.keyframes.find((k) => Math.abs(xOf(g, ticksToSeconds(k.ticks)) - px) <= KEY_HIT_PX);
+    if (hit === undefined) {
+      setKeySelection([]);
+      previewControls.seek(seconds);
+      return;
+    }
+    let selection = keySelection;
+    if (event.shiftKey) {
+      selection = keySelection.includes(hit.id) ? keySelection.filter((id) => id !== hit.id) : [...keySelection, hit.id];
+      setKeySelection(selection);
+      return;
+    }
+    if (!keySelection.includes(hit.id)) {
+      selection = [hit.id];
+      setKeySelection(selection);
+    }
+    capture(canvas, event.pointerId);
+    dragCount += 1;
+    keyDrag.current = { ids: selection, anchorTicks: hit.ticks, start: history.current, originX: px, copy: event.altKey, mergeKey: `key-drag:${dragCount}`, moved: false, copyIds: selection.map(() => newId()) };
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>): void {
@@ -501,6 +556,43 @@ export function Timeline(): React.JSX.Element {
     const px = event.clientX - rect.left;
     if (scrubbing.current) {
       previewControls.seek(Math.min(duration, Math.max(0, secondsAt(g, px))));
+      return;
+    }
+    const keys = keyDrag.current;
+    if (keys !== null) {
+      if (!keys.moved && Math.abs(px - keys.originX) < 3) return;
+      keys.moved = true;
+      const pxPerTick = (g.width - PADDING * 2) / (g.view.span * TICKS_PER_SECOND);
+      let delta = Math.round((px - keys.originX) / pxPerTick);
+      if (!event.shiftKey) {
+        const targets = [
+          ...(analysis?.beatGrid?.beats ?? []).map((b) => Math.round(sourceToTimelineSeconds(b, placement) * TICKS_PER_SECOND)),
+          Math.round(timelineSeconds * TICKS_PER_SECOND),
+        ];
+        const want = keys.anchorTicks + delta;
+        let best: number | undefined;
+        for (const t of targets) if (Math.abs(t - want) * pxPerTick <= SNAP_PX && (best === undefined || Math.abs(t - want) < Math.abs(best - want))) best = t;
+        if (best !== undefined) delta = best - keys.anchorTicks;
+      }
+      const from = keys.start;
+      const ids = keys.ids;
+      const copyIds = keys.copyIds;
+      const applyFrom = (): ProjectDocument => {
+        if (!keys.copy) return moveKeyframes(ids, delta).apply(from);
+        // Alt: copies at the new time, the originals stay.
+        let next = from;
+        ids.forEach((id, i) => {
+          for (const track of from.automation) {
+            const k = track.keyframes.find((key) => key.id === id);
+            if (k !== undefined) {
+              const fixedId = copyIds[i] as string;
+              next = setKeyframe(track.target, Math.max(0, k.ticks + delta), k.value, { newId: () => fixedId, easing: k.easing }).apply(next);
+            }
+          }
+        });
+        return next;
+      };
+      run({ label: keys.copy ? 'Copy keyframes' : ids.length === 1 ? 'Move keyframe' : 'Move keyframes', mergeKey: keys.mergeKey, apply: (d) => ({ ...d, automation: applyFrom().automation }) }, { seal: false });
       return;
     }
     const current = drag.current;
@@ -535,6 +627,16 @@ export function Timeline(): React.JSX.Element {
   function onPointerUp(event: React.PointerEvent<HTMLCanvasElement>): void {
     if (canvasRef.current?.hasPointerCapture(event.pointerId) === true) canvasRef.current.releasePointerCapture(event.pointerId);
     scrubbing.current = false;
+    if (keyDrag.current !== null) {
+      const keys = keyDrag.current;
+      keyDrag.current = null;
+      if (keys.moved) history.seal();
+      else {
+        const k = keys.start.automation.flatMap((t) => t.keyframes).find((key) => key.id === keys.ids[0]);
+        if (k !== undefined) previewControls.seek(ticksToSeconds(k.ticks));
+      }
+      return;
+    }
     const current = drag.current;
     drag.current = null;
     if (current === null) return;
@@ -553,7 +655,7 @@ export function Timeline(): React.JSX.Element {
   }
 
   const lanes = WAVE_HEIGHT + 4 + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
-  const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, lanes + layerRows(document).length * ROW_HEIGHT + 6));
+  const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, lanes + timelineRows(document).length * ROW_HEIGHT + 6));
   return (
     <canvas
       ref={canvasRef}
@@ -589,4 +691,69 @@ function formatClock(seconds: number): string {
  */
 function layerRows(document: ProjectDocument): Layer[] {
   return [...walkLayers(document.layers)].map(({ layer }) => layer).reverse();
+}
+
+type Row = { readonly kind: 'layer'; readonly layer: Layer } | { readonly kind: 'track'; readonly layer: Layer | null; readonly track: AutomationTrack };
+
+/** Each layer, then a row per keyframe track on it; the whole frame's tracks after all the layers. */
+function timelineRows(document: ProjectDocument): Row[] {
+  const rows: Row[] = [];
+  for (const layer of layerRows(document)) {
+    rows.push({ kind: 'layer', layer });
+    for (const track of document.automation) if (track.target.startsWith(`layers.${layer.id}.`)) rows.push({ kind: 'track', layer, track });
+  }
+  for (const track of document.automation) if (track.target.startsWith('global.')) rows.push({ kind: 'track', layer: null, track });
+  return rows;
+}
+
+/** Keys within this many pixels of the pointer are hit. */
+const KEY_HIT_PX = 6;
+
+interface KeyDragState {
+  readonly ids: readonly string[];
+  /** The grabbed key's time: the one that snaps. */
+  readonly anchorTicks: number;
+  readonly start: ProjectDocument;
+  readonly originX: number;
+  readonly copy: boolean;
+  readonly copyIds: readonly string[];
+  readonly mergeKey: string;
+  moved: boolean;
+}
+
+/** One keyframe row: the parameter's name, a line through its keys, the keys as diamonds. */
+function drawTrack(
+  ctx: CanvasRenderingContext2D,
+  track: AutomationTrack,
+  rowTop: number,
+  s: { x: (seconds: number) => number; dim: string; control: string; accent: string; line: string; width: number; selection: readonly string[] },
+): void {
+  const mid = rowTop + (ROW_HEIGHT - 4) / 2;
+  ctx.globalAlpha = track.enabled ? 1 : 0.35;
+  const keys = track.keyframes;
+  if (keys.length > 1) {
+    ctx.strokeStyle = s.line;
+    ctx.beginPath();
+    ctx.moveTo(Math.max(PADDING, s.x(ticksToSeconds(keys[0]!.ticks))), mid + 0.5);
+    ctx.lineTo(Math.min(s.width - PADDING, s.x(ticksToSeconds(keys[keys.length - 1]!.ticks))), mid + 0.5);
+    ctx.stroke();
+  }
+  for (const k of keys) {
+    const kx = s.x(ticksToSeconds(k.ticks));
+    if (kx < PADDING - 6 || kx > s.width - PADDING + 6) continue;
+    ctx.fillStyle = s.selection.includes(k.id) ? s.accent : s.control;
+    ctx.beginPath();
+    ctx.moveTo(kx, mid - 5);
+    ctx.lineTo(kx + 5, mid);
+    ctx.lineTo(kx, mid + 5);
+    ctx.lineTo(kx - 5, mid);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = s.dim;
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  const name = track.target.split('.').slice(-1)[0] ?? track.target;
+  ctx.fillText(`◆ ${name}`, PADDING + 14, mid + 0.5);
+  ctx.globalAlpha = 1;
 }

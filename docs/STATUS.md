@@ -10,7 +10,7 @@
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
 > any aspect. Last full verification: `npm run check` 1104 tests, `npm run golden` 29/29 identical,
-> `--smoke` 28/28, `npm run setup -- --verify` and `--rebuild-check` pass.
+> `--smoke` 29/29, `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -45,12 +45,13 @@
 > rebuild check that builds a second Python environment from the wheelhouse with the network made
 > unusable.
 >
-> **P8 started (§4.63):** keyframe automation (S1) has its spec (`docs/keyframes-spec.md`), its
-> model and file format, its commands, and engine evaluation for parameters, effects, opacity and
-> transform; the inspector and timeline editing come next.
+> **P8 (§4.63–):** keyframe automation (S1) is done: spec (`docs/keyframes-spec.md`), model, file
+> format and commands, engine evaluation for parameters, effects, opacity and transform, and editing
+> in the studio — diamonds and auto-key in the inspector, a key editor with easing presets and a
+> Bézier curve editor, and keyframe rows in the timeline (drag, snap, Alt-copy, Delete).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): keyframe editing in the studio;
-> then masking, motion blur, the 6-stem model and the rest of P8.
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): masking (S7), motion blur (S10),
+> the 6-stem model (S6) and the rest of P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -129,6 +130,7 @@
 | 4.62 | The extras tier, measured; per-project stem model; the offline rebuild check — M2, P1 complete |
 | | **P8 — Should-haves** |
 | 4.63 | Keyframes: spec, model, commands, engine (P8 step 1) — S1 |
+| 4.64 | Keyframes in the studio: inspector, key editor, timeline rows (P8 step 2) — S1 complete |
 
 ---
 
@@ -3290,6 +3292,58 @@ The choices marked **(proposed)** are in ROADMAP §4 for the owner.
 
 **Next (P8 step 2):** the inspector's keyframe diamonds, auto-key and the easing curve editor; then
 the timeline's automation lanes.
+
+### 4.64 Keyframes in the studio (P8 step 2) — S1 complete, keyframes-spec §5, ui-spec §3–§4
+
+**The inspector** (`src/ui/components/Keyframes.tsx`, Inspector.tsx).
+- Every animatable control has a diamond ◆. That means float, int, bool, enum and colour module and
+  effect parameters (a module opts one out with `animatable: false`, now in `ParamSpec`), plus
+  **Opacity** and the **transform** sliders.
+  - The diamond is hollow when the target is not animated, half when it is but the playhead is not
+    on a key, and solid on a key.
+  - Clicking it keys the value shown at the playhead, or removes the key there.
+  - ◀ ▶ jump the playhead to the previous or next key and select it.
+- **Auto-key:** an animated control shows its keyed value at the playhead, and editing it sets a key
+  there (a new one, or the one under the playhead) instead of the base. A drag at one moment is one
+  undo step. The base and aspect overrides are kept, and return when the track is removed.
+- A control subscribes to the playhead only once it is animated, so playback does not re-render the
+  inspector sixty times a second.
+- **The Keyframes section** lists the selected layer's tracks (or the whole frame's, with nothing
+  selected). Each track has an on/off switch, its keys as chips, and ✕ to remove the track. A picked
+  key opens the **key editor**:
+  - time in seconds;
+  - the value;
+  - easing: Linear, Hold, Ease in, Ease out, Ease in and out, or Custom curve;
+  - a **160 px curve editor** with the two Bézier handles (y may overshoot, −0.5 to 1.5);
+  - Delete.
+  It notes that the last key's easing has nothing to lead into yet.
+
+**The timeline** (Timeline.tsx).
+- Under each animated layer, a row per track: the parameter's name, a line through its keys, the keys
+  as diamonds (accent when selected). The whole frame's tracks come after the layers.
+- Click a key to select it and seek to it (Shift adds or removes); click empty space to seek.
+- Drag to move the selection, snapping the grabbed key to beats and the playhead (Shift: no snap).
+- **Alt-drag copies**; **Delete** removes the selected keys.
+- A drag is computed from the document as it stood when the drag began, so dragging past another key
+  never deletes it on the way, and the whole drag is one undo step.
+
+**Two bugs found by the smoke check, both fixed:**
+- **The studio went blank** ("Maximum update depth exceeded" in the Keyframes section). Its store
+  selector returned a freshly filtered array on every call, so the store kept notifying. It now
+  selects the stable list and filters in render. The other `filter` selector in the studio returns a
+  number, which is safe.
+- **The first key landed at 0 s.** A control that is not animated does not follow the playhead (by
+  design), so its idea of "now" was 0. Keying now reads the real playhead at the moment of the edit.
+
+**Verified here:**
+- `npm run check` **1104 tests**.
+- `--smoke` **29/29**. New `keyframeUi` works on a new Bars layer:
+  - its first parameter's diamond keys it at the playhead (solid);
+  - after seeking to 2 s it shows "animated", and moving its slider auto-keys a second key;
+  - the section lists two chips, a picked chip opens the key editor, and Ease in and out shows the
+    curve editor;
+  - Delete removes the selected key.
+- The UI tour adds `12-keyframes`, but the shot is taken with the Auto drawer still open, so the keyframe section and rows are not in view yet. **Open item:** close the drawer and scroll the timeline before that shot, then look at the rows by eye.
 
 ---
 

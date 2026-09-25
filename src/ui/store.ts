@@ -300,6 +300,9 @@ export interface StudioState {
   updateSettings(patch: Partial<UserSettings>): Promise<string | null>;
   /** Switches the project's stem model (D8) and re-analyses the track under the new key. */
   setStemModel(model: string): Promise<void>;
+  /** Selected keyframes (UI only, never undoable): the key editor and the timeline lanes share it. */
+  keySelection: readonly string[];
+  setKeySelection(ids: readonly string[]): void;
   /** The Settings screen (M36). */
   settingsOpen: boolean;
   setSettingsOpen(open: boolean): void;
@@ -1314,6 +1317,11 @@ export const useStudio = create<StudioState>((set, get) => ({
     get().run(setStemModel(model));
     const audio = get().audio;
     if (audio !== null) await get().loadAudio(audio.path);
+  },
+
+  keySelection: [],
+  setKeySelection(ids) {
+    set({ keySelection: ids });
   },
 
   settingsOpen: false,

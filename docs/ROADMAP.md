@@ -107,7 +107,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 
 | | State | Notes |
 |---|---|---|
-| S1 Keyframe automation | 🔶 | spec, model, commands and engine (4.63); **the inspector's diamonds, auto-key, the curve editor and the timeline lanes** are next |
+| S1 Keyframe automation | ✅ | 4.63, 4.64 — the auto-director still writes arrangement as `curve` bindings (ROADMAP §4); converting it to keyframes is a follow-up |
 | S2 Custom GLSL layer | 🔶 | drop-in shader modules (M35) cover "a shader with audio uniforms and live compile errors"; Shadertoy compatibility (`iTime`, `iResolution`, `mainImage`) is not there |
 | S8 Preset browser | ✅ | 4.44 |
 | S9 Sections/markers | 🔶 | automatic section detection (4.21); no markers or snapping UI |
@@ -133,8 +133,8 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 6. ✅ **Auto-director (P7: M21, M22)** — done (STATUS 4.56–4.58).
 7. ✅ **Operability (M33, M34, M36)** — done (STATUS 4.59–4.61).
 8. ✅ **P1 remainder** — done (STATUS 4.62).
-9. **P8** — keyframes (S1: spec, model and engine done, 4.63; editing in the studio next), masking,
-   motion blur, 6-stem model, and the rest of the Should-haves.
+9. **P8** — ✅ keyframes (S1, 4.63–4.64); next masking (S7), motion blur (S10), the 6-stem model
+   (S6), and the rest of the Should-haves.
 
 ---
 
