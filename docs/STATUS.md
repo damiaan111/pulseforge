@@ -9,7 +9,7 @@
 > stems tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 969 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 978 tests, `npm run golden` 29/29 identical,
 > `--smoke` 22/22.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -87,6 +87,7 @@
 | 4.51 | The karaoke layer (P6 step 2) — M20, lyrics-spec §6–§8 |
 | 4.52 | Fix: audio modulation read the wrong moment with a lead-in or a trim — M13, M29 |
 | 4.53 | Lyrics in the studio (P6 step 3) — M18, M19 tap-to-sync, D33 |
+| 4.54 | The lyrics timeline track (P6 step 4) — M19, lyrics-spec §5, ui-spec §3 |
 
 ---
 
@@ -101,7 +102,7 @@
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
 | P5 — Export | 🔶 largely delivered early — deterministic NVENC export at every aspect, presets, queue with progress/cancel, render reports (M23, M24, M30); open: quality-option UI, capability-probed codec list in the dialog, diagnostics (M34) |
-| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data, §4.50), step 2 (the karaoke layer, §4.51) and step 3 (the studio editor and tap-to-sync, §4.53) done; the timeline track and WhisperX follow |
+| P6 — Lyrics | 🔶 in progress — step 1 (lyrics data, §4.50), step 2 (the karaoke layer, §4.51) step 3 (the studio editor and tap-to-sync, §4.53) and step 4 (the lyrics timeline track, §4.54) done; WhisperX (M26) follows |
 | P7 — Auto-director | 🔶 classification layer only (§4.26); templates, generation, Surprise me not started |
 | P8 — Expansion | ⬜ not started (CLI S14 and collect-files S19 already done) |
 
@@ -192,7 +193,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | Command | What it does | Time |
 |---|---|---|
 | `npm install` | deps (TypeScript 6.0, ESLint 10, Vitest 5, Electron 44.3.0, esbuild 0.28.2, **three 0.186.0 — pinned exactly**, React 19) | once |
-| `npm run check` | typecheck + lint + 969 tests in 76 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
+| `npm run check` | typecheck + lint + 978 tests in 78 files (FFmpeg/Python tests skip without `vendor/`; GPU tests in `tests/golden/*-gpu.test.ts` skip without Electron) | ~70 s |
 | `npm run setup` | provision `vendor/` (FFmpeg, **Inter fonts**, Python, uv, Demucs); `--plan`, `--verify`, `--relock`, `--from <dir>`, `--tier` | first run ~10 min |
 | `npm run validate` | the eight P0 checks → `out/validate/report.md` + `report.json`; `--quick` (~5 min), `--only 2,4,8` | ~11 min full |
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
@@ -2453,6 +2454,80 @@ Getting the smoke script right took three tries, recorded here because the cause
 4); keyboard nudging of selected lines (±10/100 ms), set-in/out at the playhead (step 4); WhisperX
 (step 5); a soft-subtitle track in exports (§10).
 
+### 4.54 The lyrics timeline track (P6 step 4) — M19 complete; lyrics-spec §5, ui-spec §3, §9
+
+**The timeline zooms now (ui-spec §3).** The wheel zooms around the pointer, down to one second
+across; Shift+wheel pans; **F** fits the whole track. While playing, the view pages to follow the
+playhead, and when zoomed in the corner shows the visible range. Dragging on the waveform
+**scrubs**, and because the preview renders the frame at every seek, the karaoke fill is visible
+while scrubbing (lyrics-spec §5 "karaoke scrub preview"). The view is pure, tested maths
+(`src/ui/timeline-view.ts`).
+
+**Two old timeline inaccuracies fixed on the way.** The waveform was drawn as the whole file
+starting at the lead-in, ignoring the trim; now it is the clip only, where it sits on the timeline.
+Sections and beats were offset by the lead-in only; they now map through the full clip placement.
+
+**The lyrics lane** (under the waveform, when the project has lyrics):
+- **The vocal stem's level is drawn behind the line blocks** — the feature that makes correction
+  fast (§5). It is drawn *relative to the track*: the first look showed the stem's level almost
+  flat, because Demucs leaves a bed of bleed that reads high on the analysis' dB scale. Now it runs
+  between the 20th and 98th percentiles, so phrases stand out. The detected singing (the
+  checklist's vocal segments) is a band along the bottom. The blocks are translucent so the level
+  reads through them — the first look had them covering it.
+- It uses the analysis' `rms` feature for the vocals (240 Hz, about 4 ms per sample), not a peak
+  pyramid decoded from the stem's FLAC. The resolution is enough for placing lines and words, and it
+  needs no new IPC or cache.
+- Blocks per timed line: lead lines full height, backing and ad-libs lower. They are outlined (accent
+  when selected, green when locked) with the text inside; the label stays in view when a block
+  starts off the left edge. Word boundaries are solid when the line is timed word by word and faint
+  when interpolated, and low-confidence words are tinted.
+
+**Editing on the lane** (`src/lyrics/timeline-edit.ts`, pure and tested):
+- **Selection:** click; Shift or Ctrl toggles. A click on a line puts the playhead at its start, and
+  double-click opens the drawer's Lines tab.
+- **Drag a line** to move it with its words; several selected lines move together. **Alt ripples**
+  every line from the earliest moved one on.
+- **Drag an edge** to resize; the words rescale.
+- **On a selected line, drag the boundary between two words.** The later word's start and the
+  earlier word's end move together, and interpolated words become explicit with deterministic ids.
+- **Every drag is one undo step, and never compounds.** It is planned from the lyrics as they were
+  when the drag began, plus the total distance, and written as absolute timings under one merge key
+  (`setLineTimings` gained a merge key). A drag out and back leaves the line exactly where it was;
+  this is tested.
+- Moves clamp at 0 as a group, and nothing is dragged shorter than 50 ms (10 ms for a word).
+- **Snapping (8 px):** to vocal-stem onsets (on by default when stems exist), the beat grid (a
+  toggle), other lines' edges and the playhead. **Shift while dragging turns it off.** Toggles sit at
+  the top of the drawer's Lines tab.
+- **Where lines overlap, a selected line is hit and drawn first.** The smoke check found the case: a
+  tapped line's estimated end covered the next line, and dragging picked the wrong one.
+
+**Keyboard (lyrics-spec §5)**, while the drawer is open and nothing is being typed (capture phase,
+because S, L and M mean other things elsewhere):
+- ↑/↓ previous or next line (selects it and moves the playhead).
+- `[` / `]` nudge the selection by 10 ms (Shift: 100 ms); nudges in a row merge into one undo step.
+- I / O set the selected line's start or end at the playhead.
+- L lock; S split at the playhead (before the first word starting after it); M merge with the next.
+- The keys are listed in the Lines tab.
+
+**Smoke and tour.** `lyricsUi` now also types a line's times (`0:00.50`–`0:00.90`), drags its block on
+the timeline canvas (real pointer events, Shift while moving), and nudges it with `]`; each must move
+its start. With a project opened on the command line, the smoke no longer seeds or runs the
+crash-recovery check (restoring would replace that project), and `lyricsUi` runs only when the
+project has no lyrics; both are then reported as not run. The UI tour captures the timeline zoomed
+in (`9e`).
+
+The visual check used a scratch project (`out/lyrics-lane-check.pvproj`, not committed): one of the
+owner's own songs, read in place, with placeholder lines. Its stems were separated by the `stemsUi`
+check. The screenshots drove the three fixes above: relative level, translucent blocks, and labels
+that stay in view.
+
+Verified here: `npm run check` **978 tests in 78 files** (new: drag planning, ripple, group clamp,
+no-compounding merge, edge limits, word boundaries with stable valid ids, snapping, navigation,
+split-at-playhead; the view maths), `npm run golden` **29/29**, `--smoke` **22/22**.
+
+**Not done:** marquee multi-select; the per-stem waveform rows of the Audio track (ui-spec §3); a
+loop region; markers as snap targets (markers do not exist yet).
+
 ---
 
 ## 5. Measured results
@@ -2536,6 +2611,9 @@ The full report is `docs/validation/p0-full-report.md`; the summary table is in 
   sample, past a trimmed out-point it keeps reading the file, so a visualizer can react during a
   lead-out to music that is not playing. Modulation reads silence there since §4.52; modules should get
   an "audible" flag or a silenced analysis view.
+- `--smoke` with a project on the command line: `layerAdded` assumes the smoke's own empty project
+  (it expects exactly one layer after adding one) and fails there. The recovery and lyrics checks skip
+  themselves in that case since §4.54; `layerAdded` should do the same.
 - A quit while a render is running cancels the render first, *then* the window asks about unsaved
   changes; answering Cancel keeps the app open with the render already cancelled.
 

@@ -919,9 +919,13 @@ app.whenReady().then(async () => {
     const recovery = join(ROOT, 'out', 'smoke-recovery');
     await rm(recovery, { recursive: true, force: true });
     process.env['PULSEFORGE_RECOVERY'] = recovery;
-    // …seeded with the autosave of a "crashed" run, which the studio must offer back (M1).
-    const crashed = { ...createDocument({ name: 'Smoke crash' }), layers: [createModuleLayer('core.visualizer.bars', { name: 'Recovered smoke layer' })] };
-    await new RecoveryStore({ root: recovery }).write('smokecrashed', { text: stringifyDocument(crashed), projectPath: null, projectName: 'Smoke crash', reason: 'every minute' });
+    // …seeded with the autosave of a "crashed" run, which the studio must offer back (M1). Not when
+    // the smoke opens a project of its own: restoring would replace it, and the stems check and the
+    // UI tour after it need that project (the recovery check is then reported as not run).
+    if (initialProjectPath() === undefined) {
+      const crashed = { ...createDocument({ name: 'Smoke crash' }), layers: [createModuleLayer('core.visualizer.bars', { name: 'Recovered smoke layer' })] };
+      await new RecoveryStore({ root: recovery }).write('smokecrashed', { text: stringifyDocument(crashed), projectPath: null, projectName: 'Smoke crash', reason: 'every minute' });
+    }
 
     // A fresh, empty user preset folder, so the preset checks start from the built-ins alone and
     // never touch (or depend on) the owner's own presets.
@@ -1346,8 +1350,9 @@ app.whenReady().then(async () => {
       // Lyrics (P6), end to end in the studio: the drawer from the top bar, pasted text becoming
       // lines and a marker, the checklist noticing they are untimed, the left rail adding a lyrics
       // layer, and tap-to-sync — three taps time three lines, Backspace undoes one, Esc ends it.
-      let lyricsUi = false;
-      {
+      // Only on a project without lyrics — it pastes its own, which would replace a project's.
+      let lyricsUi = document.querySelector('#app [data-testid="lyrics-summary"]') === null ? false : undefined;
+      if (lyricsUi === false) {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const pause = (ms) => new Promise((done) => setTimeout(done, ms));
         click('#app header [data-action="lyrics-drawer"]');
@@ -1385,12 +1390,50 @@ app.whenReady().then(async () => {
           const undone = await waitFor(() => document.querySelectorAll('#app .lyric-line[data-timed="yes"]').length === 2, 40);
           document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
           const closed = await waitFor(() => document.querySelector('#app [data-testid="tap-overlay"]') === null, 40);
+
+          // The timeline lane (P6 step 4): type the first line's times, drag its block on the
+          // timeline canvas (Shift while moving: no snapping), then nudge it with ] — each must move its start.
+          const startField = () => document.querySelector('#app [data-testid="lyric-lines"] .lyric-line input[aria-label="Start"]');
+          const typeTime = async (field, text) => {
+            const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            field.focus();
+            setValue.call(field, text);
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            field.blur();
+            await pause(60);
+          };
+          const seconds = (text) => {
+            const m = /^(\\d+):(\\d+\\.\\d+)$/.exec(text ?? '');
+            return m === null ? NaN : Number(m[1]) * 60 + Number(m[2]);
+          };
+          await typeTime(startField(), '0:00.50');
+          await typeTime(document.querySelector('#app [data-testid="lyric-lines"] .lyric-line input[aria-label="End"]'), '0:00.90');
+          // The second tapped line has an estimated end that overlaps: move it out of the way.
+          const second = document.querySelectorAll('#app [data-testid="lyric-lines"] .lyric-line')[1];
+          await typeTime(second?.querySelector('input[aria-label="End"]'), '0:05.00');
+          await typeTime(second?.querySelector('input[aria-label="Start"]'), '0:04.00');
+          const typed = seconds(startField()?.value) === 0.5;
+          const timeline = document.querySelector('#app [data-testid="timeline"]');
+          const box = timeline.getBoundingClientRect();
+          // The fitted view spans the timeline (at least a second): the block's middle, 0.7 s, is there.
+          const total = seconds((document.querySelector('#app .transport .timecode')?.textContent ?? '').split('/')[1]?.trim());
+          const span = Math.max(1, Number.isFinite(total) ? total : 0);
+          const at = { clientX: box.left + 8 + (0.7 / span) * (box.width - 16), clientY: box.top + 56 + 4 + 15, pointerId: 1, bubbles: true };
+          timeline.dispatchEvent(new PointerEvent('pointerdown', at));
+          timeline.dispatchEvent(new PointerEvent('pointermove', { ...at, clientX: at.clientX + 20, shiftKey: true }));
+          timeline.dispatchEvent(new PointerEvent('pointermove', { ...at, clientX: at.clientX + 40, shiftKey: true }));
+          timeline.dispatchEvent(new PointerEvent('pointerup', { ...at, clientX: at.clientX + 40 }));
+          const dragged = await waitFor(() => seconds(startField()?.value) > 0.52, 40);
+          const afterDrag = seconds(startField()?.value);
+          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ']', code: 'BracketRight', bubbles: true }));
+          const nudged = await waitFor(() => Math.abs(seconds(startField()?.value) - afterDrag - 0.01) < 0.005, 40);
           document.querySelector('#app .transport button[title="Stop"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
           click('#app header [data-action="lyrics-drawer"]');
           await pause(50);
           const steps = {
             listed: listed === true, marker, untimed: untimed === true, layerAdded: layerAdded === true, overlay: overlay !== null && overlay !== false,
-            timedAll: timedAll === true, undone: undone === true, closed: closed === true, drawerClosed: document.querySelector('#app [data-testid="lyrics-drawer"]') === null,
+            timedAll: timedAll === true, undone: undone === true, closed: closed === true,
+            typed, dragged: dragged === true, nudged: nudged === true, drawerClosed: document.querySelector('#app [data-testid="lyrics-drawer"]') === null,
           };
           lyricsUi = Object.values(steps).every(Boolean);
           // Which step, when it fails: the console reaches the smoke log.
@@ -1411,8 +1454,8 @@ app.whenReady().then(async () => {
       // "crashed" run is offered on start with its summary, and Restore opens it — unsaved — with
       // its layer. (The main process then checks the old session was let go and this one holds a
       // fresh snapshot.) The "discard your changes?" question is answered yes: nothing here is kept.
-      let recoveryDialog = false;
-      const offered = await waitFor(() => document.querySelector('#app .recovery-dialog [data-recovery="smokecrashed"]'), 60);
+      let recoveryDialog = ${initialProjectPath() === undefined ? 'false' : 'undefined'};
+      const offered = recoveryDialog === undefined ? null : await waitFor(() => document.querySelector('#app .recovery-dialog [data-recovery="smokecrashed"]'), 60);
       if (offered !== null && offered !== false) {
         const summary = offered.textContent ?? '';
         window.confirm = () => true;
@@ -1444,9 +1487,9 @@ app.whenReady().then(async () => {
         modulationUi,
         layerEditing,
         ...(stemsUi === undefined ? {} : { stemsUi }),
-        lyricsUi,
+        ...(lyricsUi === undefined ? {} : { lyricsUi }),
         exportDialog,
-        recoveryDialog,
+        ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;
 
@@ -1594,6 +1637,16 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await snap(`${label}-9d-tapping`);
     await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); ${click('#app .transport button[title="Stop"]')}`);
     await js(click('#app header button[data-action="lyrics-drawer"]'));
+    // The timeline zoomed in around a quarter of the way through: the lyrics lane up close.
+    await js(`
+      const timeline = document.querySelector('#app [data-testid="timeline"]');
+      const box = timeline.getBoundingClientRect();
+      for (let i = 0; i < 5; i += 1) {
+        timeline.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, clientX: box.left + box.width * 0.2, clientY: box.top + 20, bubbles: true, cancelable: true }));
+      }
+    `);
+    await snap(`${label}-9e-timeline-zoomed`);
+    await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }))`);
     // The audio clip panel (M29) — only there when the project has audio (open one with the tour).
     await js(`document.querySelector('#app [data-testid="clip-controls"]')?.scrollIntoView({ block: 'center' })`);
     await snap(`${label}-8-audio-clip`);

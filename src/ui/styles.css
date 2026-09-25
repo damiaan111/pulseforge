@@ -530,3 +530,5 @@ label.inline { display: inline-flex; align-items: center; gap: 4px; color: var(-
 .tap-button { font-size: 16px; padding: 8px 28px; }
 .tap-help { margin: 0; }
 .calibrate-dialog { width: min(440px, 92vw); }
+.lyric-keys { font-size: 11px; margin: 2px 0 6px; line-height: 1.8; }
+.lyric-keys kbd { font-size: 10px; }

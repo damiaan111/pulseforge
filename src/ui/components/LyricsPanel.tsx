@@ -27,9 +27,10 @@ import { createModuleLayer } from '../../project/create.ts';
 import { LYRIC_ROLES, walkLayers, type LyricLine, type LyricRole, type ProjectDocument } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import {
-  clearLineTimes, lyricsToText, materialiseWords, mergeWithNext, setLineTimes, setLinesLocked, setLinesRole,
+  clearLineTimes, lyricsToText, materialiseWords, mergeWithNext, moveLines, setLineTimes, setLinesLocked, setLinesRole,
   setLyricsLanguage, setLyricsText, setWordTimes, splitLine,
 } from '../../project/lyrics-commands.ts';
+import { neighbourLine, splitIndexAt } from '../../lyrics/timeline-edit.ts';
 import type { AnalysisSet } from '../../engine/core/analysis.ts';
 import { history, useStudio } from '../store.ts';
 import { previewControls } from './CanvasPane.tsx';
@@ -134,6 +135,7 @@ export function LyricsDrawer(): React.JSX.Element | null {
   const importLyricsFile = useStudio((s) => s.importLyricsFile);
   const exportLyrics = useStudio((s) => s.exportLyrics);
   const checks = useChecks();
+  useLyricKeys(open);
   if (!open) return null;
   const { lyrics } = document;
   const timed = lyrics.lines.filter((l) => l.startTicks !== null && l.endTicks !== null).length;
@@ -202,6 +204,72 @@ export function LyricsDrawer(): React.JSX.Element | null {
       <TapControls />
     </aside>
   );
+}
+
+/**
+ * Keyboard-first editing (lyrics-spec §5), while the drawer is open and nothing is being typed:
+ * ↑/↓ previous/next line · [ ] nudge 10 ms (Shift: 100 ms) · I / O set the line's start / end at
+ * the playhead · L lock · S split at the playhead · M merge with the next line. Nudges in a row
+ * merge into one undo step.
+ */
+function useLyricKeys(active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+      if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+      const state = useStudio.getState();
+      if (state.tap !== null) return;
+      const { lyrics } = history.current;
+      const selected = lyrics.lines.filter((l) => state.lyricsSelection.includes(l.id));
+      const single = selected.length === 1 ? selected[0] : undefined;
+      const playhead = Math.round(previewControls.positionNow() * TICKS_PER_SECOND);
+      const handled = () => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        const next = neighbourLine(lyrics, single?.id ?? null, event.key === 'ArrowDown' ? 1 : -1);
+        if (next === undefined) return;
+        handled();
+        state.setLyricsSelection([next.id]);
+        if (next.startTicks !== null) previewControls.seek(seconds(next.startTicks));
+        return;
+      }
+      if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+        if (selected.length === 0) return;
+        handled();
+        const ms = (event.shiftKey ? 100 : 10) * (event.code === 'BracketLeft' ? -1 : 1);
+        state.run(moveLines(selected.map((l) => l.id), Math.round((ms / 1000) * TICKS_PER_SECOND), { mergeKey: 'lyrics:nudge' }), { seal: false });
+        return;
+      }
+      if (event.shiftKey || single === undefined) return;
+      const key = event.key.toLowerCase();
+      if (key === 'i') {
+        handled();
+        state.run(setLineTimes(single.id, playhead, Math.max(playhead + TICKS_PER_SECOND / 20, single.endTicks ?? playhead + TICKS_PER_SECOND * 2)));
+      } else if (key === 'o') {
+        handled();
+        state.run(setLineTimes(single.id, single.startTicks ?? Math.max(0, playhead - TICKS_PER_SECOND * 2), Math.max(playhead, (single.startTicks ?? 0) + TICKS_PER_SECOND / 20)));
+      } else if (key === 'l') {
+        handled();
+        state.run(setLinesLocked([single.id], !single.locked));
+      } else if (key === 's') {
+        const at = splitIndexAt(single, playhead);
+        if (at === null) return;
+        handled();
+        state.run(splitLine(single.id, at));
+      } else if (key === 'm') {
+        if (lyrics.lines[lyrics.lines.length - 1]?.id === single.id) return;
+        handled();
+        state.run(mergeWithNext(single.id));
+      }
+    };
+    // Capture: these letters mean something else in the rest of the studio (S solo, L lock layer).
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [active]);
 }
 
 function TabButton(props: { tab: 'text' | 'lines' | 'checks'; label: string }): React.JSX.Element {
@@ -329,6 +397,11 @@ function LinesTab(): React.JSX.Element {
 
   return (
     <div className="lyrics-lines">
+      <SnapToggles />
+      <p className="dim lyric-keys">
+        <kbd>↑</kbd><kbd>↓</kbd> line · <kbd>[</kbd><kbd>]</kbd> nudge 10 ms (<kbd>Shift</kbd> 100) · <kbd>I</kbd>/<kbd>O</kbd> start/end at playhead ·
+        {' '}<kbd>S</kbd> split · <kbd>M</kbd> merge · <kbd>L</kbd> lock. On the timeline: drag lines, edges and word boundaries; <kbd>Alt</kbd> ripples, <kbd>Shift</kbd> stops snapping.
+      </p>
       {chosen.length > 0 && (
         <div className="lyrics-bulk">
           <span className="dim">{chosen.length} selected</span>
@@ -382,6 +455,25 @@ function LinesTab(): React.JSX.Element {
         {(markers.get(null) ?? []).map((label, i) => <li key={`end-${i}`} className="lyric-marker">{label}</li>)}
       </ol>
       {single !== undefined && <LineDetail line={single} last={lyrics.lines[lyrics.lines.length - 1]?.id === single.id} />}
+    </div>
+  );
+}
+
+function SnapToggles(): React.JSX.Element {
+  const snap = useStudio((s) => s.lyricSnap);
+  const setSnap = useStudio((s) => s.setLyricSnap);
+  const hasVocals = useStudio((s) => s.analysis?.sources.get('vocals')?.features.has('onset') === true);
+  return (
+    <div className="tap-row">
+      <span className="dim">Timeline snaps to</span>
+      <label className="check-row" title={hasVocals ? 'Vocal-stem onsets' : 'Needs the vocal stem: separate stems in the Audio panel'}>
+        <input type="checkbox" checked={snap.onsets} disabled={!hasVocals} onChange={(event) => setSnap({ onsets: event.target.checked })} />
+        vocal onsets
+      </label>
+      <label className="check-row">
+        <input type="checkbox" checked={snap.beats} onChange={(event) => setSnap({ beats: event.target.checked })} />
+        beats
+      </label>
     </div>
   );
 }

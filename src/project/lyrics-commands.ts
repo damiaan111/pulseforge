@@ -327,9 +327,11 @@ export function setWordTimes(lineId: string, wordIndex: number, startTicks: numb
 export function setLineTimings(
   changes: readonly { readonly lineId: string; readonly startTicks: number | null; readonly endTicks: number | null; readonly words: readonly LyricWord[] }[],
   label = 'Tap',
+  mergeKey?: string,
 ): Command {
   return {
     label,
+    ...(mergeKey === undefined ? {} : { mergeKey }),
     apply: (document) => {
       const byId = new Map(changes.map((c) => [c.lineId, c]));
       for (const id of byId.keys()) lineIndex(document.lyrics, id);

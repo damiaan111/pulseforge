@@ -252,6 +252,12 @@ export interface StudioState {
   /** Imports a lyrics file: timed formats replace the lines; plain text is read like a paste. */
   importLyricsFile(): Promise<void>;
   exportLyrics(format: LyricsExportFormat): Promise<void>;
+  /**
+   * What lyric edges snap to on the timeline (lyrics-spec §5): vocal onsets by default, the beat grid
+   * when asked. Other lines' edges and the playhead always.
+   */
+  lyricSnap: { readonly onsets: boolean; readonly beats: boolean };
+  setLyricSnap(patch: Partial<StudioState['lyricSnap']>): void;
   /** A running tap-to-sync session (lyrics-spec §3), or null. */
   tap: TapState | null;
   setTap(tap: TapState | null): void;
@@ -1083,6 +1089,11 @@ export const useStudio = create<StudioState>((set, get) => ({
     } catch (error) {
       set({ toast: { text: describeError(error, 'Exporting the lyrics'), kind: 'bad' } });
     }
+  },
+
+  lyricSnap: { onsets: true, beats: false },
+  setLyricSnap(patch) {
+    set({ lyricSnap: { ...get().lyricSnap, ...patch } });
   },
 
   tap: null,
