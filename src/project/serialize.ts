@@ -17,7 +17,7 @@
 // integer will move to the front of its node. It round-trips correctly; only its position moves.
 
 import type {
-  AspectOverride, CurveSpec, DirectorRoll, DirectorState, EffectSpec, EnvelopeSpec, Extra, Layer, Lyrics, ModulationBinding,
+  AspectOverride, AutomationTrack, CurveSpec, DirectorRoll, DirectorState, EffectSpec, EnvelopeSpec, Extra, Layer, Lyrics, ModulationBinding,
   ProjectDocument, QuantiseSpec, Range, TimeRange, Transform,
 } from './document.ts';
 
@@ -171,6 +171,20 @@ function layerJson(layer: Layer): Json {
   });
 }
 
+function trackJson(track: AutomationTrack): Json {
+  return withExtra(track.extra, {
+    id: track.id,
+    target: track.target,
+    enabled: track.enabled,
+    keyframes: track.keyframes.map((k) => withExtra(k.extra, {
+      id: k.id,
+      ticks: k.ticks,
+      value: k.value,
+      easing: typeof k.easing === 'string' ? k.easing : { cubic: [...k.easing.cubic] },
+    })),
+  });
+}
+
 function rollJson(roll: DirectorRoll): Json {
   return withExtra(roll.extra, {
     seed: roll.seed,
@@ -283,6 +297,8 @@ export function toJson(document: ProjectDocument): Json {
       : {}),
     // The same rule: a project without lyrics saves to the bytes it did before lyrics existed.
     ...(hasLyrics(document.lyrics) ? { lyrics: lyricsJson(document.lyrics) } : {}),
+    // Only a project with keyframes carries them, so every file saved before S1 keeps its bytes.
+    ...(document.automation.length > 0 ? { automation: document.automation.map(trackJson) } : {}),
     // And again: only a directed project carries the director's record.
     ...(document.director === null ? {} : { director: directorJson(document.director) }),
   });

@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1085 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 1104 tests, `npm run golden` 29/29 identical,
 > `--smoke` 28/28, `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -45,8 +45,12 @@
 > rebuild check that builds a second Python environment from the wheelhouse with the network made
 > unusable.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): P8, the Should-haves —
-> keyframes (needs a short spec first), masking, motion blur, the 6-stem model and the rest.
+> **P8 started (§4.63):** keyframe automation (S1) has its spec (`docs/keyframes-spec.md`), its
+> model and file format, its commands, and engine evaluation for parameters, effects, opacity and
+> transform; the inspector and timeline editing come next.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): keyframe editing in the studio;
+> then masking, motion blur, the 6-stem model and the rest of P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -123,6 +127,8 @@
 | 4.61 | Logs and diagnostics (operability step 3) — M34 complete |
 | | **P1 remainder** |
 | 4.62 | The extras tier, measured; per-project stem model; the offline rebuild check — M2, P1 complete |
+| | **P8 — Should-haves** |
+| 4.63 | Keyframes: spec, model, commands, engine (P8 step 1) — S1 |
 
 ---
 
@@ -3220,6 +3226,70 @@ also a button in Settings).
 - `--smoke` **28/28**. New `extrasUi`: Settings lists the six optional models; where `htdemucs_ft` is
   installed, the Audio panel offers both models, switching is one undo step ("Stem model:
   htdemucs_ft") that re-analyses, and undo goes back.
+
+### 4.63 Keyframes: spec, model, commands, engine (P8 step 1) — S1, module-spec §5 step 3
+
+**The spec** (`docs/keyframes-spec.md`), as ROADMAP §3 required before building. module-spec had
+fixed where keyframes act (step 3: they replace the base and any aspect override, and modulation
+rides on top). The new spec settles what it left open:
+- the targets: params, effect params, the whole-frame chain, opacity, and transform x/y/scale/rotation;
+- the model and file format;
+- interpolation per type (numbers ease; colours ease in linear light; everything discrete holds);
+- the easings: linear, hold, easeIn, easeOut, easeInOut and a custom cubic Bézier, owned by the key
+  they leave from;
+- the editing UI;
+- what duplicate, delete and presets do.
+
+The choices marked **(proposed)** are in ROADMAP §4 for the owner.
+
+**The model.**
+- `document.automation`: tracks `{id, target, enabled, keyframes[{id, ticks, value, easing}]}`.
+  This is the slot reserved since v1, so it is no longer a reserved key.
+- Key times are timeline ticks. Keys are sorted, at most one per tick; a duplicate tick in a file is
+  reported and resolved to the later one.
+- A malformed easing falls back to linear, with an issue.
+- A track on a missing layer is **kept and reported** (CLAUDE.md #4).
+- Saved only when there are tracks, so every earlier file keeps its bytes.
+
+**The commands** (`src/project/automation-commands.ts`), all undoable:
+- `setKeyframe` creates the track if needed, updates a key at the same tick, and a new key takes
+  the easing of the key before it. A slider drag at one moment merges into one undo step.
+- `moveKeyframes`: a moved key replaces a key it lands on; clamped at 0; a drag merges into one
+  undo step.
+- `setKeyframeTime`, `setKeyframeValue`, `setKeyframeEasing`.
+- `removeKeyframes`: a track left empty goes too.
+- `setTrackEnabled`, `removeTrack`.
+- **Deleting a layer removes its tracks, and duplicating one copies them** onto the copy with new
+  ids, in the same undo step.
+
+**The engine** (`src/engine/core/automation.ts`, engine.ts).
+- `sampleTrack` is a pure function of the keys and t:
+  - it holds before the first key and after the last;
+  - it uses a binary search for the segment;
+  - the cubic Bézier is solved by 40 fixed bisection steps, so no iteration count depends on the
+    data (determinism, CLAUDE.md #1).
+- Colours blend in linear light: black to white is `#bcbcbc` in the middle, not `#808080`.
+- The render project gets `automation` (enabled tracks with keys; palette links resolved in the
+  snapshot, as for parameters). The engine indexes it once per snapshot and, per frame:
+  - replaces keyed module and effect parameters in the stored values **before** `resolveParams`, so
+    modulation applies on top and clamping and coercion happen once at the end;
+  - replaces opacity before its modulation;
+  - replaces the five transform fields before the layer matrix is built.
+- Golden frames are unchanged.
+
+**Verified here:**
+- `npm run check` **1104 tests**:
+  - `tests/engine/automation.test.ts`: easing endpoints and shapes, overshoot, the linear-light
+    colour midpoint, discrete hold, a single key, determinism across evaluation orders, indexing;
+  - `tests/project/automation.test.ts`: every command, easing inheritance, move-onto-replace,
+    delete and duplicate of a layer, the file round-trip, the parse issues, and the snapshot with
+    palette links.
+- GPU (`tests/golden/keyframes-gpu.test.ts`): a layer's colour key (red → blue), its x (left →
+  right) and its opacity (held, then gone) each show in the rendered pixels at their times.
+- `npm run golden` 29/29.
+
+**Next (P8 step 2):** the inspector's keyframe diamonds, auto-key and the easing curve editor; then
+the timeline's automation lanes.
 
 ---
 

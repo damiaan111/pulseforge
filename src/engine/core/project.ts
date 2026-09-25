@@ -2,6 +2,7 @@
 // The full document, its migrations and undo live in src/project/; the engine only
 // ever sees an immutable snapshot like this one.
 
+import type { AutomationTrackSpec } from './automation.ts';
 import type { ImageAssetRef } from './image.ts';
 import type { FontAssetRef } from './text.ts';
 import type { VideoAssetRef } from './video.ts';
@@ -145,4 +146,9 @@ export interface RenderProject {
    * sources. Absent when the project has no lyrics.
    */
   readonly lyrics?: RenderLyrics;
+  /**
+   * Keyframe tracks (S1, docs/keyframes-spec.md), enabled ones only. Each replaces its target's
+   * base value at step 3 of the value pipeline (module-spec §5), before modulation.
+   */
+  readonly automation?: readonly AutomationTrackSpec[];
 }

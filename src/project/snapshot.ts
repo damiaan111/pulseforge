@@ -15,7 +15,7 @@
 
 import type { LayerTransform } from '../engine/core/layout.ts';
 import type { RenderLyricLine, RenderLyrics } from '../engine/core/lyrics.ts';
-import { hasPaletteLinks, resolvePaletteValue } from './palette.ts';
+import { hasPaletteLinks, linkedRole, resolvePaletteValue, resolveRole } from './palette.ts';
 import type { ModulationBinding } from '../engine/core/modulation.ts';
 import { BLEND_MODES, type BlendMode, type EffectSpec, type GroupSpec as GroupLayerSpec, type LayerSpec, type RenderProject } from '../engine/core/project.ts';
 import {
@@ -217,6 +217,21 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     globalModulations: [...document.globalModulations, ...groupBindings(document.layers)].map(toEngineBinding),
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
     ...(document.lyrics.lines.length > 0 ? { lyrics: toRenderLyrics(document.lyrics) } : {}),
+    // Keyframes (S1): enabled tracks with keys, palette links in colour keys resolved here, as
+    // they are for parameters — the engine never learns palettes exist.
+    ...(document.automation.some((t) => t.enabled && t.keyframes.length > 0)
+      ? {
+        automation: document.automation.filter((t) => t.enabled && t.keyframes.length > 0).map((t) => ({
+          id: t.id,
+          target: t.target,
+          keyframes: t.keyframes.map((k) => {
+            const role = linkedRole(k.value);
+            const value = role === undefined ? k.value : (resolveRole(document.palette, role) ?? k.value);
+            return { ticks: k.ticks, value, easing: k.easing };
+          }),
+        })),
+      }
+      : {}),
     // Files are not the engine's business: it gets id → hash, and the host registers the pixels.
     ...(document.assets.length > 0
       ? { assets: Object.fromEntries(document.assets.filter((a) => a.kind === 'image' || a.kind === 'font' || a.kind === 'video').map((a) => [a.id, { kind: a.kind, hash: a.hash, name: a.name }])) }

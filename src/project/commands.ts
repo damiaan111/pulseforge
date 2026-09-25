@@ -331,7 +331,9 @@ export function removeLayer(layerId: string): Command {
       // self-consistent; the loader would otherwise report a broken reference on next open.
       const removedIds = new Set([layerId, ...collectIds(requireLayer(document, layerId))]);
       const cleaned = clearMasks(layers, removedIds);
-      return { ...document, layers: cleaned };
+      // Its keyframe tracks go with it (keyframes-spec §6), in the same undo step.
+      const automation = document.automation.filter((track) => !removedIds.has(track.target.split('.')[1] ?? ''));
+      return { ...document, layers: cleaned, automation };
     },
   };
 }
@@ -469,7 +471,13 @@ export function duplicateLayer(layerId: string, newIds: () => string): Command {
       const parent = parentOf(document, layerId);
       const siblings = parent === null ? document.layers : parent.children;
       const index = siblings.findIndex((l) => l.id === layerId) + 1;
-      return addLayer(retargeted, parent === null ? { index } : { parentId: parent.id, index }).apply(document);
+      const added = addLayer(retargeted, parent === null ? { index } : { parentId: parent.id, index }).apply(document);
+      // The copy's keyframes too, pointed at the copy (keyframes-spec §6).
+      const fix = (target: string) => target.split('.').map((part) => remap.get(part) ?? part).join('.');
+      const copiedTracks = document.automation
+        .filter((track) => remap.has(track.target.split('.')[1] ?? ''))
+        .map((track) => ({ ...track, id: newIds(), target: fix(track.target), keyframes: track.keyframes.map((k) => ({ ...k, id: newIds() })) }));
+      return copiedTracks.length === 0 ? added : { ...added, automation: [...added.automation, ...copiedTracks] };
     },
   };
 }

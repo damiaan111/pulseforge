@@ -28,7 +28,6 @@ export const OLDEST_SUPPORTED_SCHEMA_VERSION = 1;
  * Carried through saves untouched; see the file header.
  */
 export const RESERVED_DOCUMENT_KEYS: readonly string[] = [
-  'automation', // PROJECT.md S1, keyframe tracks
   'exportPresets', // export-spec §12, P5
 ];
 
@@ -465,6 +464,35 @@ export interface Lyrics {
 }
 
 // ---------------------------------------------------------------------------
+// Keyframe automation (S1, docs/keyframes-spec.md)
+// ---------------------------------------------------------------------------
+
+export const NAMED_EASINGS = ['linear', 'hold', 'easeIn', 'easeOut', 'easeInOut'] as const;
+/** How the value travels from a key to the next: named, or a cubic Bézier (x in 0..1). */
+export type KeyframeEasing = (typeof NAMED_EASINGS)[number] | { readonly cubic: readonly [number, number, number, number] };
+
+export interface Keyframe {
+  readonly id: string;
+  /** Timeline ticks. */
+  readonly ticks: number;
+  /** number, boolean, or a string (enum, "#rrggbb", "@role", asset id). */
+  readonly value: number | boolean | string;
+  readonly easing: KeyframeEasing;
+  readonly extra: Extra;
+}
+
+export interface AutomationTrack {
+  readonly id: string;
+  /** A path (module-spec §4): params, effect params, opacity, transform fields. */
+  readonly target: string;
+  /** Off: the base shows again; the keys are kept. */
+  readonly enabled: boolean;
+  /** Sorted by ticks, at most one per tick. */
+  readonly keyframes: readonly Keyframe[];
+  readonly extra: Extra;
+}
+
+// ---------------------------------------------------------------------------
 // The auto-director's record (auto-director-spec §8–§9)
 // ---------------------------------------------------------------------------
 
@@ -555,6 +583,8 @@ export interface ProjectDocument {
   readonly globalModulations: readonly ModulationBinding[];
   readonly assets: readonly AssetRef[];
   readonly lyrics: Lyrics;
+  /** Keyframe tracks (S1, docs/keyframes-spec.md): each replaces its target's base over time. */
+  readonly automation: readonly AutomationTrack[];
   /** What the auto-director made of this project, when it made it (M21, M22); null otherwise. */
   readonly director: DirectorState | null;
   readonly extra: Extra;

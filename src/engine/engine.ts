@@ -13,7 +13,8 @@ import {
 import {
   bindingLevels, compileModulation, modulateValue, type ModulationIssue, type ModulationProgram,
 } from './core/modulation.ts';
-import { resolveParams, type ParamIssue, type ParamValue, type ParamValues, type ResolveOptions } from './core/params.ts';
+import { resolveParams, type ParamIssue, type ParamSpec, type ParamValue, type ParamValues, type ResolveOptions } from './core/params.ts';
+import { indexAutomation, sampleTrack, type AutomationTrackSpec } from './core/automation.ts';
 import { createPrng, hash32 } from './core/prng.ts';
 import {
   isGroupSpec, layerIsLive, walkRenderModules, type AnyLayerSpec, type EffectSpec, type RenderProject,
@@ -235,6 +236,13 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
     return program;
   }
 
+  /** Keyframe tracks by target, indexed once per project snapshot (identity is the cache key). */
+  let indexedAutomation: { project: RenderProject; index: ReadonlyMap<string, AutomationTrackSpec> } | undefined;
+  function automationFor(project: RenderProject): ReadonlyMap<string, AutomationTrackSpec> {
+    if (indexedAutomation?.project !== project) indexedAutomation = { project, index: indexAutomation(project.automation) };
+    return indexedAutomation.index;
+  }
+
   /**
    * Modules that could not be created, with why. A drop-in shader that does not compile must not
    * take the frame down with it (module-spec §12): its layers are skipped and reported, and it is
@@ -345,6 +353,29 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       const program = programFor(project, analysis);
       const tick = frameStartTick(frameIndex, fps);
 
+      // Keyframes (S1): step 3 of module-spec §5. A keyed value REPLACES the base (the snapshot has
+      // already applied aspect overrides) and modulation then rides on top of it.
+      const automation = automationFor(project);
+      const automated = (prefix: string, schema: readonly ParamSpec[], stored: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
+        if (automation.size === 0) return stored;
+        let out: Record<string, unknown> | null = null;
+        for (const spec of schema) {
+          const track = automation.get(prefix + spec.key);
+          if (track === undefined) continue;
+          const kind = spec.type === 'float' || spec.type === 'int' ? 'number' : spec.type === 'color' ? 'color' : 'discrete';
+          const value = sampleTrack(track.keyframes, t, kind);
+          if (value === undefined) continue;
+          out ??= { ...stored };
+          out[spec.key] = value;
+        }
+        return out ?? stored;
+      };
+      const automatedNumber = (target: string, base: number): number => {
+        const track = automation.get(target);
+        const value = track === undefined ? undefined : sampleTrack(track.keyframes, t, 'number');
+        return typeof value === 'number' && Number.isFinite(value) ? value : base;
+      };
+
       /** Parameter keys under `prefix` that actually carry a binding (module-spec §4). */
       const modulationFor = (prefix: string): ResolveOptions => {
         const keys = new Set<string>();
@@ -389,7 +420,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
             continue;
           }
           const effectModulation = modulationFor(`${pathPrefix}${spec.id}.params.`);
-          const resolved = resolveParams(definition.manifest.params, spec.params, effectModulation);
+          const resolved = resolveParams(definition.manifest.params, automated(`${pathPrefix}${spec.id}.params.`, definition.manifest.params, spec.params), effectModulation);
           recordModulated(`${pathPrefix}${spec.id}.params.`, effectModulation, resolved.values);
           if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
           const instance = instanceFor(spec.id, definition);
@@ -419,7 +450,16 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           if (!layer.enabled) continue;
           if (!layerIsLive(layer.timeRange, tick)) continue;
 
-          const transform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
+          const baseTransform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
+          const tp = `layers.${layer.id}.transform.`;
+          const transform = automation.size === 0 ? baseTransform : {
+            ...baseTransform,
+            x: automatedNumber(`${tp}x`, baseTransform.x),
+            y: automatedNumber(`${tp}y`, baseTransform.y),
+            scaleX: automatedNumber(`${tp}scaleX`, baseTransform.scaleX),
+            scaleY: automatedNumber(`${tp}scaleY`, baseTransform.scaleY),
+            rotationDeg: automatedNumber(`${tp}rotationDeg`, baseTransform.rotationDeg),
+          };
           const canvas = canvasFor(transform.scaleReference);
           const layerTime = layerSeconds(layer.timeRange);
           let inverseTransform: Mat3 | undefined;
@@ -436,7 +476,8 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           // Opacity is a modulation target too (`layers.<id>.opacity`): the auto-director's section
           // presence curves fade optional layers in and out on section boundaries this way.
           const opacityTarget = `layers.${layer.id}.opacity`;
-          const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, layer.opacity, t) : layer.opacity));
+          const baseOpacity = automatedNumber(opacityTarget, layer.opacity);
+          const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, baseOpacity, t) : baseOpacity));
           if (program.targets.has(opacityTarget)) modulatedValues.set(opacityTarget, opacity);
           // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
           if (opacity <= 0) continue;
@@ -471,7 +512,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
           // on 'min' and a full-bleed background on 'max' each get the number they need.
           const layerModulation = modulationFor(`layers.${layer.id}.params.`);
-          const resolved = resolveParams(definition.manifest.params, layer.params, layerModulation);
+          const resolved = resolveParams(definition.manifest.params, automated(`layers.${layer.id}.params.`, definition.manifest.params, layer.params), layerModulation);
           recordModulated(`layers.${layer.id}.params.`, layerModulation, resolved.values);
           if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
           const instance = instanceFor(layer.id, definition);

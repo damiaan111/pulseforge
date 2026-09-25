@@ -19,6 +19,7 @@ import {
   DECISION_STEPS, DIRECTOR_LOCKS, MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
+  NAMED_EASINGS, type AutomationTrack, type Keyframe, type KeyframeEasing,
   type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
   type ScaleReference, type SourceSpec, type TimeRange, type Transform,
@@ -619,6 +620,37 @@ function parseAsset(node: Node, issues: DocumentIssue[]): AssetRef {
  * nobody set. Line breaks inside a line are joined: a line is one line, wrapping is the layer's job.
  */
 /**
+ * A keyframe track (S1). Keys are sorted and a duplicate tick is reported and dropped to one — two
+ * keys on one tick would make the value there ambiguous. A malformed easing falls back to linear.
+ */
+function parseTrack(node: Node, issues: DocumentIssue[]): AutomationTrack {
+  const seen = new Set<number>();
+  const keyframes: Keyframe[] = [];
+  for (const k of node.children('keyframes').map((n): Keyframe => {
+    const rawValue = n.take('value');
+    const value = typeof rawValue === 'number' || typeof rawValue === 'boolean' || typeof rawValue === 'string' ? rawValue : 0;
+    if (value !== rawValue) issues.push({ path: `${n.path}.value`, problem: 'wrong-type', detail: `expected a number, true/false or text, got ${JSON.stringify(rawValue)}; using 0` });
+    const rawEasing = n.take('easing');
+    let easing: KeyframeEasing = 'linear';
+    if (typeof rawEasing === 'string' && (NAMED_EASINGS as readonly string[]).includes(rawEasing)) easing = rawEasing as KeyframeEasing;
+    else if (isPlainObject(rawEasing) && Array.isArray(rawEasing['cubic']) && rawEasing['cubic'].length === 4 && rawEasing['cubic'].every((x) => typeof x === 'number' && Number.isFinite(x))) {
+      const [x1, y1, x2, y2] = rawEasing['cubic'] as number[];
+      easing = { cubic: [Math.min(1, Math.max(0, x1 as number)), y1 as number, Math.min(1, Math.max(0, x2 as number)), y2 as number] };
+    } else if (rawEasing !== undefined) issues.push({ path: `${n.path}.easing`, problem: 'invalid-value', detail: `not an easing (${NAMED_EASINGS.join(', ')} or {"cubic": [x1, y1, x2, y2]}); using linear` });
+    return { id: n.id('id', n.path), ticks: n.ticks('ticks', 0), value, easing, extra: n.rest() };
+  }).sort((a, b) => a.ticks - b.ticks)) {
+    if (seen.has(k.ticks)) {
+      issues.push({ path: `${node.path}.keyframes`, problem: 'invalid-value', detail: `two keys at tick ${k.ticks}; the later one in the file is kept` });
+      keyframes[keyframes.length - 1] = k;
+      continue;
+    }
+    seen.add(k.ticks);
+    keyframes.push(k);
+  }
+  return { id: node.id('id', node.path), target: node.str('target', '', true), enabled: node.bool('enabled', true), keyframes, extra: node.rest() };
+}
+
+/**
  * The director's record (auto-director-spec §8–§9). Nothing in it affects a render — the project
  * it made is ordinary layers — so a damaged record is repaired with defaults and reported, never
  * a reason to refuse the file.
@@ -799,6 +831,14 @@ function checkReferences(document: ProjectDocument, issues: DocumentIssue[]): vo
       issues.push({ path: `${where}.modulations.${b.id}.target`, problem: 'broken-reference', detail: `"${b.target}" points at layer "${id}", which is not in this project; the binding is kept and inactive` });
     }
   }
+  document.automation.forEach((track, i) => {
+    claim(track.id, `automation[${i}]`);
+    track.keyframes.forEach((k, j) => claim(k.id, `automation[${i}].keyframes[${j}]`));
+    const id = targetLayerId(track.target);
+    if (id !== undefined && !layerIds.has(id)) {
+      issues.push({ path: `automation[${i}].target`, problem: 'broken-reference', detail: `"${track.target}" points at layer "${id}", which is not in this project; the keyframes are kept and do nothing` });
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -840,6 +880,7 @@ export function parseDocument(raw: unknown): ParseResult {
     globalModulations: root.children('globalModulations').map((n) => parseBinding(n, issues)),
     assets: root.children('assets').map((n) => parseAsset(n, issues)),
     lyrics: parseLyrics(root.child('lyrics'), issues),
+    automation: root.children('automation').map((n) => parseTrack(n, issues)),
     director: root.take('director') === undefined || root.take('director') === null ? null : parseDirector(root.child('director')),
     extra: root.rest(RESERVED_DOCUMENT_KEYS),
   };
