@@ -5,7 +5,15 @@
 // stems are in the analysis cache: bindings and visualizers set to a stem react to it at once, and
 // opening the project again finds them without separating again.
 
+import { useEffect, useState } from 'react';
+
 import { useStudio } from '../store.ts';
+
+/** What each installed model is for, in the panel's words (D8). */
+const MODEL_TEXT: Readonly<Record<string, string>> = {
+  htdemucs: 'htdemucs — fast',
+  htdemucs_ft: 'htdemucs_ft — finer, about 1.7× the time',
+};
 
 const STAGE_TEXT: Readonly<Record<string, string>> = {
   queued: 'Waiting for the GPU…',
@@ -19,11 +27,28 @@ export function StemsControls(): React.JSX.Element | null {
   const stems = useStudio((s) => s.stems);
   const separate = useStudio((s) => s.separateStems);
   const cancel = useStudio((s) => s.cancelStems);
+  const model = useStudio((s) => s.document.analysisSettings.stemModel);
+  const setStemModel = useStudio((s) => s.setStemModel);
+  const setSettingsOpen = useStudio((s) => s.setSettingsOpen);
+  const [models, setModels] = useState<readonly string[]>([]);
+  useEffect(() => {
+    void window.pulseforge.settingsInfo().then((info) => setModels(info.stemModels)).catch(() => undefined);
+  }, [audio]);
   if (audio === null) return null;
 
   return (
     <div className="stems-controls" data-testid="stems-controls" data-state={stems.state}>
       <h3>Stems</h3>
+      {models.length > 1 ? (
+        <label className="field">
+          <span>Model</span>
+          <select value={model} data-action="stem-model" disabled={stems.state === 'running'} onChange={(e) => void setStemModel(e.target.value)}>
+            {[...new Set([...models, model])].map((m) => <option key={m} value={m}>{MODEL_TEXT[m] ?? m}</option>)}
+          </select>
+        </label>
+      ) : models.length === 1 && (
+        <p className="dim stems-line">Finer stems: <button type="button" className="link" onClick={() => setSettingsOpen(true)}>install htdemucs_ft</button> (340 MB) in Settings.</p>
+      )}
       {stems.state === 'running' ? (
         <>
           <div className="progress"><div className="progress-fill" style={{ width: `${(stems.fraction * 100).toFixed(1)}%` }} /></div>

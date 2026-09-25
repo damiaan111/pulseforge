@@ -26,8 +26,23 @@ import type { VocalSegment } from '../lyrics/vocal-segments.ts';
 import type { AlignedLine } from '../project/lyrics-commands.ts';
 import type { StemSidecar } from './stems.ts';
 
-/** Languages whose alignment model setup provisions. */
-export const ALIGN_LANGUAGES: readonly string[] = ['en'];
+/**
+ * The alignment model file per language, as setup provisions them into vendor/models/align (the
+ * lyrics tier: English; the extras tier: French, German, Spanish, Italian). WhisperX finds each by
+ * this file name in the folder it is given.
+ */
+export const ALIGN_MODEL_FILES: Readonly<Record<string, string>> = {
+  en: 'wav2vec2_fairseq_base_ls960_asr_ls960.pth',
+  fr: 'wav2vec2_voxpopuli_base_10k_asr_fr.pt',
+  de: 'wav2vec2_voxpopuli_base_10k_asr_de.pt',
+  es: 'wav2vec2_voxpopuli_base_10k_asr_es.pt',
+  it: 'wav2vec2_voxpopuli_base_10k_asr_it.pt',
+};
+
+/** The languages whose alignment model is installed in `alignDir`. */
+export function installedAlignLanguages(alignDir: string): string[] {
+  return Object.entries(ALIGN_MODEL_FILES).filter(([, file]) => existsSync(join(alignDir, file))).map(([language]) => language);
+}
 
 export type LyricsAlignMode = 'align' | 'transcribe';
 
@@ -97,8 +112,12 @@ export async function vocalStemPath(ffmpegExe: string, stemsRoot: string, stemMo
 export async function alignLyrics(options: LyricsAlignOptions): Promise<LyricsAlignResult> {
   const { signal } = options;
   const language = options.language.toLowerCase().split(/[-_]/)[0] ?? '';
-  if (!ALIGN_LANGUAGES.includes(language)) {
-    throw new LyricsLanguageError(`Word alignment is installed for ${ALIGN_LANGUAGES.join(', ')} only, not “${options.language}”. Tap-to-sync works for every language.`);
+  const installed = installedAlignLanguages(options.alignDir);
+  if (!installed.includes(language)) {
+    const more = language === 'en'
+      ? ' It comes with the lyrics part of setup (npm run setup -- --tier lyrics).'
+      : ALIGN_MODEL_FILES[language] !== undefined ? ' Its model is an optional extra: Settings → Audio & models installs it.' : '';
+    throw new LyricsLanguageError(`Word alignment is installed for ${installed.join(', ') || 'no language'}, not “${options.language}”.${more} Tap-to-sync works for every language.`);
   }
   if (options.mode === 'align' && options.lines.length === 0) {
     throw new Error('There are no unlocked lines with text to align.');

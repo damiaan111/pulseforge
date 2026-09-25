@@ -27,8 +27,8 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
-import { WAV2VEC2_EN } from '../../setup/manifest.ts';
-import { ALIGN_LANGUAGES, LyricsNeedStemsError, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
+import { EXTRAS, EXTRA_ARTEFACTS, WAV2VEC2_EN, type ExtraId } from '../../setup/manifest.ts';
+import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
@@ -385,6 +385,16 @@ function templatesFolderPath(): string {
   return process.env['PULSEFORGE_TEMPLATES'] ?? join(app.getPath('documents'), 'Pulseforge', 'Templates');
 }
 
+/** How the Settings screen names each optional model (D8). */
+const EXTRA_TEXT: Readonly<Record<ExtraId, { title: string; note: string }>> = {
+  htdemucs_ft: { title: 'Finer stems (htdemucs_ft)', note: 'Four fine-tuned Demucs models: cleaner separation in about 1.7× the time (39 s against 23 s for a 3-minute song here). Chosen per project in the Audio panel.' },
+  'whisper-large-v3': { title: 'Larger transcription model (Whisper large-v3)', note: 'Hears more of the words (on a test song it caught an opening line medium missed) but splits lines less cleanly, in lower case; about 5 GB of VRAM. Medium stays the default. Chosen above.' },
+  'align-fr': { title: 'Word alignment: French', note: 'Word-by-word lyric timing for French.' },
+  'align-de': { title: 'Word alignment: German', note: 'Word-by-word lyric timing for German.' },
+  'align-es': { title: 'Word alignment: Spanish', note: 'Word-by-word lyric timing for Spanish.' },
+  'align-it': { title: 'Word alignment: Italian', note: 'Word-by-word lyric timing for Italian.' },
+};
+
 /** The render queue's jobs, for "Copy diagnostics" on a failed one; set once the queue starts. */
 let rendersForDiagnostics: (() => readonly RenderJob[]) | null = null;
 
@@ -682,7 +692,16 @@ function registerHandlers(): void {
     };
     return {
       stemModels: await listed(join(MODELS, 'demucs'), (n) => (n.endsWith('.yaml') ? n.slice(0, -5) : null)),
-      whisperModels: await listed(join(MODELS, 'whisper'), (n) => (n.startsWith('faster-whisper-') ? n : null)),
+      whisperModels: await listed(join(MODELS, 'whisper'), (n) => (n.startsWith('faster-whisper-') && existsSync(join(MODELS, 'whisper', n, 'model.bin')) ? n : null)),
+      extras: EXTRAS.map((id) => ({
+        id,
+        title: EXTRA_TEXT[id].title,
+        note: EXTRA_TEXT[id].note,
+        bytes: EXTRA_ARTEFACTS[id].reduce((sum, a) => sum + a.sizeBytes, 0),
+        installed: EXTRA_ARTEFACTS[id].every((a) => existsSync(join(VENDOR, a.installDir, a.fileName))),
+        license: EXTRA_ARTEFACTS[id][0]?.license ?? '',
+      })),
+      alignLanguages: installedAlignLanguages(join(MODELS, 'align')),
       gpu: await gpuDescription(),
       paths: {
         settings: settingsPath(),
@@ -794,10 +813,13 @@ function registerHandlers(): void {
   ipcMain.handle(IPC.setupRun, async (event, raw: unknown): Promise<{ readonly code: number | null }> => {
     const request = (typeof raw === 'object' && raw !== null ? raw : {}) as { mode?: unknown; tier?: unknown };
     if (setupChild !== null) throw new Error('Setup is already running.');
+    const extra = (request as { extra?: unknown }).extra;
     const args = request.mode === 'verify' ? ['--verify']
+      : request.mode === 'rebuild-check' ? ['--rebuild-check']
       : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics'].includes(request.tier) ? ['--tier', request.tier]
-        : null;
-    if (args === null) throw new Error('Setup can verify, or repair one tier (core, stems or lyrics).');
+        : request.mode === 'extra' && typeof extra === 'string' && (EXTRAS as readonly string[]).includes(extra) ? ['--tier', 'extras', '--extras', extra]
+          : null;
+    if (args === null) throw new Error('Setup can verify, repair one tier (core, stems or lyrics), or install one optional model.');
     const send = (line: string) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC.setupOutput, line);
     };
@@ -877,7 +899,7 @@ function registerHandlers(): void {
   };
   ipcMain.handle(IPC.lyricsAlignAvailable, async () => {
     const reason = lyricsMissing();
-    return { available: reason === null, languages: ALIGN_LANGUAGES, reason };
+    return { available: reason === null, languages: installedAlignLanguages(lyricsFiles().alignDir), reason };
   });
   ipcMain.handle(IPC.lyricsAlign, async (event, raw: unknown) => {
     const request = raw as Partial<LyricsAlignRequest>;
@@ -2038,6 +2060,38 @@ app.whenReady().then(async () => {
         if (!diagnosticsUi) console.error('[smoke] diagnosticsUi steps ' + JSON.stringify({ path, copied }));
       }
 
+      // Optional models and the per-project stem model (D8, P1): Settings lists the six extras
+      // (installed on this machine); the Audio panel offers both stem models, and switching is one
+      // undo step that re-analyses under the new key.
+      let extrasUi = false;
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        click('#app header [data-action="settings"]');
+        const listed = await waitFor(() => document.querySelectorAll('#app [data-testid="optional-models"] li').length === 6, 100);
+        const installed = document.querySelectorAll('#app [data-testid="optional-models"] li .ok').length;
+        // The model picker exists only where htdemucs_ft is installed; elsewhere the list is the check.
+        const hasFt = document.querySelector('#app [data-testid="optional-models"] li[data-extra="htdemucs_ft"] .ok') !== null;
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        const picker = hasFt ? await waitFor(() => document.querySelector('#app [data-action="stem-model"]'), 100) : null;
+        let switched = false;
+        let back = false;
+        if (picker !== null && picker !== false) {
+          const choose = (value) => {
+            const select = document.querySelector('#app [data-action="stem-model"]');
+            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, value);
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          choose('htdemucs_ft');
+          switched = (await waitFor(() => (document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '').includes('Stem model: htdemucs_ft'), 100)) === true;
+          await waitFor(() => document.querySelector('#app [data-testid="stems-controls"]')?.getAttribute('data-state') !== 'running', 100);
+          click('#app header button[data-action="undo"]');
+          back = (await waitFor(() => document.querySelector('#app [data-action="stem-model"]')?.value === 'htdemucs', 100)) === true;
+        }
+        const steps = { listed: listed === true, installed, hasFt, picker: picker !== null && picker !== false, switched, back };
+        extrasUi = steps.listed && (!hasFt || (steps.picker && switched && back));
+        if (!extrasUi) console.error('[smoke] extrasUi steps ' + JSON.stringify(steps));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2093,6 +2147,7 @@ app.whenReady().then(async () => {
         settingsUi,
         storageUi,
         diagnosticsUi,
+        extrasUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),

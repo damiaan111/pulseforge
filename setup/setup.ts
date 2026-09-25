@@ -2,7 +2,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { ALL_TIERS, FUTURE_TIERS, type Tier } from './manifest.ts';
+import { ALL_TIERS, EXTRAS, FUTURE_TIERS, OPTIONAL_TIERS, type ExtraId, type Tier } from './manifest.ts';
 import { SetupError, formatSetupError, formatUnexpectedError } from './lib/errors.ts';
 import { writeLicenses } from './lib/licenses.ts';
 import { readVendorLock, writeVendorLock } from './lib/lockfile.ts';
@@ -12,11 +12,13 @@ import { requiredBytes, runPreflight, type Check } from './lib/preflight.ts';
 import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
 import { lyricsModelsStep } from './steps/lyrics-models.ts';
+import { extraInstalled, extraSteps } from './steps/extras.ts';
+import { runRebuildCheck } from './steps/rebuild-check.ts';
 import { pythonEnvStep, pythonLyricsEnvStep } from './steps/python-env.ts';
 import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
-const STEPS: readonly Step[] = [ffmpegStep, fontStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, lyricsModelsStep];
+const STEPS: readonly Step[] = [ffmpegStep, fontStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, lyricsModelsStep, ...extraSteps];
 
 const USAGE = `
 Usage: npm run setup -- [options]
@@ -30,7 +32,15 @@ Options:
                     core   FFmpeg (NVENC build)
                     stems  portable Python, uv, torch CUDA + Demucs wheelhouse, htdemucs weights
                     lyrics WhisperX wheelhouse, Whisper medium, wav2vec2 (English alignment)
+                    extras only when named (D8: quality on demand):
+                           htdemucs_ft (finer stems), whisper-large-v3 (best transcription),
+                           align-fr, align-de, align-es, align-it (word timing per language)
+  --extras <list> With --tier extras: which extras (default: all of them).
   --verify        Re-check installed artefacts against their checksums, offline. Changes nothing.
+                  Extras that are installed are verified too.
+  --rebuild-check Prove the Python env can be rebuilt with no network: a fresh interpreter from the
+                  kept archive, both locks from vendor/wheelhouse/ only, imports and a model load
+                  checked, then removed. The live env is not touched. A few minutes.
   --relock        Re-resolve setup/python/requirements.lock.txt from requirements.in (needs network).
   --from <dir>    Take pinned archives/models from <dir> instead of the network.
   --help          Show this help.
@@ -39,8 +49,10 @@ Options:
 interface Options {
   plan: boolean;
   verify: boolean;
+  rebuildCheck: boolean;
   relock: boolean;
   tiers: Tier[];
+  extras: ExtraId[];
   fromDir: string | undefined;
 }
 
@@ -53,8 +65,10 @@ function parseOptions(argv: string[]): Options | string {
       options: {
         plan: { type: 'boolean', default: false },
         verify: { type: 'boolean', default: false },
+        'rebuild-check': { type: 'boolean', default: false },
         relock: { type: 'boolean', default: false },
         tier: { type: 'string' },
+        extras: { type: 'string' },
         from: { type: 'string' },
         help: { type: 'boolean', default: false },
       },
@@ -65,21 +79,30 @@ function parseOptions(argv: string[]): Options | string {
   const { values } = parsed;
   if (values.help) return USAGE;
   if (values.plan && values.verify) return `--plan and --verify cannot be combined.\n${USAGE}`;
+  if (values['rebuild-check'] && (values.plan || values.verify || values.tier !== undefined)) return `--rebuild-check runs on its own.\n${USAGE}`;
 
   const tiers: Tier[] = [];
   for (const name of (values.tier ?? ALL_TIERS.join(',')).split(',').map((t) => t.trim()).filter(Boolean)) {
-    if ((ALL_TIERS as readonly string[]).includes(name)) {
+    if ((ALL_TIERS as readonly string[]).includes(name) || (OPTIONAL_TIERS as readonly string[]).includes(name)) {
       tiers.push(name as Tier);
     } else if (name in FUTURE_TIERS) {
       return `The "${name}" tier is not available yet: ${FUTURE_TIERS[name] ?? ''}\nAvailable now: ${ALL_TIERS.join(', ')}.`;
     } else {
-      return `Unknown tier "${name}". Available: ${ALL_TIERS.join(', ')}.\n${USAGE}`;
+      return `Unknown tier "${name}". Available: ${[...ALL_TIERS, ...OPTIONAL_TIERS].join(', ')}.\n${USAGE}`;
     }
   }
   if (tiers.length === 0) return `--tier was empty. Available: ${ALL_TIERS.join(', ')}.`;
+  const extras: ExtraId[] = [];
+  for (const name of (values.extras ?? EXTRAS.join(',')).split(',').map((t) => t.trim()).filter(Boolean)) {
+    if (!(EXTRAS as readonly string[]).includes(name)) return `Unknown extra "${name}". Available: ${EXTRAS.join(', ')}.`;
+    extras.push(name as ExtraId);
+  }
+  if (values.extras !== undefined && !tiers.includes('extras')) return '--extras only applies with --tier extras.';
   return {
+    extras,
     plan: values.plan,
     verify: values.verify,
+    rebuildCheck: values['rebuild-check'],
     relock: values.relock,
     tiers,
     fromDir: values.from !== undefined ? resolve(values.from) : undefined,
@@ -186,7 +209,20 @@ export async function main(argv: string[]): Promise<number> {
 
   try {
     if (!options.plan) release = acquireRunLock();
-    const steps = STEPS.filter((s) => options.tiers.includes(s.tier));
+    if (options.rebuildCheck) {
+      currentStep = 'offline rebuild check';
+      await runRebuildCheck(log);
+      log.heading('Offline rebuild check passed');
+      return 0;
+    }
+    const lockNow = await readVendorLock(log);
+    const steps = STEPS.filter((s) => {
+      const extra = (s as { extra?: ExtraId }).extra;
+      if (extra === undefined) return options.tiers.includes(s.tier);
+      // Extras: the ones named when installing them; when verifying, every one that is installed.
+      if (options.tiers.includes('extras')) return options.extras.includes(extra);
+      return options.verify && extraInstalled(extra, lockNow);
+    });
 
     currentStep = 'preconditions';
     const preflight = await runPreflight(options.tiers, log);
@@ -220,7 +256,9 @@ export async function main(argv: string[]): Promise<number> {
     }
 
     log.heading(options.verify ? 'Verification passed' : 'Setup complete');
-    log.ok(`Tiers: ${options.tiers.join(', ')}`);
+    log.ok(`Tiers: ${options.tiers.filter((t) => t !== 'extras').join(', ') || 'none'}`);
+    const extrasDone = steps.map((s) => (s as { extra?: ExtraId }).extra).filter((e): e is ExtraId => e !== undefined);
+    if (extrasDone.length > 0) log.ok(`Extras: ${extrasDone.join(', ')}`);
     if (!options.verify) {
       log.info('Recorded: vendor/vendor.lock.json · vendor/LICENSES.md');
       log.info('Everything installed runs offline from here on. `npm run setup -- --verify` re-checks it at any time.');

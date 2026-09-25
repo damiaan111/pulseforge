@@ -5,12 +5,20 @@
 // Checksums come from each project's published checksum files, not from our own
 // downloads — except where noted.
 
-export type Tier = 'core' | 'stems' | 'lyrics';
+export type Tier = 'core' | 'stems' | 'lyrics' | 'extras';
+/** What a plain `npm run setup` installs. */
 export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics'];
+/**
+ * Installed only when asked for (D8: fast by default, quality one click away): `--tier extras`,
+ * optionally narrowed with `--extras <list>`. The studio's Settings installs them one at a time.
+ */
+export const OPTIONAL_TIERS: readonly Tier[] = ['extras'];
 /** Tiers from PROJECT.md §3 not provisioned yet — named so asking for them fails loudly. */
-export const FUTURE_TIERS: Readonly<Record<string, string>> = {
-  extras: 'MilkDrop presets and optional models arrive after v1.',
-};
+export const FUTURE_TIERS: Readonly<Record<string, string>> = {};
+
+/** The optional models of the extras tier, each installable on its own. */
+export const EXTRAS = ['htdemucs_ft', 'whisper-large-v3', 'align-fr', 'align-de', 'align-es', 'align-it'] as const;
+export type ExtraId = (typeof EXTRAS)[number];
 
 interface ArtefactBase {
   id: string;
@@ -190,7 +198,102 @@ export const WAV2VEC2_EN: FileArtefact = {
 
 export const LYRICS_MODELS: readonly FileArtefact[] = [...WHISPER_MEDIUM, WAV2VEC2_EN];
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS];
+// ---------------------------------------------------------------------------
+// Extras tier (D8): the quality options, installed on demand
+// ---------------------------------------------------------------------------
+
+/**
+ * `htdemucs_ft`: four fine-tuned htdemucs models, one per stem (a "bag" — htdemucs_ft.yaml ships in
+ * the demucs package and is copied beside them, like htdemucs.yaml). Slower, noticeably cleaner.
+ * Demucs publishes each file's hash prefix (in its name); the full SHA-256s were recorded from
+ * downloads whose prefixes matched (2026-09-25) and are enforced from then on.
+ */
+const demucsFt = (signature: string, sha256: string): FileArtefact => ({
+  kind: 'file',
+  id: `demucs-htdemucs-ft-${signature}`,
+  name: `Demucs htdemucs_ft weights (${signature})`,
+  version: signature,
+  tier: 'extras',
+  url: `https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/${signature}-${sha256.slice(0, 8)}.th`,
+  fileName: `${signature}-${sha256.slice(0, 8)}.th`,
+  sha256,
+  sha256Prefix: sha256.slice(0, 8),
+  sizeBytes: 84_141_271,
+  license: 'Demucs (Meta) — MIT code; check the weights\' terms before redistributing',
+  installDir: 'models/demucs',
+});
+export const DEMUCS_HTDEMUCS_FT: readonly FileArtefact[] = [
+  demucsFt('f7e0c4bc', 'ba3fe64ae8ef66ac9a4857222ce48efbdc5eb3ad375cb79dd13debee5aaa4066'),
+  demucsFt('d12395a8', 'e57c48e6b0e38af4f7118d7bd08c49f0a0c0edf7d09143bdd902ea0d237303e6'),
+  demucsFt('92cfc3b6', 'ef3bcb9c8b40d14ae5d51b6db2587339cc12c6b77c0be151ce6d69002e087bf2'),
+  demucsFt('04573f0d', 'f3cf25b222c4eed7cd49dd8b2c9597d50c18bd154090f7b919cfa5f93cf22c49'),
+];
+
+/**
+ * Whisper `large-v3` in CTranslate2 format (D8's quality option for transcription; 128 mel bins,
+ * hence preprocessor_config.json). One pinned revision; model.bin's SHA-256 is the published LFS
+ * object id, the small files' were recorded from a download whose git blob ids matched the
+ * revision's tree (2026-09-25).
+ */
+const LARGE_V3_REVISION = 'edaa852ec7e145841d8ffdb056a99866b5f0a478';
+const largeV3 = (fileName: string, sha256: string, sizeBytes: number): FileArtefact => ({
+  kind: 'file',
+  id: `whisper-large-v3-${fileName.replace(/\W+/g, '-')}`,
+  name: `Whisper large-v3 (CTranslate2) — ${fileName}`,
+  version: LARGE_V3_REVISION.slice(0, 12),
+  tier: 'extras',
+  url: `https://huggingface.co/Systran/faster-whisper-large-v3/resolve/${LARGE_V3_REVISION}/${fileName}`,
+  fileName,
+  sha256,
+  sizeBytes,
+  license: 'MIT (OpenAI Whisper weights, converted by Systran)',
+  installDir: 'models/whisper/faster-whisper-large-v3',
+});
+export const WHISPER_LARGE_V3: readonly FileArtefact[] = [
+  largeV3('model.bin', '69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1', 3_087_284_237),
+  largeV3('config.json', 'a9306624f5ec14270a014b647e5c316b6e03a662c369758d1b90697a7b0655b9', 2_394),
+  largeV3('preprocessor_config.json', '7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711', 340),
+  largeV3('tokenizer.json', '6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca', 2_480_617),
+  largeV3('vocabulary.json', 'c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1', 1_068_114),
+];
+
+/**
+ * Forced alignment for French, German, Spanish and Italian: the torchaudio VoxPopuli bundles
+ * WhisperX uses by default for them, loaded like the English one from vendor/models/align by file
+ * name. No checksum is published; each was recorded from a download whose size matched the
+ * server's (2026-09-25). Other languages' models come from Hugging Face in its cache layout — not
+ * provisioned; those languages keep tap-to-sync (lyrics-spec §4).
+ */
+const alignModel = (language: 'fr' | 'de' | 'es' | 'it', sha256: string, sizeBytes: number): FileArtefact => ({
+  kind: 'file',
+  id: `wav2vec2-${language}`,
+  name: `wav2vec2 VoxPopuli base 10k (${language} alignment)`,
+  version: `torchaudio VOXPOPULI_ASR_BASE_10K_${language.toUpperCase()}`,
+  tier: 'extras',
+  url: `https://download.pytorch.org/torchaudio/models/wav2vec2_voxpopuli_base_10k_asr_${language}.pt`,
+  fileName: `wav2vec2_voxpopuli_base_10k_asr_${language}.pt`,
+  sha256,
+  sizeBytes,
+  license: 'CC BY-NC 4.0 (VoxPopuli; non-commercial — check before distributing renders commercially)',
+  installDir: 'models/align',
+});
+export const ALIGN_MODELS: Readonly<Record<'fr' | 'de' | 'es' | 'it', FileArtefact>> = {
+  fr: alignModel('fr', '30eeb5e5000e011838a39328c21eadf5ddaedbef0ea3f7cf5a790fd8695b92b5', 377_708_313),
+  de: alignModel('de', '5fcd937817d4cc358aa9730ccaa92cdae37af4b62959b67ba77ef1f5da7938cf', 377_677_593),
+  es: alignModel('es', '272a92b156b78e697e6c7cf7c64f274250a36d0047440e27a895a377d3af818f', 377_686_809),
+  it: alignModel('it', '620bad579ee46ba1f67df2e7c858c111d14a09b349a62b1c672f0275a68484eb', 377_689_881),
+};
+
+export const EXTRA_ARTEFACTS: Readonly<Record<ExtraId, readonly FileArtefact[]>> = {
+  htdemucs_ft: DEMUCS_HTDEMUCS_FT,
+  'whisper-large-v3': WHISPER_LARGE_V3,
+  'align-fr': [ALIGN_MODELS.fr],
+  'align-de': [ALIGN_MODELS.de],
+  'align-es': [ALIGN_MODELS.es],
+  'align-it': [ALIGN_MODELS.it],
+};
+
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
 
 export const PYTHON_PACKAGES = {
   tier: 'stems' as Tier,
@@ -228,4 +331,5 @@ export const REQUIRED_FREE_BYTES: Readonly<Record<Tier, number>> = {
   core: 1 * 1024 ** 3,
   stems: 16 * 1024 ** 3,
   lyrics: 5 * 1024 ** 3,
+  extras: 7 * 1024 ** 3,
 };

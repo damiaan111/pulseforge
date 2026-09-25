@@ -16,7 +16,7 @@
 |---|---|---|
 | Planning | ✅ | PROJECT.md, eight specs, decisions D1–D51 |
 | P0 — Spike | ✅ | `npm run validate` 8/8 |
-| P1 — Provisioning | 🔶 | core, stems and lyrics tiers; extras tier, `htdemucs_ft`, offline-rebuild check still open |
+| P1 — Provisioning | ✅ | core, stems, lyrics and extras tiers; the offline rebuild check (STATUS 4.62) |
 | P2 — Engine | ✅ | |
 | P3 — Studio | ✅ | |
 | P4 — Library | ✅ | 16 steps, 2026-09-15 → 09-18 |
@@ -25,7 +25,7 @@
 | P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 39 done, 1 partly done (M2's remaining setup tiers), 0 not started.** By count that is 90%+; by effort —
+**Must-haves (M1–M40): all 40 done.** By count that is 90%+; by effort —
 what remains is operability (cache screen, logs and diagnostics, the settings screen) and the P1
 remainder — the v1 must-have work is **roughly nine-tenths done**.
 
@@ -38,7 +38,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
 | M1 | Shell; new/open/save/save-as; autosave + crash recovery; versioned schema with migrations | ✅ | 4.7, 4.14, 4.49 | the autosave interval is fixed at 1 min until the settings screen (M36); auto-generate and lyrics re-align must autosave first when built |
-| M2 | One-command setup with checksums; fully offline after | 🔶 | 4.2, 4.55 | the lyrics tier is done (4.55); the extras tier, `htdemucs_ft`, Whisper `large-v3`, other languages' alignment models, an offline-rebuild check. Offline at runtime is enforced (network requests are blocked and logged, 4.14) |
+| M2 | One-command setup with checksums; fully offline after | ✅ | 4.2, 4.55, 4.62 | alignment beyond en/fr/de/es/it (Hugging Face models) not provisioned; those languages use tap-to-sync |
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
 | M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | ✅ | 4.6, 4.24, 4.48 | per-stem waveform rows and stem solo in the preview are not built |
@@ -131,7 +131,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 5. ✅ **Lyrics (P6: M18–M20, M26)** — done (STATUS 4.50–4.55).
 6. ✅ **Auto-director (P7: M21, M22)** — done (STATUS 4.56–4.58).
 7. ✅ **Operability (M33, M34, M36)** — done (STATUS 4.59–4.61).
-8. **P1 remainder** — extras tier, `htdemucs_ft`, Whisper `large-v3`, alignment models for more languages, an offline-rebuild check.
+8. ✅ **P1 remainder** — done (STATUS 4.62).
 9. **P8** — keyframes (needs a short spec first), masking, motion blur, 6-stem model, and the rest
    of the Should-haves.
 
@@ -155,6 +155,9 @@ it was made; they are collected here so none is a surprise.
 | Arrangement (section intensity, drop impulses) is a **`curve` modulation source**, not keyframes | auto-director-spec §6 speaks of keyframed intensity | keyframes (S1) are unbuilt and need their own spec; a curve binding is deterministic, editable, listed in the matrix, and can be converted to keyframes when they exist | STATUS 4.56 |
 | **Layer opacity is a modulation target** (`layers.<id>.opacity`) | modulation-spec §4 targets module parameters | the director's section presence has to fade a layer in and out; one opacity binding does it for every module, and is editable in the matrix | STATUS 4.57 |
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
+| **The VoxPopuli alignment models (fr, de, es, it) are CC BY-NC 4.0** — non-commercial | PROJECT.md §3 wants open licences | they are what WhisperX uses for these languages; they are optional extras, the licence is shown where they are installed, and English (MIT) is unaffected. **The owner should decide** whether to keep offering them | STATUS 4.62 |
+| The offline rebuild check is **a command and a Settings button, not a CI job** | P1 exit: "passes a networking-disabled end-to-end run in CI" | the repo has no CI; the check runs the same rebuild locally with the network made unusable | STATUS 4.62 |
+| **MilkDrop presets** (PROJECT.md §3 extras) are not provisioned | extras tier | there is no MilkDrop renderer in the app to use them | STATUS 4.62 |
 | The Settings screen **shows the GPU and the keyboard map** rather than letting them be chosen | PROJECT.md §8.16 lists GPU device selection and a shortcut map | Chromium chooses the WebGL device and offers no per-app switch; remapping needs a shortcut registry the studio does not have yet (the reference is accurate) | STATUS 4.59 |
 | A **`split` harmony** (+90°, −110°) in template palettes | auto-director-spec §4 lists analogous, complementary, triad, duotone | the contact sheet showed a triad's sun lime-green; synthwave's magenta/orange/cyan needs it | STATUS 4.58 |
 | Multiplying bindings are **capped** at ×1.25 / ×1.6 / ×2.5 per band | §5.2: band share of the soft range | on a small base the range share becomes a ×13 factor | STATUS 4.57 |

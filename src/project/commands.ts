@@ -693,6 +693,20 @@ export function applyDirection(
   };
 }
 
+/**
+ * Which Demucs model separates this project's stems (D8: `htdemucs` fast, `htdemucs_ft` finer).
+ * Part of the analysis key, so the studio re-analyses after it; stems made by the other model stay
+ * cached and come back if it is switched back.
+ */
+export function setStemModel(model: string): Command {
+  return {
+    label: `Stem model: ${model}`,
+    apply: (document) => (document.analysisSettings.stemModel === model
+      ? document
+      : { ...document, analysisSettings: { ...document.analysisSettings, stemModel: model } }),
+  };
+}
+
 /** Rerolls the master seed — "Surprise me" (M22). */
 export function setSeed(seed: number): Command {
   return { label: 'Reroll seed', apply: (document) => ({ ...document, seed }) };

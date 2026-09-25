@@ -205,6 +205,10 @@ export interface CacheActionResult {
 export interface SettingsInfo {
   readonly stemModels: readonly string[];
   readonly whisperModels: readonly string[];
+  /** The optional models (D8), each installable from Settings. */
+  readonly extras: readonly { readonly id: string; readonly title: string; readonly note: string; readonly bytes: number; readonly installed: boolean; readonly license: string }[];
+  /** Languages with word alignment installed. */
+  readonly alignLanguages: readonly string[];
   /** Chromium picks the GPU; this is the one in use, shown rather than chosen (ROADMAP §4). */
   readonly gpu: string;
   readonly paths: {
@@ -472,7 +476,7 @@ export interface PulseforgeApi {
   /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */
   revealPath(which: 'userData' | 'settings'): Promise<void>;
   /** Runs `npm run setup -- --verify` or `--tier <tier>`; output arrives through `onSetupOutput`. */
-  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' }): Promise<{ readonly code: number | null }>;
+  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
   cancelSetup(): Promise<void>;
   onSetupOutput(listener: (line: string) => void): () => void;
   /** Shows an open dialog for a lyrics file (.lrc, .srt, .vtt, .ttml, .txt). Null when cancelled. */

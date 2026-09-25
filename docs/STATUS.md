@@ -5,12 +5,12 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-09-25.** P0, P2, P3, P4, **P6 (lyrics), P7 (the auto-director) and operability are complete**; P1 is partly done (core,
+> **Last updated: 2026-09-25.** P0, **P1**, P2, P3, P4, **P6 (lyrics), P7 (the auto-director) and operability are complete** (P1: core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1072 tests, `npm run golden` 29/29 identical,
-> `--smoke` 27/27.
+> any aspect. Last full verification: `npm run check` 1085 tests, `npm run golden` 29/29 identical,
+> `--smoke` 28/28, `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -40,8 +40,13 @@
 > (M34) — rotating JSON-lines logs of the main process and the studio, a level setting, Open log
 > folder and Copy diagnostics (also on a failed render).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the P1 remainder (extras tier,
-> `htdemucs_ft`, Whisper `large-v3`, more alignment languages, an offline-rebuild check); P8.
+> **P1 finished (§4.62):** the extras tier — `htdemucs_ft`, Whisper `large-v3`, word alignment for
+> French, German, Spanish and Italian — installable one at a time from Settings, and an offline
+> rebuild check that builds a second Python environment from the wheelhouse with the network made
+> unusable.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): P8, the Should-haves —
+> keyframes (needs a short spec first), masking, motion blur, the 6-stem model and the rest.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -116,6 +121,8 @@
 | 4.59 | The Settings screen (operability step 1) — M36, PROJECT.md §8.16, ui-spec §8 |
 | 4.60 | Storage: one cache root, breakdown, prune, LRU limit, low disk (operability step 2) — M33 |
 | 4.61 | Logs and diagnostics (operability step 3) — M34 complete |
+| | **P1 remainder** |
+| 4.62 | The extras tier, measured; per-project stem model; the offline rebuild check — M2, P1 complete |
 
 ---
 
@@ -125,7 +132,7 @@
 |---|---|
 | Planning (PROJECT.md, docs/*-spec.md, decisions D1–D50) | ✅ complete |
 | **P0 — Spike** | ✅ **complete** — `npm run validate` passes 8/8; measurements in PROJECT.md §4 and `docs/validation/p0-full-report.md` |
-| P1 — Provisioning | 🔶 core, stems and lyrics tiers work (§4.55); extras tier, `htdemucs_ft`, offline-rebuild CI job not started |
+| **P1 — Provisioning** | ✅ **complete** (2026-09-25) — core, stems and lyrics tiers (§4.2, §4.55), the extras tier and the offline rebuild check (§4.62) |
 | **P2 — Engine** | ✅ **complete** — all six steps done (see §4.7–§4.13, §8) |
 | **P3 — Studio** | ✅ **complete** — all five steps done (see §4.14–§4.27, §9) |
 | **P4 — Library** | ✅ **complete** — M11 ✅, M12 ✅, M17 ✅, effect chain in the studio ✅, render pipeline shared by CLI and queue ✅, render queue UI ✅, background layer M14 ✅, asset library M40 ✅, text layer M16/M32 ✅, layer groups M38 ✅, logo M15 ✅, video layers M39 ✅, `modules/` drop-in folder M35 ✅, Three.js scene layers M37 ✅, preset browser S8 ✅ (§4.28–§4.44) |
@@ -3132,6 +3139,87 @@ five runs since, all green.
   reports success; the main process confirms that the clipboard holds the report and that the log
   file has the app's start, the copy, and a warning emitted by the studio page itself (renderer
   console capture).
+
+### 4.62 The extras tier, the per-project stem model, the offline rebuild check (P1 remainder) — M2, D8
+
+**The extras tier** (`setup/manifest.ts`, `setup/steps/extras.ts`). D8 says "fast by default,
+quality one click away", so these are installed only when named: `npm run setup -- --tier extras
+[--extras <list>]`, or one at a time from Settings. A plain `npm run setup` never fetches them.
+
+| Extra | Files | Size | Pinned how |
+|---|---|---|---|
+| `htdemucs_ft` | four fine-tuned Demucs models + `htdemucs_ft.yaml` from the package | 337 MB | Demucs's published prefixes matched; full SHA-256 recorded and pinned |
+| `whisper-large-v3` | CTranslate2 model, config, preprocessor config (128 mel bins), tokenizer, vocabulary, at one Hugging Face revision | 3.1 GB | model.bin = the published LFS SHA-256; the small files' git blob ids matched that revision's tree |
+| `align-fr`, `-de`, `-es`, `-it` | torchaudio VoxPopuli wav2vec2 bundles, the ones WhisperX uses for these languages | 378 MB each | no checksum published; sizes matched the server; SHA-256 recorded and pinned |
+
+- Like every tier: every file is pinned by URL and full SHA-256 before setup will download it.
+- After installing, each model is **loaded offline on the GPU the way the app loads it**:
+  - `htdemucs_ft`: `get_model` from the vendored repo, 4 models;
+  - `large-v3`: `WhisperModel` in float16, 128 mel bins;
+  - each language: `whisperx.load_align_model` from `vendor/models/align` (43, 32, 35 and 37 symbols).
+- `--verify` checks every installed extra as well. The whole verify, with all six extras, took 1 min 48 s.
+- **Licence: the four VoxPopuli alignment models are CC BY-NC 4.0 (non-commercial)**, per
+  torchaudio's own documentation. English (fairseq, MIT) is not affected. Settings says so on each
+  one; recorded in ROADMAP §4 for the owner.
+- Not provisioned, and said where it matters:
+  - alignment for other languages (WhisperX gets them from Hugging Face repos at ~1.2 GB each, in its
+    cache layout); they keep tap-to-sync, and the refusal message says which languages are installed;
+  - MilkDrop presets (listed for this tier in PROJECT.md §3): there is no MilkDrop renderer to use them.
+
+**Measured on the RTX 3060** (one of the owner's songs, 2:48, read in place):
+
+| | Time | GPU memory above the desktop's (658 MiB) |
+|---|---|---|
+| `htdemucs` separation + stem analysis | 22.7 s | ~0.85 GB |
+| `htdemucs_ft` separation + stem analysis | **39.4 s (1.7×)** | ~0.9 GB (the four models run one after another) |
+| Whisper `medium` transcription (model load included) | 12.6 s | ~2.8 GB |
+| Whisper `large-v3` transcription (model load included) | 15.7 s | ~4.7 GB |
+
+- PROJECT.md §4 had estimated `htdemucs_ft` at "roughly 4×" and 4–7 GB; it is 1.7× and under 1 GB.
+  PROJECT.md is updated.
+- `large-v3` is not simply better. On this song it caught the opening line medium missed ("City
+  lights are whispering low…"), but it split lines less cleanly (lower case, no punctuation, a lone
+  "city"). Medium stays the default; Settings describes the trade honestly.
+
+**In the studio:**
+- Settings → Audio & models has **Optional models**: each extra with its size, what it is for (with
+  the measurements), its licence where non-commercial, and **Install**. Install runs setup for that
+  one extra, with the output shown, then refreshes.
+- The transcription model list shows only complete installs.
+- Word alignment lists its installed languages. Alignment now **reads the languages from the
+  installed model files** (`installedAlignLanguages`) instead of a fixed `['en']`. Asking for an
+  uninstalled language says where to get it: an extra, or the lyrics tier for English.
+- **The Audio panel's stems section offers the model per project** (htdemucs — fast, htdemucs_ft —
+  finer, about 1.7× the time) once both are installed, or a link to install it:
+  - `setStemModel` is an undoable command;
+  - the studio then re-analyses under the new cache key;
+  - stems made by the other model stay cached, so switching back is instant.
+
+**The offline rebuild check** (`npm run setup -- --rebuild-check`, `setup/steps/rebuild-check.ts`;
+also a button in Settings).
+- `--verify` proves the installed files are intact; this proves **they can be made again with no
+  network**, which is the P1 exit criterion and the "Python env rots" risk.
+- What it does:
+  1. checks the kept archives (FFmpeg, Python, uv, Inter) against their pins;
+  2. extracts a fresh interpreter from the kept Python archive into a scratch folder;
+  3. installs both locks from `vendor/wheelhouse/` alone, with uv offline, Hugging Face offline, and
+     every proxy variable pointed at a closed local port, so a hidden download fails the check;
+  4. imports torch (with CUDA), Demucs, WhisperX, faster-whisper and CTranslate2, and loads htdemucs
+     from the vendored models;
+  5. deletes the scratch folder whatever happens. The live environment is never touched.
+- Measured: **a 4.4 GB environment rebuilt in 103 s** (stems 49 s, lyrics 26 s): torch
+  2.13.0+cu130 on the RTX 3060, demucs 4.1.0, whisperx 3.4.5, CTranslate2 on 1 CUDA device.
+- PROJECT.md asks for this "in CI". There is no CI for this repo, so it is a command and a Settings
+  button (ROADMAP §4).
+
+**Verified here:**
+- `npm run check` **1085 tests**: alignment languages from installed files, and the refusal messages
+  for English and for an extra language.
+- `npm run setup -- --tier extras` installs and loads all six; `--verify` passes with them; and
+  `--rebuild-check` passes.
+- `--smoke` **28/28**. New `extrasUi`: Settings lists the six optional models; where `htdemucs_ft` is
+  installed, the Audio panel offers both models, switching is one undo step ("Stem model:
+  htdemucs_ft") that re-analyses, and undo goes back.
 
 ---
 

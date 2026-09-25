@@ -496,7 +496,7 @@ if _spec is not None and _spec.submodule_search_locations:
  * install (`fromLock`), each override is copied from the lock *with its hashes*: installs run with
  * `--require-hashes`, and an unhashed override is refused.
  */
-async function lyricsOverridesFile(fromLock?: string): Promise<string> {
+export async function lyricsOverridesFile(fromLock?: string): Promise<string> {
   await mkdir(TMP, { recursive: true });
   const path = join(TMP, 'lyrics-overrides.txt');
   let text = `${PYTHON_PACKAGES_LYRICS.overrides.join('\n')}\n`;

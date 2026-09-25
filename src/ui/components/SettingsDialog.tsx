@@ -44,6 +44,7 @@ export function SettingsDialog(): React.JSX.Element | null {
   const [info, setInfo] = useState<SettingsInfo | null>(null);
   const [errors, setErrors] = useState<Readonly<Record<string, string>>>({});
 
+  const [infoVersion, setInfoVersion] = useState(0);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -53,7 +54,7 @@ export function SettingsDialog(): React.JSX.Element | null {
     return () => {
       live = false;
     };
-  }, [open]);
+  }, [open, infoVersion]);
 
   if (!open || settings === null) return null;
 
@@ -112,7 +113,7 @@ export function SettingsDialog(): React.JSX.Element | null {
                 {withCurrent(info?.stemModels ?? [], settings.stemModel).map((m) => <option key={m} value={m}>{m}{info !== null && !info.stemModels.includes(m) ? ' (not installed)' : ''}</option>)}
               </select>
             </label>
-            {info !== null && info.stemModels.length <= 1 && <p className="dim note">Only {info.stemModels[0] ?? 'no model'} is installed. The slower, finer <code>htdemucs_ft</code> comes with the extras tier (not built yet).</p>}
+            {info !== null && info.stemModels.length <= 1 && <p className="dim note">Only {info.stemModels[0] ?? 'no model'} is installed; the finer <code>htdemucs_ft</code> is an optional model below.</p>}
             <label className="field">
               <span>Transcription model</span>
               <select value={settings.whisperModel} data-setting="whisperModel" onChange={(e) => void save({ whisperModel: e.target.value })}>
@@ -124,7 +125,8 @@ export function SettingsDialog(): React.JSX.Element | null {
               <span>{settings.tapLatencyMs === null ? 'not calibrated' : `${settings.tapLatencyMs} ms`}</span>
               {settings.tapLatencyMs !== null && <button type="button" onClick={() => void save({ tapLatencyMs: null })}>Reset</button>}
             </div>
-            <p className="dim note">Calibrate it from the Lyrics drawer's tap-to-sync.</p>
+            <p className="dim note">Calibrate it from the Lyrics drawer's tap-to-sync. Word alignment is installed for: {info?.alignLanguages.join(', ') || '…'}.</p>
+            {info !== null && <OptionalModels extras={info.extras} onInstalled={() => setInfoVersion((v) => v + 1)} />}
           </section>
 
           <section>
@@ -182,6 +184,52 @@ function FragmentRow(props: { label: string; value: string; bad: boolean }): Rea
   );
 }
 
+/**
+ * The optional models (D8: quality one click away): each with its size, what it is for, and Install,
+ * which runs setup for that one extra with its output shown. A non-commercial licence is said
+ * where it applies.
+ */
+function OptionalModels(props: { readonly extras: SettingsInfo['extras']; readonly onInstalled: () => void }): React.JSX.Element {
+  const [running, setRunning] = useState<string | null>(null);
+  const [lines, setLines] = useState<readonly string[]>([]);
+  const [result, setResult] = useState<string | null>(null);
+  useEffect(() => window.pulseforge.onSetupOutput((line) => {
+    if (running !== null) setLines((l) => [...l.slice(-200), line]);
+  }), [running]);
+  const install = async (id: string, title: string) => {
+    setRunning(id);
+    setLines([]);
+    setResult(null);
+    try {
+      const { code } = await window.pulseforge.runSetup({ mode: 'extra', extra: id });
+      setResult(code === 0 ? `${title} is installed.` : `Installing ${title} stopped (code ${code ?? 'none'}); the output says why.`);
+      props.onInstalled();
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRunning(null);
+    }
+  };
+  return (
+    <div className="optional-models" data-testid="optional-models">
+      <h4>Optional models</h4>
+      <ul>
+        {props.extras.map((e) => (
+          <li key={e.id} data-extra={e.id}>
+            <span><strong>{e.title}</strong> <span className="dim">{(e.bytes / 1e9).toFixed(e.bytes > 1e9 ? 1 : 2)} GB</span></span>
+            <span className="dim">{e.note}{/NC/.test(e.license) ? ` Licence: ${e.license}.` : ''}</span>
+            {e.installed
+              ? <span className="ok">Installed</span>
+              : <button type="button" disabled={running !== null} data-action={`install-${e.id}`} onClick={() => void install(e.id, e.title)}>{running === e.id ? 'Installing…' : 'Install'}</button>}
+          </li>
+        ))}
+      </ul>
+      {lines.length > 0 && <pre className="setup-log">{lines.join('\n')}</pre>}
+      {result !== null && <p className={/stopped|not|fail/i.test(result) ? 'bad' : 'ok'}>{result}</p>}
+    </div>
+  );
+}
+
 /** The log's level, where it is, and "Copy diagnostics" (M34). */
 function DiagnosticsSection(props: { readonly level: UserSettings['logLevel']; readonly save: (patch: Partial<UserSettings>) => Promise<void> }): React.JSX.Element {
   const notify = useStudio((s) => s.notify);
@@ -234,7 +282,10 @@ function SetupSection(): React.JSX.Element {
   const [result, setResult] = useState<string | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
 
-  useEffect(() => window.pulseforge.onSetupOutput((line) => setLines((l) => [...l.slice(-400), line])), []);
+  // Only this section's own runs: the optional models' installs show their output there.
+  useEffect(() => window.pulseforge.onSetupOutput((line) => {
+    if (running) setLines((l) => [...l.slice(-400), line]);
+  }), [running]);
   useEffect(() => {
     const el = logRef.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
@@ -246,7 +297,7 @@ function SetupSection(): React.JSX.Element {
     setRunning(true);
     try {
       const { code } = await window.pulseforge.runSetup(request);
-      setResult(code === 0 ? (request.mode === 'verify' ? 'Everything installed checks out.' : 'Done.') : `Setup stopped with code ${code ?? 'none'}; the output above says why.`);
+      setResult(code === 0 ? (request.mode === 'verify' ? 'Everything installed checks out.' : request.mode === 'rebuild-check' ? 'The environment can be rebuilt with no network.' : 'Done.') : `Setup stopped with code ${code ?? 'none'}; the output above says why.`);
     } catch (error) {
       setResult(error instanceof Error ? error.message : String(error));
     } finally {
@@ -260,6 +311,7 @@ function SetupSection(): React.JSX.Element {
       <p className="dim note">Verify re-checks every installed file against its checksum, offline. Repair re-runs one part of setup: finished work is kept, and anything missing or damaged is fetched again (this needs the network, or the archives folder setup was given).</p>
       <div className="setup-actions">
         <button type="button" data-action="setup-verify" disabled={running} onClick={() => void run({ mode: 'verify' })}>Verify installation</button>
+        <button type="button" data-action="setup-rebuild-check" disabled={running} title="Builds a second Python environment from the kept wheels with the network made unusable, checks it imports and loads, then deletes it (a few minutes, about 4.4 GB of temporary space)" onClick={() => void run({ mode: 'rebuild-check' })}>Offline rebuild check</button>
         {(['core', 'stems', 'lyrics'] as const).map((tier) => (
           <button key={tier} type="button" disabled={running} data-action={`setup-repair-${tier}`} onClick={() => void run({ mode: 'repair', tier })}>Repair {tier}</button>
         ))}

@@ -46,8 +46,9 @@ See `docs/STATUS.md` for the live state and `docs/ROADMAP.md` §3 for what comes
 P4 are complete (2026-09-18), and so are the modulation UI (M13), the layer/clip editing gaps
 (M7, M9, M29), stems end to end (M5, M27, M28), autosave with crash recovery (M1) and **P6, lyrics**
 (M18–M20, M26; 2026-09-25), **P7, the auto-director** (M21, M22) and **operability** (M33, M34,
-M36; 2026-09-25); the next item is the P1 remainder (ROADMAP §3 item 8). `START-HERE.md` describes
-P0, which is done.
+M36) and **the P1 remainder** (extras tier, offline rebuild check; 2026-09-25) — every must-have is
+done; the next item is P8, the Should-haves (ROADMAP §3 item 9). `START-HERE.md` describes P0, which
+is done.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept
 detailed enough that a fresh session can take over mid-project. Commit at the end of each step.

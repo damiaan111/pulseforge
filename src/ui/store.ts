@@ -21,7 +21,7 @@ import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { Section as AnalysisSection } from '../analysis/sections.ts';
 import { withAbsolutePaths, withStoredPaths } from '../project/asset-paths.ts';
 import {
-  addAsset, addLayer, findAssetByHash, relinkAsset, sequence, type EditTarget,
+  addAsset, addLayer, findAssetByHash, relinkAsset, sequence, setStemModel, type EditTarget,
 } from '../project/commands.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
 import { timelineDurationTicks, toRenderProject } from '../project/snapshot.ts';
@@ -298,6 +298,8 @@ export interface StudioState {
   loadSettings(): Promise<void>;
   /** Saves a patch; returns why it was refused, or null. */
   updateSettings(patch: Partial<UserSettings>): Promise<string | null>;
+  /** Switches the project's stem model (D8) and re-analyses the track under the new key. */
+  setStemModel(model: string): Promise<void>;
   /** The Settings screen (M36). */
   settingsOpen: boolean;
   setSettingsOpen(open: boolean): void;
@@ -1305,6 +1307,13 @@ export const useStudio = create<StudioState>((set, get) => ({
       set({ toast: { text, kind: 'bad' } });
       return text;
     }
+  },
+
+  async setStemModel(model) {
+    if (history.current.analysisSettings.stemModel === model) return;
+    get().run(setStemModel(model));
+    const audio = get().audio;
+    if (audio !== null) await get().loadAudio(audio.path);
   },
 
   settingsOpen: false,

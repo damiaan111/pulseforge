@@ -13,7 +13,7 @@ import { decodeMono48k } from '../../src/analysis/decode.ts';
 import { synthesizeTestTrack } from '../../src/analysis/reference-track.ts';
 import { TICKS_PER_SECOND } from '../../src/engine/core/time.ts';
 import { encodeWavFloat32 } from '../../src/export/audio.ts';
-import { alignLyrics, LyricsLanguageError, LyricsNeedStemsError, type LyricsAlignOptions } from '../../src/ml/lyrics-align.ts';
+import { ALIGN_MODEL_FILES, alignLyrics, installedAlignLanguages, LyricsLanguageError, LyricsNeedStemsError, type LyricsAlignOptions } from '../../src/ml/lyrics-align.ts';
 import type { StemSidecar } from '../../src/ml/stems.ts';
 
 const available = existsSync(FFMPEG_EXE);
@@ -27,6 +27,9 @@ beforeEach(async () => {
   audioPath = join(root, 'track.wav');
   const mono = synthesizeTestTrack(3);
   await writeFile(audioPath, encodeWavFloat32([mono, mono], 48_000));
+  // Languages are what is installed: an (empty) English model file stands in for the lyrics tier.
+  await mkdir(join(root, 'align'), { recursive: true });
+  await writeFile(join(root, 'align', ALIGN_MODEL_FILES['en'] as string), '');
 });
 
 afterEach(async () => {
@@ -75,7 +78,7 @@ const base = (calls: string[]): LyricsAlignOptions => ({
   stemModel: 'htdemucs',
   audioPath,
   whisperDir: 'w',
-  alignDir: 'a',
+  alignDir: join(root, 'align'),
   language: 'en',
   mode: 'align',
   lines: [{ id: 'l1', text: 'Hello there' }, { id: 'l2', text: 'General Kenobi' }],
@@ -86,6 +89,10 @@ describe.skipIf(!available)('lyrics alignment without Python', () => {
   it('refuses without a vocal stem, and in a language with no alignment model', async () => {
     await expect(alignLyrics(base([]))).rejects.toThrow(LyricsNeedStemsError);
     await expect(alignLyrics({ ...base([]), language: 'nl' })).rejects.toThrow(LyricsLanguageError);
+    // French is provisionable (an extra) but not installed here: refused, and told where to get it.
+    await expect(alignLyrics({ ...base([]), language: 'fr' })).rejects.toThrow(/Settings/);
+    await writeFile(join(root, 'align', ALIGN_MODEL_FILES['fr'] as string), '');
+    expect(installedAlignLanguages(join(root, 'align'))).toEqual(['en', 'fr']);
   });
 
   it('aligns the given lines inside the windows the transcript gives them, on the timeline', async () => {

@@ -292,8 +292,12 @@ verify and repair from inside the app, a Storage view that shows what the cache 
 with a size limit and one-click cleanup, and logs plus "copy diagnostics" for when something
 goes wrong.
 
-**Still to come:** the optional extras (the finer stem model, the larger Whisper model, more lyric
-languages) and the Should-have list: keyframes, masking, motion blur and more.
+**Optional extras:** a finer stem model, the larger Whisper model, and word timing for French,
+German, Spanish and Italian, each installed with one click in Settings (or `npm run setup -- --tier
+extras`). `npm run setup -- --rebuild-check` proves the whole Python side can be rebuilt with no
+internet.
+
+**Still to come:** the Should-have list — keyframes, masking, motion blur and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real
