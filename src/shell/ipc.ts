@@ -41,6 +41,12 @@ export const IPC = {
   recoveryDiscard: 'pf:recovery:discard',
   settingsGet: 'pf:settings:get',
   settingsUpdate: 'pf:settings:update',
+  settingsInfo: 'pf:settings:info',
+  revealPath: 'pf:reveal-path',
+  setupRun: 'pf:setup:run',
+  setupCancel: 'pf:setup:cancel',
+  /** Main → renderer: one line of setup's output. */
+  setupOutput: 'pf:setup:output',
   lyricsOpen: 'pf:lyrics:open',
   lyricsSave: 'pf:lyrics:save',
   lyricsAlignAvailable: 'pf:lyrics:align-available',
@@ -155,6 +161,21 @@ export interface AnalysisPayload {
   readonly stems: readonly { readonly name: string; readonly container: Uint8Array }[];
   /** Every stem's state in the cache: ready, pending (being separated) or failed with why. */
   readonly stemStatus: Readonly<Record<string, { readonly state: 'ready' | 'pending' | 'failed'; readonly error?: string }>>;
+}
+
+export interface SettingsInfo {
+  readonly stemModels: readonly string[];
+  readonly whisperModels: readonly string[];
+  /** Chromium picks the GPU; this is the one in use, shown rather than chosen (ROADMAP §4). */
+  readonly gpu: string;
+  readonly paths: {
+    readonly settings: string;
+    readonly userData: string;
+    readonly defaultCacheRoot: string;
+    readonly presets: string;
+    readonly templates: string;
+  };
+  readonly environment: EnvironmentReport;
 }
 
 export interface TemplateListing {
@@ -393,6 +414,14 @@ export interface PulseforgeApi {
   getSettings(): Promise<{ readonly settings: UserSettings; readonly problems: readonly string[] }>;
   /** Merges and saves; resolves to the settings as saved. */
   updateSettings(patch: Partial<UserSettings>): Promise<UserSettings>;
+  /** What the Settings screen offers: installed models, the GPU in use, where things live. */
+  settingsInfo(): Promise<SettingsInfo>;
+  /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */
+  revealPath(which: 'userData' | 'settings'): Promise<void>;
+  /** Runs `npm run setup -- --verify` or `--tier <tier>`; output arrives through `onSetupOutput`. */
+  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' }): Promise<{ readonly code: number | null }>;
+  cancelSetup(): Promise<void>;
+  onSetupOutput(listener: (line: string) => void): () => void;
   /** Shows an open dialog for a lyrics file (.lrc, .srt, .vtt, .ttml, .txt). Null when cancelled. */
   openLyricsFile(): Promise<{ readonly name: string; readonly text: string } | null>;
   /** Shows a save dialog and writes exported lyrics. Resolves to the path, or null when cancelled. */

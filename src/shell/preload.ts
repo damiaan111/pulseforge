@@ -36,6 +36,17 @@ const api: PulseforgeApi = {
   discardRecovery: (sessionId) => ipcRenderer.invoke(IPC.recoveryDiscard, sessionId) as Promise<void>,
   getSettings: () => ipcRenderer.invoke(IPC.settingsGet) as ReturnType<PulseforgeApi['getSettings']>,
   updateSettings: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch) as ReturnType<PulseforgeApi['updateSettings']>,
+  settingsInfo: () => ipcRenderer.invoke(IPC.settingsInfo) as ReturnType<PulseforgeApi['settingsInfo']>,
+  revealPath: (which) => ipcRenderer.invoke(IPC.revealPath, which) as Promise<void>,
+  runSetup: (request) => ipcRenderer.invoke(IPC.setupRun, request) as ReturnType<PulseforgeApi['runSetup']>,
+  cancelSetup: () => ipcRenderer.invoke(IPC.setupCancel) as Promise<void>,
+  onSetupOutput(listener) {
+    const handler = (_event: unknown, line: string) => listener(line);
+    ipcRenderer.on(IPC.setupOutput, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.setupOutput, handler);
+    };
+  },
   openLyricsFile: () => ipcRenderer.invoke(IPC.lyricsOpen) as ReturnType<PulseforgeApi['openLyricsFile']>,
   saveLyricsFile: (suggestedName, text) => ipcRenderer.invoke(IPC.lyricsSave, suggestedName, text) as ReturnType<PulseforgeApi['saveLyricsFile']>,
   lyricsAlignAvailable: () => ipcRenderer.invoke(IPC.lyricsAlignAvailable) as ReturnType<PulseforgeApi['lyricsAlignAvailable']>,

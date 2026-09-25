@@ -24,6 +24,7 @@ export function TopBar(): React.JSX.Element {
   const setQueueOpen = useStudio((s) => s.setQueueOpen);
   const matrixOpen = useStudio((s) => s.matrixOpen);
   const setMatrixOpen = useStudio((s) => s.setMatrixOpen);
+  const setSettingsOpen = useStudio((s) => s.setSettingsOpen);
   const autoOpen = useStudio((s) => s.autoOpen);
   const setAutoOpen = useStudio((s) => s.setAutoOpen);
   const lyricsOpen = useStudio((s) => s.lyricsOpen);
@@ -65,6 +66,9 @@ export function TopBar(): React.JSX.Element {
       </button>
       <button type="button" data-action="render-queue" className={queueOpen ? 'active' : ''} onClick={() => setQueueOpen(!queueOpen)}>
         Renders{activeRenders > 0 ? ` (${activeRenders})` : ''}
+      </button>
+      <button type="button" data-action="settings" title="Settings (Ctrl+,)" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        ⚙
       </button>
       <button type="button" className="primary" data-action="export" title="Ctrl+E" onClick={() => setExportOpen(true)}>
         ▸ Export

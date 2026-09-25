@@ -13,6 +13,7 @@ import { Inspector } from './Inspector.tsx';
 import { RecoveryDialog } from './RecoveryDialog.tsx';
 import { LyricsDrawer } from './LyricsPanel.tsx';
 import { AutoDrawer } from './AutoPanel.tsx';
+import { SettingsDialog } from './SettingsDialog.tsx';
 import { LeftRail } from './LeftRail.tsx';
 import { Timeline } from './Timeline.tsx';
 import { TopBar } from './TopBar.tsx';
@@ -62,15 +63,19 @@ export function App(): React.JSX.Element {
     void loadTemplates();
   }, [loadTemplates]);
 
-  // Autosave (M1): once a minute, and only when there is unsaved work to keep. Crashed runs'
-  // autosaves are offered once, at start.
+  // Autosave (M1): every N minutes (a setting, M36; one by default), and only when there is unsaved
+  // work to keep. Crashed runs' autosaves are offered once, at start.
   const autosave = useStudio((s) => s.autosave);
   const loadRecovery = useStudio((s) => s.loadRecovery);
+  const autosaveMinutes = useStudio((s) => s.settings?.autosaveMinutes ?? 1);
   useEffect(() => {
     void loadRecovery();
-    const handle = setInterval(() => void autosave('every minute'), 60_000);
+  }, [loadRecovery]);
+  useEffect(() => {
+    const every = autosaveMinutes === 1 ? 'every minute' : `every ${autosaveMinutes} minutes`;
+    const handle = setInterval(() => void autosave(every), autosaveMinutes * 60_000);
     return () => clearInterval(handle);
-  }, [autosave, loadRecovery]);
+  }, [autosave, autosaveMinutes]);
 
   // User settings (tap latency, D33), once; and whether lyric alignment (M26) is installed.
   const loadSettings = useStudio((s) => s.loadSettings);
@@ -97,7 +102,8 @@ export function App(): React.JSX.Element {
       // so it works with focus in the dialog's own controls.
       if (event.key === 'Escape') {
         const state = useStudio.getState();
-        if (state.presetDialog !== null) state.setPresetDialog(null);
+        if (state.settingsOpen) state.setSettingsOpen(false);
+        else if (state.presetDialog !== null) state.setPresetDialog(null);
         else if (state.exportOpen) state.setExportOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.matrixOpen) state.setMatrixOpen(false);
@@ -122,6 +128,9 @@ export function App(): React.JSX.Element {
       } else if (key === 'e') {
         event.preventDefault();
         setExportOpen(true);
+      } else if (key === ',') {
+        event.preventDefault();
+        useStudio.getState().setSettingsOpen(true);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -152,6 +161,7 @@ export function App(): React.JSX.Element {
       <LyricsDrawer />
       <AutoDrawer />
       <ExportDialog />
+      <SettingsDialog />
       <SavePresetDialog />
       <RecoveryDialog />
       {toast === null ? null : (

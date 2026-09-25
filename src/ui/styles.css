@@ -6,7 +6,37 @@
    canvas. Controls are neutral; "you are editing an override" (D44) uses --warn, a signal that
    means *careful* rather than borrowing the content's colour. */
 
+/* The light theme (M36): the same tokens, on paper. The canvas is never themed. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e9e9ee;
+  --panel: #f6f6f9;
+  --panel-raised: #ffffff;
+  --line: #cfcfd8;
+  --text: #1c1c22;
+  --text-dim: #5c5c68;
+  --control: #6a6a78;
+  --accent: #4a64a8;
+  --warn: #b86e00;
+  --bad: #c62828;
+  --ok: #1a8c5b;
+  --band-a: rgba(0, 0, 0, 0.03);
+  --band-b: rgba(0, 0, 0, 0.06);
+  --lane: rgba(0, 0, 0, 0.035);
+  --hover-bg: #eceff6;
+  --hover-line: #b8b8c4;
+  --primary-hover: #000000;
+  --selected-bg: #dde4f4;
+}
+
 :root {
+  --band-a: rgba(255, 255, 255, 0.03);
+  --band-b: rgba(255, 255, 255, 0.06);
+  --lane: rgba(255, 255, 255, 0.025);
+  --hover-bg: #24242c;
+  --hover-line: #3a3a46;
+  --primary-hover: #ffffff;
+  --selected-bg: #22283a;
   /* Dark native widgets: scrollbars, select popups and the colour picker otherwise render in the
      light system style, a white stripe down each scrolling panel. */
   color-scheme: dark;
@@ -70,10 +100,10 @@ button {
   font: inherit;
   cursor: pointer;
 }
-button:hover:not(:disabled) { border-color: #3a3a46; background: #24242c; }
+button:hover:not(:disabled) { border-color: var(--hover-line); background: var(--hover-bg); }
 button:disabled { opacity: 0.35; cursor: default; }
 button.primary { background: var(--text); border-color: var(--text); color: var(--bg); font-weight: 600; }
-button.primary:hover:not(:disabled) { background: #ffffff; border-color: #ffffff; }
+button.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
 button.active { border-color: var(--accent); color: var(--accent); }
 button.wide { width: 100%; }
 
@@ -487,6 +517,23 @@ label.inline { display: inline-flex; align-items: center; gap: 4px; color: var(-
 .auto-problems { margin: 0; padding-left: 16px; }
 .auto-offer { display: flex; align-items: center; gap: 6px; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--accent); border-radius: var(--radius); font-size: 12px; }
 .auto-offer span { flex: 1; }
+
+/* --- Settings (M36) --------------------------------------------------------- */
+
+.settings-dialog { width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 80px); display: flex; flex-direction: column; gap: 10px; }
+.settings-body { overflow-y: auto; display: grid; gap: 14px; padding-right: 6px; }
+.settings-body section { display: grid; gap: 6px; }
+.settings-body h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+.settings-body .note { margin: 0; font-size: 11px; }
+.field-error { margin: 0; font-size: 11px; }
+.setup-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.setup-log { max-height: 220px; overflow: auto; margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); font: 11px/1.4 Consolas, monospace; white-space: pre-wrap; user-select: text; }
+.env-report { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: 12px; user-select: text; }
+.env-report dt { color: var(--text-dim); }
+.env-report dd { margin: 0; overflow-wrap: anywhere; }
+.shortcuts { border-collapse: collapse; font-size: 12px; }
+.shortcuts td { padding: 2px 12px 2px 0; }
+kbd { font: 11px Consolas, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-raised); }
 .lyrics-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .lyrics-tabs { margin: 0; }
 .lyrics-text { display: flex; flex-direction: column; gap: 4px; }
@@ -514,7 +561,7 @@ label.inline { display: inline-flex; align-items: center; gap: 4px; color: var(-
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
-.lyric-line.selected { background: #22283a; }
+.lyric-line.selected { background: var(--selected-bg); }
 .lyric-line.locked .lyric-text { color: var(--ok); }
 .lyric-line[data-timed="no"] .lyric-text { color: var(--text-dim); }
 .lyric-index { text-align: right; font-size: 11px; }

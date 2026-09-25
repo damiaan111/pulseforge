@@ -4,7 +4,7 @@
 // (export-spec §12), so editing carries on while the render runs — and "a YouTube cut and a Short"
 // is two clicks rather than a wait between them.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { EXPORT_PRESETS, findExportPreset, presetCanvas, suggestedOutputName } from '../../export/export-presets.ts';
 import { stringifyDocument } from '../../project/serialize.ts';
@@ -18,9 +18,16 @@ export function ExportDialog(): React.JSX.Element | null {
   const path = useStudio((s) => s.path);
   const audio = useStudio((s) => s.audio);
   const notify = useStudio((s) => s.notify);
-  const [presetId, setPresetId] = useState(EXPORT_PRESETS[0]?.id ?? '');
+  // The preset the dialog opens on is a setting (M36); an unknown id falls back to the first.
+  const preferred = useStudio((s) => s.settings?.defaultExportPreset ?? null);
+  const opening = findExportPreset(preferred ?? '')?.id ?? EXPORT_PRESETS[0]?.id ?? '';
+  const [presetId, setPresetId] = useState(opening);
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The dialog stays mounted while closed, so each opening starts from the setting again.
+  useEffect(() => {
+    if (open) setPresetId(opening);
+  }, [open, opening]);
 
   if (!open) return null;
   const preset = findExportPreset(presetId);

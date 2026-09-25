@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-25, after P6 (lyrics) is complete.** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-25, after P7 (the auto-director) is complete.** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -25,7 +25,7 @@
 | P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
 | P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
 
-**Must-haves (M1–M40): 36 done, 3 partly done, 1 not started.** By count that is 90%+; by effort —
+**Must-haves (M1–M40): 37 done, 3 partly done, 0 not started.** By count that is 90%+; by effort —
 what remains is operability (cache screen, logs and diagnostics, the settings screen) and the P1
 remainder — the v1 must-have work is **roughly nine-tenths done**.
 
@@ -101,7 +101,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | M33 | Cache & disk management: root, breakdown, prune, LRU ceiling, low-disk warning | 🔶 | 4.17, 4.41 | caches are laid out and rebuildable; **no UI, no pruning, no ceiling, no warning** |
 | M34 | Diagnostics: rotating logs, per-render report, environment report, copy diagnostics | 🔶 | 4.5, 4.14 | render reports beside each output and the environment report exist; **rotating logs and copy-diagnostics** do not |
 | M35 | Module authoring, `modules/` folder, conformance test | ✅ | 4.42 | see §4 for the deliberate difference from module-spec §12 |
-| M36 | Settings screen incl. setup/repair entry | ⬜ | — | all |
+| M36 | Settings screen incl. setup/repair entry | ✅ | 4.59 | shortcut remapping and GPU choice are shown, not settable (§4) |
 
 ### Should-haves already touched
 
@@ -130,8 +130,8 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 4. ✅ **Autosave and crash recovery (M1)** — done (STATUS 4.49).
 5. ✅ **Lyrics (P6: M18–M20, M26)** — done (STATUS 4.50–4.55).
 6. ✅ **Auto-director (P7: M21, M22)** — done (STATUS 4.56–4.58).
-7. **Operability (M33, M34, M36)** — cache screen with prune and ceiling, rotating logs and
-   copy-diagnostics, the settings screen with setup/repair.
+7. **Operability (M33, M34, M36)** — ✅ the settings screen with setup/repair (STATUS 4.59); next
+   the cache screen with prune and ceiling, then rotating logs and copy-diagnostics.
 8. **P1 remainder** — extras tier, `htdemucs_ft`, Whisper `large-v3`, alignment models for more languages, an offline-rebuild check.
 9. **P8** — keyframes (needs a short spec first), masking, motion blur, 6-stem model, and the rest
    of the Should-haves.
@@ -156,6 +156,7 @@ it was made; they are collected here so none is a surprise.
 | Arrangement (section intensity, drop impulses) is a **`curve` modulation source**, not keyframes | auto-director-spec §6 speaks of keyframed intensity | keyframes (S1) are unbuilt and need their own spec; a curve binding is deterministic, editable, listed in the matrix, and can be converted to keyframes when they exist | STATUS 4.56 |
 | **Layer opacity is a modulation target** (`layers.<id>.opacity`) | modulation-spec §4 targets module parameters | the director's section presence has to fade a layer in and out; one opacity binding does it for every module, and is editable in the matrix | STATUS 4.57 |
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
+| The Settings screen **shows the GPU and the keyboard map** rather than letting them be chosen | PROJECT.md §8.16 lists GPU device selection and a shortcut map | Chromium chooses the WebGL device and offers no per-app switch; remapping needs a shortcut registry the studio does not have yet (the reference is accurate) | STATUS 4.59 |
 | A **`split` harmony** (+90°, −110°) in template palettes | auto-director-spec §4 lists analogous, complementary, triad, duotone | the contact sheet showed a triad's sun lime-green; synthwave's magenta/orange/cyan needs it | STATUS 4.58 |
 | Multiplying bindings are **capped** at ×1.25 / ×1.6 / ×2.5 per band | §5.2: band share of the soft range | on a small base the range share becomes a ×13 factor | STATUS 4.57 |
 | The analysis cache key **includes band names** | data-formats §4.3: a band rename should keep the cache | cached tracks are stored by name, so a rename that hit the cache would silently disable every binding on the band; a rename now costs one re-analysis | STATUS 4.45 |

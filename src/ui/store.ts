@@ -296,7 +296,11 @@ export interface StudioState {
   /** User settings (data-formats §6); null until read. */
   settings: UserSettings | null;
   loadSettings(): Promise<void>;
-  updateSettings(patch: Partial<UserSettings>): Promise<void>;
+  /** Saves a patch; returns why it was refused, or null. */
+  updateSettings(patch: Partial<UserSettings>): Promise<string | null>;
+  /** The Settings screen (M36). */
+  settingsOpen: boolean;
+  setSettingsOpen(open: boolean): void;
 }
 
 export interface TapState {
@@ -791,7 +795,10 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   newProject() {
     if (!discardOk('Start a new project')) return;
-    history.reset(createDocument({ name: 'Untitled' }), 'New project');
+    const fresh = createDocument({ name: 'Untitled' });
+    // The stem model a new project starts with is a setting (M36, D8).
+    const stemModel = get().settings?.stemModel ?? fresh.analysisSettings.stemModel;
+    history.reset({ ...fresh, analysisSettings: { ...fresh.analysisSettings, stemModel } }, 'New project');
     void window.pulseforge.clearRecovery().catch(() => undefined);
     lastAutosaveVersion = -1;
     audioRequest += 1;
@@ -1279,19 +1286,41 @@ export const useStudio = create<StudioState>((set, get) => ({
   async loadSettings() {
     try {
       const { settings, problems } = await window.pulseforge.getSettings();
-      set({ settings, ...(problems.length > 0 ? { toast: { text: `Settings: ${problems.join('; ')}`, kind: 'warn' as const } } : {}) });
+      applyTheme(settings.theme);
+      // The preview's starting quality is the setting; changing it later in a session is the
+      // session's business.
+      set({ settings, previewScale: settings.previewScale, ...(problems.length > 0 ? { toast: { text: `Settings: ${problems.join('; ')}`, kind: 'warn' as const } } : {}) });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Reading the settings'), kind: 'bad' } });
     }
   },
   async updateSettings(patch) {
     try {
-      set({ settings: await window.pulseforge.updateSettings(patch) });
+      const settings = await window.pulseforge.updateSettings(patch);
+      set({ settings });
+      applyTheme(settings.theme);
+      return null;
     } catch (error) {
-      set({ toast: { text: describeError(error, 'Saving the settings'), kind: 'bad' } });
+      const text = describeError(error, 'Saving the settings');
+      set({ toast: { text, kind: 'bad' } });
+      return text;
     }
   },
+
+  settingsOpen: false,
+  setSettingsOpen(open) {
+    set({ settingsOpen: open });
+  },
 }));
+
+/**
+ * The studio's theme (M36). Dark is the default and the one ui-spec §12 is designed around; light
+ * and "follow Windows" swap the chrome's tokens, never the canvas.
+ */
+export function applyTheme(theme: UserSettings['theme']): void {
+  const resolved = theme === 'system' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : theme;
+  document.documentElement.dataset['theme'] = resolved;
+}
 
 /** The lyrics as the editor's text (section markers as `[label]`). */
 export function lyricsEditorText(): string {

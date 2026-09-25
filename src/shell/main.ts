@@ -20,10 +20,10 @@
 //    than working on this machine and breaking on a disconnected one.
 //  - **A strict CSP** on top, so an injected script tag has nowhere to load from either.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, watch } from 'node:fs';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync, watch } from 'node:fs';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, app, dialog, ipcMain, session, shell } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
@@ -42,7 +42,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -60,7 +60,7 @@ import { StemsCancelledError, separateStems } from '../ml/stems.ts';
 import { GpuJobCancelledError, GpuQueue } from '../node/gpu-queue.ts';
 import { newId } from '../project/ids.ts';
 import { RecoveryStore } from '../project/recovery-store.ts';
-import { SettingsStore, type Settings as UserSettings } from './settings-store.ts';
+import { DEFAULT_SETTINGS, SettingsStore, validateSettingsPatch, type Settings as UserSettings } from './settings-store.ts';
 import { pythonEnv } from '../../setup/lib/env.ts';
 import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
@@ -113,7 +113,7 @@ function endRecoverySession(): void {
 
 /** User settings (data-formats §6). `PULSEFORGE_SETTINGS` points it elsewhere — the smoke check does. */
 function settingsStore(): SettingsStore {
-  return new SettingsStore(process.env['PULSEFORGE_SETTINGS'] ?? join(app.getPath('userData'), 'settings.json'));
+  return new SettingsStore(settingsPath());
 }
 
 function recoveryStore(): RecoveryStore {
@@ -208,10 +208,23 @@ function guardWebContents(): void {
   });
 }
 
+let cachedPackageVersion: string | undefined;
+function packageVersion(): string {
+  if (cachedPackageVersion === undefined) {
+    try {
+      cachedPackageVersion = String((JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version?: unknown }).version ?? 'unknown');
+    } catch {
+      cachedPackageVersion = app.getVersion();
+    }
+  }
+  return cachedPackageVersion;
+}
+
 function environmentReport(): EnvironmentReport {
   const present = (path: string) => ({ path, present: existsSync(path) });
   return {
-    appVersion: app.getVersion(),
+    // The package's own version: unpackaged (npm run dev), app.getVersion() reports Electron's.
+    appVersion: packageVersion(),
     electronVersion: process.versions['electron'] ?? 'unknown',
     chromeVersion: process.versions['chrome'] ?? 'unknown',
     nodeVersion: process.versions.node,
@@ -237,6 +250,21 @@ function describe(error: unknown): Error {
  * the file type is associated. Electron's argv carries its own switches, so only a path that
  * exists and looks like a project is accepted — anything else is ignored rather than guessed at.
  */
+/** The settings as last read or saved; what the main process consults (models, caches, logs). */
+let currentSettings: UserSettings = DEFAULT_SETTINGS;
+
+function settingsPath(): string {
+  return process.env['PULSEFORGE_SETTINGS'] ?? join(app.getPath('userData'), 'settings.json');
+}
+
+function presetsFolderPath(): string {
+  return process.env['PULSEFORGE_PRESETS'] ?? join(app.getPath('documents'), 'Pulseforge', 'Presets');
+}
+
+function templatesFolderPath(): string {
+  return process.env['PULSEFORGE_TEMPLATES'] ?? join(app.getPath('documents'), 'Pulseforge', 'Templates');
+}
+
 /** Set in smoke mode: "Import audio…" answers with this file instead of opening a dialog. */
 let smokeAudioPath: string | null = null;
 
@@ -510,16 +538,86 @@ function registerHandlers(): void {
     return { settings: file.settings, problems: file.problems };
   });
   ipcMain.handle(IPC.settingsUpdate, async (_event, raw: unknown): Promise<UserSettings> => {
-    const patch = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-    let next: Partial<UserSettings> = {};
-    if ('tapLatencyMs' in patch) {
-      const value = patch['tapLatencyMs'];
-      if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < -500 || value > 1000)) {
-        throw new Error('Tap latency must be a number of milliseconds between −500 and 1000, or not set.');
+    // Every field checked by the store's own rules; a bad value is refused with the reason.
+    currentSettings = await settingsStore().update(validateSettingsPatch(raw));
+    return currentSettings;
+  });
+  ipcMain.handle(IPC.settingsInfo, async (): Promise<SettingsInfo> => {
+    const listed = async (dir: string, keep: (name: string) => string | null) => {
+      try {
+        return (await readdir(dir)).map(keep).filter((n): n is string => n !== null).sort();
+      } catch {
+        return [];
       }
-      next = { ...next, tapLatencyMs: value as number | null };
-    }
-    return settingsStore().update(next);
+    };
+    const gpu = await app.getGPUInfo('basic').catch(() => null) as { gpuDevice?: { vendorId?: number; deviceId?: number; active?: boolean; driverVersion?: string; deviceString?: string }[] } | null;
+    const active = gpu?.gpuDevice?.find((d) => d.active === true) ?? gpu?.gpuDevice?.[0];
+    return {
+      stemModels: await listed(join(MODELS, 'demucs'), (n) => (n.endsWith('.yaml') ? n.slice(0, -5) : null)),
+      whisperModels: await listed(join(MODELS, 'whisper'), (n) => (n.startsWith('faster-whisper-') ? n : null)),
+      gpu: active === undefined ? 'unknown' : `${active.deviceString ?? `device ${active.deviceId ?? '?'}`}${active.driverVersion === undefined ? '' : ` · driver ${active.driverVersion}`}`,
+      paths: {
+        settings: settingsPath(),
+        userData: app.getPath('userData'),
+        defaultCacheRoot: join(ROOT, 'cache'),
+        presets: presetsFolderPath(),
+        templates: templatesFolderPath(),
+      },
+      environment: environmentReport(),
+    };
+  });
+  ipcMain.handle(IPC.revealPath, async (_event, which: unknown): Promise<void> => {
+    const paths: Record<string, string> = { userData: app.getPath('userData'), settings: dirname(settingsPath()) };
+    const path = typeof which === 'string' ? paths[which] : undefined;
+    if (path === undefined) throw new Error('That is not a folder the studio can open.');
+    await mkdir(path, { recursive: true });
+    await shell.openPath(path);
+  });
+
+  // Setup and repair from the studio (M36, ui-spec §8): the same `npm run setup` a terminal runs,
+  // under Electron's own Node, its output streamed to the Settings screen. One run at a time.
+  let setupChild: ReturnType<typeof spawn> | null = null;
+  ipcMain.handle(IPC.setupRun, async (event, raw: unknown): Promise<{ readonly code: number | null }> => {
+    const request = (typeof raw === 'object' && raw !== null ? raw : {}) as { mode?: unknown; tier?: unknown };
+    if (setupChild !== null) throw new Error('Setup is already running.');
+    const args = request.mode === 'verify' ? ['--verify']
+      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics'].includes(request.tier) ? ['--tier', request.tier]
+        : null;
+    if (args === null) throw new Error('Setup can verify, or repair one tier (core, stems or lyrics).');
+    const send = (line: string) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC.setupOutput, line);
+    };
+    return new Promise((done, fail) => {
+      const child = spawn(process.execPath, [join(ROOT, 'setup', 'index.mjs'), ...args], {
+        cwd: ROOT,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1', FORCE_COLOR: '0' },
+        windowsHide: true,
+      });
+      setupChild = child;
+      send(`$ npm run setup -- ${args.join(' ')}`);
+      let pending = '';
+      const onData = (chunk: Buffer) => {
+        pending += chunk.toString('utf8');
+        const lines = pending.split(/\r?\n/);
+        pending = lines.pop() ?? '';
+        // eslint-disable-next-line no-control-regex
+        for (const line of lines) send(line.replace(/\u001b\[[0-9;]*m/g, ''));
+      };
+      child.stdout?.on('data', onData);
+      child.stderr?.on('data', onData);
+      child.on('error', (error) => {
+        setupChild = null;
+        fail(error);
+      });
+      child.on('close', (code) => {
+        if (pending !== '') send(pending);
+        setupChild = null;
+        done({ code });
+      });
+    });
+  });
+  ipcMain.handle(IPC.setupCancel, async (): Promise<void> => {
+    setupChild?.kill();
   });
   ipcMain.handle(IPC.lyricsOpen, async () => {
     const result = await dialog.showOpenDialog({
@@ -552,7 +650,7 @@ function registerHandlers(): void {
   });
   // Lyrics alignment (M26): WhisperX on the vocal stem, through the GPU queue like stems.
   const lyricsFiles = () => ({
-    whisperDir: join(MODELS, 'whisper', 'faster-whisper-medium'),
+    whisperDir: join(MODELS, 'whisper', currentSettings.whisperModel),
     alignDir: join(MODELS, 'align'),
     marker: join(VENDOR, 'python', '.pulseforge-lyrics-env.json'),
   });
@@ -666,7 +764,7 @@ function registerHandlers(): void {
   // Presets (S8). User presets live in Documents beside the asset library — they are the user's own
   // work and belong in their backups; built-ins ship in the repo; thumbnails are a cache on the
   // repo's drive. `PULSEFORGE_PRESETS` overrides the user folder, which the smoke check uses.
-  const presetsFolder = () => process.env['PULSEFORGE_PRESETS'] ?? join(app.getPath('documents'), 'Pulseforge', 'Presets');
+  const presetsFolder = presetsFolderPath;
   const presetStore = () => new PresetStore({
     root: presetsFolder(),
     builtinRoot: join(ROOT, 'presets', 'builtin'),
@@ -728,7 +826,7 @@ function registerHandlers(): void {
 
   // Auto-director templates (M21): built-ins in the repo, the user's own in Documents beside their
   // presets. Read fresh on every request, so an edited template is one "Reload" away.
-  const templatesFolder = () => process.env['PULSEFORGE_TEMPLATES'] ?? join(app.getPath('documents'), 'Pulseforge', 'Templates');
+  const templatesFolder = templatesFolderPath;
   ipcMain.handle(IPC.templatesList, async (): Promise<TemplateListing> => ({
     files: await readTemplateFiles({ builtin: join(ROOT, 'templates', 'builtin'), user: templatesFolder() }),
     folder: templatesFolder(),
@@ -1003,6 +1101,7 @@ app.enableSandbox();
 app.whenReady().then(async () => {
   lockDownSession();
   guardWebContents();
+  currentSettings = (await settingsStore().read()).settings;
   registerHandlers();
 
   if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LIBRARY'] === undefined) {
@@ -1634,6 +1733,37 @@ app.whenReady().then(async () => {
         if (!autoUi) console.error('[smoke] autoUi steps ' + JSON.stringify(steps));
       }
 
+      // Settings (M36): the screen opens from the top bar; a change is saved and survives a
+      // re-render; the light theme swaps the chrome's tokens; the environment names the GPU; and
+      // Verify runs the real npm run setup -- --verify under the Node inside Electron and reports back.
+      let settingsUi = false;
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const choose = (selector, value) => {
+          const select = document.querySelector(selector);
+          if (select === null) return;
+          Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, value);
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        click('#app header [data-action="settings"]');
+        const shown = await waitFor(() => document.querySelector('#app [data-testid="settings-dialog"]'), 40);
+        choose('#app [data-setting="autosaveMinutes"]', '5');
+        const saved = await waitFor(() => document.querySelector('#app [data-setting="autosaveMinutes"]')?.value === '5', 60);
+        choose('#app [data-setting="theme"]', 'light');
+        const light = await waitFor(() => document.documentElement.dataset.theme === 'light', 60);
+        choose('#app [data-setting="theme"]', 'dark');
+        const dark = await waitFor(() => document.documentElement.dataset.theme === 'dark', 60);
+        const gpu = await waitFor(() => /GPU/.test(document.querySelector('#app [data-testid="settings-environment"]')?.textContent ?? '') && !/Reading/.test(document.querySelector('#app [data-testid="settings-environment"]')?.textContent ?? ''), 60);
+        click('#app [data-action="setup-verify"]');
+        const verified = await waitFor(() => /checks out/.test(document.querySelector('#app [data-testid="setup-result"]')?.textContent ?? ''), 3600);
+        const logged = (document.querySelector('#app [data-testid="setup-log"]')?.textContent ?? '').includes('Verification passed');
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        const closed = await waitFor(() => document.querySelector('#app [data-testid="settings-dialog"]') === null, 40);
+        const steps = { shown: shown !== null && shown !== false, saved: saved === true, light: light === true, dark: dark === true, gpu: gpu === true, verified: verified === true, logged, closed: closed === true };
+        settingsUi = Object.values(steps).every(Boolean);
+        if (!settingsUi) console.error('[smoke] settingsUi steps ' + JSON.stringify(steps) + ' ' + (document.querySelector('#app [data-testid="setup-result"]')?.textContent ?? ''));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1681,6 +1811,7 @@ app.whenReady().then(async () => {
         layerEditing,
         globalChain,
         autoUi,
+        settingsUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
@@ -1859,6 +1990,19 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(`document.querySelector('#app [data-testid="auto-log"]')?.scrollIntoView()`);
     await snap(`${label}-10c-auto-log`);
     await js(click('#app header button[data-action="auto-drawer"]'));
+    // Settings (M36), then the whole studio in the light theme, then back to dark.
+    const theme = (value: string) => `
+      const select = document.querySelector('#app [data-setting="theme"]');
+      if (select) { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(select, ${JSON.stringify(value)}); select.dispatchEvent(new Event('change', { bubbles: true })); }
+      await new Promise((d) => setTimeout(d, 300))`;
+    await js(click('#app header button[data-action="settings"]'));
+    await snap(`${label}-11a-settings`);
+    await js(theme('light'));
+    await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await snap(`${label}-11b-light-theme`);
+    await js(click('#app header button[data-action="settings"]'));
+    await js(theme('dark'));
+    await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
   }
   console.log(`[smoke] ui tour written to ${dir}`);
 }

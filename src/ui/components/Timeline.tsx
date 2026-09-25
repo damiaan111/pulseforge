@@ -99,6 +99,8 @@ export function Timeline(): React.JSX.Element {
   const peaks = useStudio((s) => s.peaks);
   const analysis = useStudio((s) => s.analysis);
   const sections = useStudio((s) => s.sections);
+  // The canvas reads the theme's tokens when it draws, so a theme change must draw it again.
+  const theme = useStudio((s) => s.settings?.theme);
   const timelineSeconds = useStudio((s) => s.timelineSeconds);
   const transport = useStudio((s) => s.transport);
   const selectedLayerId = useStudio((s) => s.selectedLayerId);
@@ -192,7 +194,7 @@ export function Timeline(): React.JSX.Element {
 
     // Sections first, as backdrop bands.
     for (const [index, section] of sections.entries()) {
-      ctx.fillStyle = index % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)';
+      ctx.fillStyle = index % 2 === 0 ? colour('--band-a', 'rgba(255,255,255,0.03)') : colour('--band-b', 'rgba(255,255,255,0.06)');
       const left = x(sourceToTimelineSeconds(section.startSeconds, placement));
       ctx.fillRect(left, 0, x(sourceToTimelineSeconds(section.endSeconds, placement)) - left, rect.height);
     }
@@ -246,7 +248,7 @@ export function Timeline(): React.JSX.Element {
     let top = WAVE_HEIGHT + 4;
     if (hasLyricsLane) {
       const laneTop = top;
-      ctx.fillStyle = 'rgba(255,255,255,0.025)';
+      ctx.fillStyle = colour('--lane', 'rgba(255,255,255,0.025)');
       ctx.fillRect(PADDING, laneTop, inner, LYRIC_HEIGHT);
       // The vocal stem's level behind the blocks: where the singing is.
       if (vocal !== null) {
@@ -378,7 +380,7 @@ export function Timeline(): React.JSX.Element {
     ctx.lineTo(px, rect.height);
     ctx.stroke();
     ctx.lineWidth = 1;
-  }, [document, peaks, analysis, sections, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection]);
+  }, [document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection]);
 
   useEffect(() => {
     draw();

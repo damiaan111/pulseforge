@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1059 tests, `npm run golden` 29/29 identical,
-> `--smoke` 24/24.
+> any aspect. Last full verification: `npm run check` 1061 tests, `npm run golden` 29/29 identical,
+> `--smoke` 25/25.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -33,8 +33,11 @@
 > drawer, Generate (offered on import), Surprise me with locks and a thumbnail history, and
 > `npm run contact-sheet` to check the templates across a folder of tracks.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): operability (cache management
-> M33, logs M34, settings M36); the P1 remainder; P8.
+> **Operability (§4.59–):** the Settings screen (M36) — theme, autosave interval, models, export
+> default, setup verify and repair from the app, the environment and a shortcut reference.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): cache management (M33) and
+> rotating logs with copy-diagnostics (M34); the P1 remainder; P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -105,6 +108,8 @@
 | 4.56 | Groundwork: the curve source, the whole-frame chain, group bindings fix (P7 step 1) |
 | 4.57 | The director and its seven templates (P7 step 2) — M21, auto-director-spec §1–§9, §11 |
 | 4.58 | The Auto drawer, Surprise me and the contact sheet (P7 step 3) — M21, M22 complete; D9 |
+| | **Operability** |
+| 4.59 | The Settings screen (operability step 1) — M36, PROJECT.md §8.16, ui-spec §8 |
 
 ---
 
@@ -2947,6 +2952,72 @@ place):
 - palette shifts at chorus and drop (§6), which need keyframed palette roles;
 - camera kicks as drop impulses beyond what the templates target;
 - a starter pack of background images (D31: the user's own images are used).
+
+### 4.59 The Settings screen (operability step 1) — M36, PROJECT.md §8.16, ui-spec §8
+
+**The settings file** (`src/shell/settings-store.ts`). It grew from one field to twelve on the same
+discipline:
+- every field has a default;
+- a wrong value in the file falls back to its default and is reported;
+- unknown keys are kept;
+- a newer file is never written over.
+
+Each field has one validator, shared by the file reader and by `validateSettingsPatch`, which checks
+patches from the studio. **A bad patch is refused with the reason** rather than defaulted, and the
+screen shows the reason beside the control. Adding fields is not breaking (data-formats §2.3), so
+the version stays 1.
+
+| Setting | Default | Where it acts |
+|---|---|---|
+| `theme` | dark | chrome tokens (`:root[data-theme]`); light and "follow Windows" |
+| `autosaveMinutes` | 1 | the autosave interval (M1) |
+| `previewScale` | 1 | the preview's quality when a session starts |
+| `stemModel` | htdemucs | new projects' analysis settings (D8) |
+| `whisperModel` | faster-whisper-medium | transcription (M26), from `vendor/models/whisper/` |
+| `defaultExportPreset` | first | the preset the export dialog opens on |
+| `tapLatencyMs` | not calibrated | tap-to-sync (D33); resettable here |
+| `logLevel`, `cacheRoot`, `cacheCeilingGb`, `lowDiskWarningGb`, `scratchDir` | info, beside the app, 20 GB, 5 GB, cache/scratch | stored now; acted on by steps 2 (M33) and 3 (M34) |
+
+**The screen** (`SettingsDialog.tsx`; ⚙ in the top bar, **Ctrl+,**, Esc closes).
+- Every change saves as it is made; there is no Apply button to forget.
+- **General**: theme, autosave interval, preview quality at start.
+- **Audio & models**: stem model and transcription model, listing what is installed (a saved choice
+  that is not installed is shown as such, not dropped), and tap latency with Reset.
+- **Export**: the default preset.
+- **Setup & repair**:
+  - **Verify installation** runs `npm run setup -- --verify`;
+  - **Repair core / stems / lyrics** runs `--tier <tier>`, which keeps finished work and fetches what
+    is missing or damaged;
+  - both run under Electron's own Node (`ELECTRON_RUN_AS_NODE`, Node 24, which runs the setup's
+    TypeScript directly), with colour codes stripped and the output streamed into the screen, one
+    run at a time, cancellable.
+- **Environment**: versions, the GPU in use, the vendored binaries (a missing one in red) and the
+  settings file with Open folder.
+- **Keyboard**: a reference of the shortcuts that exist.
+
+**Shown rather than chosen, and why** (ROADMAP §4):
+- The GPU: Chromium picks the device for WebGL, and the one in use is reported.
+- The keyboard map: a reference; remapping is not built.
+
+**Fixed along the way:**
+- The environment report said "Pulseforge 44.3.0", Electron's version: unpackaged, `app.getVersion()`
+  reports Electron's. It now reads `package.json`.
+- For the light theme:
+  - the timeline canvas draws its bands and lanes from tokens, and redraws on a theme change;
+  - button hover, primary hover and the selected lyric line became tokens.
+
+**Verified here:**
+- `npm run check` **1061 tests**. New: field-by-field reading with defaults and reports, and refused
+  patches (range, relative path, unknown key, a model name with `..`).
+- `--smoke` **25/25**. New `settingsUi`:
+  - the screen opens from the top bar;
+  - autosave set to 5 is saved to the smoke's own settings file;
+  - light and dark themes switch the document's theme;
+  - the environment names the GPU (the RTX 3060, driver 32.0.16.1714);
+  - **Verify runs the real setup verification from the app and reports "Everything installed checks
+    out"**;
+  - Esc closes the screen.
+- The UI tour adds `11a-settings` and `11b-light-theme` at both sizes.
 
 ---
 
