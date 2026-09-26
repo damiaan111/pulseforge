@@ -24,6 +24,7 @@ import {
   frameStartTick, frameTimeSeconds, motionBlurProblems, subframeTimes, ticksToSeconds, timelineToSourceSeconds, type MotionBlur,
 } from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
+import { GpuProfiler, type GpuFrameTimings, type GpuTimingSummary } from './render/gpu-profiler.ts';
 import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
 import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
 import { ImageStore } from './render/images.ts';
@@ -165,6 +166,18 @@ export interface Engine {
   /** Peak simultaneous pooled render targets (render report). */
   readonly targetHighWaterMark: number;
   /**
+   * GPU time per top-level layer, the whole-frame effects (`global`) and the output pass (`output`)
+   * — the performance HUD (S12) and the render report's per-layer cost. Off by default; turning it
+   * on starts afresh. It never changes a pixel. `available` is false where timer queries are not
+   * exposed.
+   */
+  setProfiling(on: boolean): void;
+  readonly profiling: { readonly available: boolean; readonly on: boolean };
+  /** The latest frame whose GPU times are in (they lag a few frames); null when off or none yet. */
+  gpuTimings(): GpuFrameTimings | null;
+  /** Mean and worst per span over every frame measured since profiling was turned on. */
+  gpuTimingSummary(): GpuTimingSummary;
+  /**
    * Registers decoded pixels for an image asset under its content hash (image.ts). The host does
    * this for every image the project references before rendering; the engine never reads files.
    */
@@ -211,7 +224,7 @@ function requireTenBitReadback(gl: WebGL2RenderingContext, pool: TargetPool): vo
 function uniqueIssues<T extends { readonly layerId: string; readonly issues: readonly ParamIssue[] }>(all: readonly T[]): T[] {
   const seen = new Set<string>();
   return all.filter((entry) => {
-    const key = `${entry.layerId} ${JSON.stringify(entry.issues)}`;
+    const key = `${entry.layerId}\u0000${JSON.stringify(entry.issues)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -227,6 +240,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const images = new ImageStore(gl);
   const videos = new VideoStore(gl);
   const compositor = new Compositor(gl, pool);
+  const profiler = new GpuProfiler(gl);
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
   let output: RenderTarget | undefined;
 
@@ -308,6 +322,28 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
 
     get targetHighWaterMark() {
       return pool.highWaterMark;
+    },
+
+    setProfiling(on) {
+      if (on === (compositor.profiler !== null)) return;
+      if (on) {
+        profiler.reset();
+        compositor.profiler = profiler;
+      } else {
+        compositor.profiler = null;
+      }
+    },
+    get profiling() {
+      return { available: profiler.available, on: compositor.profiler !== null };
+    },
+    gpuTimings() {
+      if (compositor.profiler === null) return null;
+      profiler.poll();
+      return profiler.latest();
+    },
+    gpuTimingSummary() {
+      profiler.poll();
+      return profiler.summary();
     },
 
     renderFrame(project, analysis, frameIndex) {
@@ -542,6 +578,8 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
           if (opacity <= 0) return null;
           const common = {
+            // Top-level layers are timed under their id (S12); deeper ones run inside their group's span.
+            ...(depth === 0 ? { profileKey: layer.id } : {}),
             opacity,
             blend: layer.blend,
             ...(inverseTransform === undefined ? {} : { inverseTransform }),
@@ -619,6 +657,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
 
       const opaque = { ...background, a: 1 };
       const frame = { frameIndex, noiseSeed: hash32(project.seed, 'output-dither') };
+      compositor.profiler?.beginFrame(frameIndex);
       if (options.motionBlur === undefined) {
         const scene = buildScene(t, frameStartTick(frameIndex, fps));
         compositor.composite(output, opaque, scene.layers, options.output, frame, scene.globalEffects);
@@ -627,6 +666,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           .map((sub) => ({ weight: sub.weight, build: () => buildScene(sub.t, sub.tick) }));
         compositor.compositeAccumulated(output, opaque, subframes, options.output, frame);
       }
+      compositor.profiler?.endFrame();
       nv12?.convert(output);
 
       return {
@@ -759,6 +799,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       images.dispose();
       videos.dispose();
       nv12?.dispose();
+      profiler.dispose();
       compositor.dispose();
       pool.dispose();
     },

@@ -2369,6 +2369,8 @@ app.whenReady().then(async () => {
       const addedByKey = (await waitFor(() => undoLabel().includes('Add marker'), 40)) === true;
       let editorOpened = false;
       let renamed = false;
+      let editorClosed = false;
+      let escapeClosed = false;
       if (canvasEl !== null) {
         const r = canvasEl.getBoundingClientRect();
         canvasEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: r.left + r.width * 0.7, clientY: r.top + 66 }));
@@ -2379,17 +2381,36 @@ app.whenReady().then(async () => {
           nameInput.dispatchEvent(new Event('input', { bubbles: true }));
           renamed = (await waitFor(() => undoLabel().includes('Rename marker'), 40)) === true;
           nameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          editorClosed = (await waitFor(() => document.querySelector('#app [data-testid="marker-editor"]') === null, 40)) === true;
+          // And Escape, from a reopened editor.
+          canvasEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: r.left + r.width * 0.7 + 2, clientY: r.top + 66 }));
+          const again = await waitFor(() => document.querySelector('#app [data-action="marker-name"]'), 40);
+          again?.dispatchEvent?.(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          escapeClosed = again !== null && again !== false && (await waitFor(() => document.querySelector('#app [data-testid="marker-editor"]') === null, 40)) === true;
         }
       }
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const rangeOffered = (await waitFor(() => [...(document.querySelector('#app [data-action="export-range-from"]')?.options ?? [])].some((o) => o.textContent.includes('Smoke drop')), 40)) === true;
       document.querySelector('#app .modal-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const navButtons = document.querySelector('#app [data-action="marker-prev"]') !== null && document.querySelector('#app [data-action="marker-next"]') !== null;
-      const markerSteps = { addedByKey, editorOpened, renamed, rangeOffered, navButtons };
+      const markerSteps = { addedByKey, editorOpened, renamed, editorClosed, escapeClosed, rangeOffered, navButtons };
       const markerUi = Object.values(markerSteps).every(Boolean);
       if (!markerUi) console.error('[smoke] markerUi steps ' + JSON.stringify(markerSteps));
 
       recoveryTrace.push('batch:' + (document.querySelector('#app .recovery-dialog') !== null));
+      // The performance HUD (S12): the canvas bar opens it, it fills with measured GPU times for the
+      // project's layers and the output pass (or says timer queries are missing), and it closes.
+      document.querySelector('#app [data-action="perf-hud"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const measured = await waitFor(() => document.querySelector('#app [data-testid="perf-hud"] tr[data-span="output"]') !== null
+        || /does not expose/.test(document.querySelector('#app [data-testid="perf-hud"]')?.textContent ?? ''), 100);
+      const hudRows = document.querySelectorAll('#app [data-testid="perf-hud"] tr[data-span]').length;
+      const hudText = document.querySelector('#app [data-testid="perf-hud"]')?.textContent ?? '';
+      document.querySelector('#app [data-action="perf-hud"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const hudClosed = (await waitFor(() => document.querySelector('#app [data-testid="perf-hud"]') === null, 40)) === true;
+      const hudSteps = { measured: measured === true, rows: hudRows >= 2, estimate: /3840×2160|does not expose/.test(hudText), hudClosed };
+      const perfHud = Object.values(hudSteps).every(Boolean);
+      if (!perfHud) console.error('[smoke] perfHud steps ' + JSON.stringify(hudSteps) + ' ' + hudText.slice(0, 200));
+
       // Batch mode (S13): the top bar opens the dialog, which starts empty and cannot start; a drop
       // of something that is not audio on disk is answered rather than ignored; the queue drawer
       // offers "Shut down when done". The batch itself is run from the main process below.
@@ -2465,6 +2486,7 @@ app.whenReady().then(async () => {
         exportDialog,
         batchUi,
         markerUi,
+        perfHud,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;
@@ -2749,7 +2771,11 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
       document.querySelectorAll('#app .marker-swatches .swatch')[2]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((d) => setTimeout(d, 200))`);
     await snap(`${label}-14-markers`);
-    await js(`document.querySelector('#app [data-action="marker-name"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    await js(`document.querySelector('#app [data-action="marker-name"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await new Promise((d) => setTimeout(d, 100))`);
+    // The performance HUD (S12) over the animated project.
+    await js(`${click('#app [data-action="perf-hud"]')}; await new Promise((d) => setTimeout(d, 800))`);
+    await snap(`${label}-15-perf-hud`);
+    await js(click('#app [data-action="perf-hud"]'));
     // Settings (M36), then the whole studio in the light theme, then back to dark.
     const theme = (value: string) => `
       const select = document.querySelector('#app [data-setting="theme"]');

@@ -26,6 +26,7 @@ import { RenderSetupError, ShaderCompileError } from '../../engine/render/gl.ts'
 import { toRenderProject, timelineDurationTicks } from '../../project/snapshot.ts';
 import type { ProjectDocument } from '../../project/document.ts';
 import { PreviewClock, type PreviewStats, type Transport } from '../clock.ts';
+import type { GpuFrameTimings } from '../../engine/render/gpu-profiler.ts';
 import { clipLevel } from '../../project/audio-clip.ts';
 
 /** An analysis set with nothing in it, so the preview runs before any audio is loaded. */
@@ -44,6 +45,12 @@ export interface PreviewCallbacks {
    * `onStatus` — this drives meters, not the render (ui-spec §13).
    */
   readonly onModulation?: (live: LiveModulation) => void;
+  /**
+   * The performance HUD (S12): GPU time per top-level layer, from the latest frame whose times are
+   * in, while profiling is on. Throttled with `onStatus`. `available` false: timer queries are not
+   * exposed here, and the HUD says so.
+   */
+  readonly onGpuTimings?: (timings: GpuFrameTimings | null, available: boolean) => void;
 }
 
 export interface LiveModulation {
@@ -91,6 +98,8 @@ export class PreviewHost {
   private lastStatus = 0;
   private live: LiveModulation | null = null;
   private liveSent: LiveModulation | null = null;
+  private profiling = false;
+  private timingsSent: GpuFrameTimings | null = null;
   private lastNotes = '';
   private failed = false;
   /**
@@ -130,6 +139,7 @@ export class PreviewHost {
       window.pulseforge.videoFrame(hash, this.document?.canvas.fps ?? { num: 60, den: 1 }, sourceFrame));
     this.feeder.setSequences(this.videoSequences);
     this.engine.addModules(this.userModules);
+    this.engine.setProfiling(this.profiling);
     this.running = true;
     this.uploadImages();
     this.loop();
@@ -241,6 +251,16 @@ export class PreviewHost {
     this.videoSequences = sequences;
     this.feeder?.setSequences(sequences);
     this.needsRedraw = true;
+  }
+
+  /** The performance HUD (S12): time each layer on the GPU while it is open. */
+  setProfiling(on: boolean): void {
+    this.profiling = on;
+    this.engine?.setProfiling(on);
+    this.timingsSent = null;
+    // A stopped preview must still render a frame for there to be anything to time.
+    this.needsRedraw = true;
+    if (on) this.callbacks.onGpuTimings?.(null, this.engine?.profiling.available ?? false);
   }
 
   setScale(scale: number): void {
@@ -399,6 +419,13 @@ export class PreviewHost {
       if (this.live !== null && this.live !== this.liveSent) {
         this.liveSent = this.live;
         this.callbacks.onModulation?.(this.live);
+      }
+      if (this.profiling && engine !== null) {
+        const timings = engine.gpuTimings();
+        if (timings !== this.timingsSent) {
+          this.timingsSent = timings;
+          this.callbacks.onGpuTimings?.(timings, engine.profiling.available);
+        }
       }
     }
   };

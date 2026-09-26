@@ -2,6 +2,7 @@
 // Versioned data, not log text, so two renders can be diffed.
 
 import type { MotionBlur } from '../engine/core/time.ts';
+import type { GpuTimingSummary } from '../engine/render/gpu-profiler.ts';
 import type { EncoderCapability } from './encoder-probe.ts';
 import type { EncodeSettings } from './ffmpeg-args.ts';
 import type { PumpStats } from './pump.ts';
@@ -41,6 +42,8 @@ export interface RenderReport {
     targetHighWaterMark: number;
   };
   gpu: { renderer: string; vendor: string };
+  /** GPU time per top-level layer (by id), `global` effects and the `output` pass (S12). Null where timer queries are not exposed; absent in older reports. */
+  gpuTimings?: GpuTimingSummary | null;
   verification: VerificationResult;
   warnings: string[];
   encoderCapabilities?: EncoderCapability[];

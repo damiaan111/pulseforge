@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1154 tests, `npm run golden` 29/29 identical,
-> `--smoke` 33/33 (34/34 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1155 tests, `npm run golden` 29/29 identical,
+> `--smoke` 34/34 (35/35 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -59,11 +59,12 @@
 > an optional shutdown when everything is finished. And markers (S9, §4.69): named, coloured
 > markers on the timeline that everything snaps to, the transport jumps between, an export can
 > render between, and bindings can react to as scene changes. And karaoke export (S15, §4.70):
-> render with the instrumental, the track's stems but the vocals, as the soundtrack.
+> render with the instrumental, the track's stems but the vocals, as the soundtrack. And the
+> performance HUD (S12, §4.71): measured GPU time per layer in the preview, projected to the export
+> size and to 4K, with per-layer cost in every render report.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — the performance
-> HUD (S12), Shadertoy compatibility (S2), LUTs (S11), librosa (S16), Unicode fonts (S17) and draft
-> mode (S18).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — Shadertoy
+> compatibility (S2), LUTs (S11), librosa (S16), Unicode fonts (S17) and draft mode (S18).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -149,6 +150,7 @@
 | 4.68 | Batch mode (P8 step 6) — S13 |
 | 4.69 | Markers (P8 step 7) — S9 |
 | 4.70 | Karaoke export (P8 step 8) — S15; the smoke check made independent of the screen |
+| 4.71 | The performance HUD (P8 step 9) — S12 |
 
 ---
 
@@ -3825,6 +3827,78 @@ findable. Since the change: every run green (33/33 twice, 34/34).
 **Also found:** force-stopping Electron mid-run corrupted Chromium's disk-cache index in the dev
 profile (`Corrupt Index file` at start). Chromium rebuilds it, and it is harmless, but it is why a
 stalled run should be let time out rather than killed if it can be.
+
+### 4.71 The performance HUD (P8 step 9) — S12, PROJECT.md §8.15
+
+**What it does.**
+- **HUD** in the canvas bar opens an overlay on the preview. It shows the GPU time of each top-level
+  layer (by name), the whole-frame effects and the output pass (tone map and colour), heaviest
+  first, with bars.
+- Below the list: the total at the preview's resolution, and an **estimate** at the project's full
+  size and at 3840×2160. Most GPU work grows with the pixel count. It also estimates what the GPU
+  alone needs for a 4K render of the whole timeline. That answers "heavy effects visible *before* a
+  4K render" (S12).
+- The 8 heaviest spans are listed, and the rest are summed in one line ("+3 more, 2.0 ms
+  together"), so nothing is silently left out.
+- Where the GPU or driver does not expose timer queries, the HUD says so.
+- **Every render report** now has `gpuTimings`: per span (layer id, `global`, `output`) the mean and
+  worst frame, the mean and worst total, and the frames discarded. This is PROJECT.md §8.15's
+  "per-layer GPU cost".
+
+**How.**
+- `src/engine/render/gpu-profiler.ts` uses `EXT_disjoint_timer_query_webgl2` (present in this
+  Electron; probed first). Only `TIME_ELAPSED` works: the timestamp counter has 0 bits here, and
+  queries cannot nest. So a frame is timed as a sequence of spans:
+  - each **top-level** layer (a group's children run inside it, and a mask's source inside the
+    layer it masks);
+  - `global`;
+  - `output`.
+  - With motion blur, each subframe's spans are added together.
+- Results are read without blocking once available. A frame is dropped whole on a `GPU_DISJOINT`
+  event (its times would be wrong, not just late).
+- WebGL makes results available only once the page returns to its event loop. So up to 600 frames
+  may wait (a synchronous batch of frames), and older ones are counted as discarded rather than
+  kept without bound.
+- The compositor opens and closes spans. The engine has `setProfiling`, `profiling`, `gpuTimings()`
+  and `gpuTimingSummary()`, and each top-level `CompositeLayer` carries its id as `profileKey`.
+  Profiling only observes: it changes no pixel.
+- **Preview:** the host turns profiling on while the HUD is open, and forwards the latest timings
+  with its 10 Hz status. **Export:** the job profiles every render.
+
+**Measured here:**
+- Headless, 1920×1080, 8 frames:
+  - a solid under six wide blurs **1.63 ms**;
+  - a plain solid 0.11 ms;
+  - bars 0.05 ms;
+  - output 0.04 ms.
+- An export of one of the owner's projects (5 s range, 1080p60), per frame:
+  - the 3D "Knot" layer 1.91 ms mean (its 232 ms worst is the first frame, where the scene's
+    shaders compile);
+  - whole-frame effects 0.51 ms;
+  - two particle layers 0.11–0.12 ms;
+  - output 0.06 ms.
+  - All 300 frames were measured, none discarded, at 140 fps.
+- In the studio's tour project (1080×1920 preview), the HUD read 27 ms per frame, the heaviest being
+  whole-frame effects at 11 ms. It estimated ≈ 107 ms at 4K, and ≈ 6 min of GPU time for a 4K
+  render of the 3600-frame timeline.
+
+**Found and fixed on the way:**
+- `engine.ts` held a literal NUL character (in the key `uniqueIssues` builds, since motion blur),
+  which made tools treat the file as binary. It is now the `\u0000` escape.
+- The marker editor now also closes on any press on the timeline, as its comment already said.
+  The smoke asserts that Enter and Escape close it.
+
+**Verified here:**
+- `npm run check` **1155 tests**. New `tests/golden/profiling-gpu.test.ts`, on the GPU:
+  - every layer and the output are timed;
+  - 8 of 8 frames measured, none discarded;
+  - the blurred layer costs more than 3× the plain one, and ranks first;
+  - **frames byte-identical with profiling on and off**.
+- `npm run golden` 29/29 identical: the hooks change nothing.
+- `--smoke` **34/34**, and **35/35** with the queued render. New `perfHud`: HUD opens, fills with
+  measured spans including the output, shows the 4K estimate (or says timer queries are missing),
+  and closes.
+- The UI tour adds `15-perf-hud`.
 
 ---
 

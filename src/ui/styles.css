@@ -265,6 +265,17 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .timecode { font-variant-numeric: tabular-nums; color: var(--text-dim); margin-left: 6px; }
 .timeline { display: block; width: 100%; cursor: pointer; }
 .timeline-wrap { position: relative; }
+/* The performance HUD (S12): over the preview's top-left corner. */
+.perf-hud { position: absolute; top: 8px; left: 8px; z-index: 5; min-width: 260px; max-width: 360px; padding: 8px 10px; background: color-mix(in srgb, var(--panel-raised) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.perf-hud-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 6px; }
+.perf-hud table { width: 100%; border-collapse: collapse; }
+.perf-hud td { padding: 1px 0; }
+.perf-hud-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px !important; }
+.perf-hud-bar { width: 45%; }
+.perf-hud-bar span { display: block; height: 6px; border-radius: 3px; background: var(--accent); }
+.perf-hud-ms { text-align: right; padding-left: 8px !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.perf-hud-more td { color: var(--text-dim); padding-top: 3px !important; }
+.perf-hud-total, .perf-hud-estimate, .perf-hud-note { margin-top: 6px; color: var(--text-dim); }
 /* The marker editor (S9): floats under the markers lane at the flag. */
 .marker-editor { position: absolute; z-index: 20; display: flex; gap: 6px; align-items: center; padding: 6px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
 .marker-editor input { width: 140px; }

@@ -48,8 +48,8 @@ P4 are complete (2026-09-18), and so are the modulation UI (M13), the layer/clip
 (M18–M20, M26; 2026-09-25), **P7, the auto-director** (M21, M22) and **operability** (M33, M34,
 M36) and **the P1 remainder** (extras tier, offline rebuild check; 2026-09-25) — every must-have is
 done. P8, the Should-haves, is under way (ROADMAP §3 item 9): keyframes (S1), the 6-stem model
-(S6), masking (S7), markers (S9), motion blur (S10), batch mode (S13) and karaoke export (S15)
-are done; the rest follow ROADMAP §3. `START-HERE.md` describes P0, which
+(S6), masking (S7), markers (S9), motion blur (S10), the performance HUD (S12), batch mode (S13)
+and karaoke export (S15) are done; the rest follow ROADMAP §3. `START-HERE.md` describes P0, which
 is done.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept

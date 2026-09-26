@@ -207,6 +207,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
     const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur);
+    if (config.profile === true) engine.setProfiling(true);
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     const feeder = videoFeeder(engine, config.videos);
     const pixels = new Uint8Array(width * height * 4);
@@ -227,8 +228,15 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
       frameHashes.push(createHash('sha256').update(pixels).digest('hex'));
     }
     const context = engine.context;
+    // GPU times lag the frames; each readback already waited for the GPU, so the last results
+    // land within moments.
+    let gpu;
+    if (config.profile === true) {
+      for (let i = 0; i < 50 && engine.gpuTimingSummary().frames < config.frames.length; i += 1) await new Promise((d) => setTimeout(d, 20));
+      gpu = { ...engine.gpuTimingSummary(), available: engine.profiling.available };
+    }
     engine.dispose();
-    return { ...base, ok: true, context, files, frameHashes, warnings: [...warnings], paramIssues: [...paramIssues] };
+    return { ...base, ok: true, context, files, frameHashes, warnings: [...warnings], paramIssues: [...paramIssues], ...(gpu === undefined ? {} : { gpu }) };
   } catch (error) {
     return { ...base, error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
   }

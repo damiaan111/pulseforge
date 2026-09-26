@@ -600,6 +600,8 @@ export function Timeline(): React.JSX.Element {
     const y = event.clientY - rect.top;
     const seconds = Math.min(duration, Math.max(0, secondsAt(g, px)));
     const lane = laneAt(y);
+    // A press anywhere on the timeline closes the marker editor, as its comment promises.
+    if (editing !== null) setEditing(null);
 
     if (lane === 'wave') {
       capture(canvas, event.pointerId);

@@ -3,6 +3,7 @@
 import type { AudioPlacement } from '../../src/export/audio.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { MotionBlur } from '../../src/engine/core/time.ts';
+import type { GpuTimingSummary } from '../../src/engine/render/gpu-profiler.ts';
 import type { RenderRange } from '../../src/export/range.ts';
 import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
@@ -114,6 +115,8 @@ export interface FramesConfig {
   dither: boolean;
   /** Motion blur (S10); absent is off. */
   motionBlur?: MotionBlur;
+  /** Time each layer on the GPU (S12) and return the summary. */
+  profile?: boolean;
 }
 
 export interface SpikeFramesResult {
@@ -129,6 +132,8 @@ export interface SpikeFramesResult {
   frameHashes: string[];
   warnings: string[];
   paramIssues: string[];
+  /** With `profile`: per-span GPU time over the frames (S12). */
+  gpu?: GpuTimingSummary & { available: boolean };
 }
 
 export type SpikeConfig = DeterminismConfig | ExportConfig | FramesConfig;

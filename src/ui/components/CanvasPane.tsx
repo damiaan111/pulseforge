@@ -12,6 +12,7 @@ import { PreviewHost } from '../preview/host.ts';
 import { setThumbnailHost } from '../preset-thumbnails.ts';
 import { shaderModuleDefinition } from '../../engine/modules/shader-module.ts';
 import { useStudio } from '../store.ts';
+import { PerformanceHud } from './PerformanceHud.tsx';
 import { TapOverlay } from './TapOverlay.tsx';
 
 /** Canvas sizes for the aspect switcher, all about 2 megapixels so switching is like for like. */
@@ -63,6 +64,9 @@ export function CanvasPane(): React.JSX.Element {
   const reportPreview = useStudio((s) => s.reportPreview);
   const reportModulation = useStudio((s) => s.reportModulation);
   const notify = useStudio((s) => s.notify);
+  const hudOpen = useStudio((s) => s.hudOpen);
+  const setHudOpen = useStudio((s) => s.setHudOpen);
+  const reportGpuTimings = useStudio((s) => s.reportGpuTimings);
 
   const [error, setError] = useState<string | null>(null);
   // The preview's error overlay; the host clears it with null when a later document renders.
@@ -75,6 +79,7 @@ export function CanvasPane(): React.JSX.Element {
     const host = new PreviewHost(canvas, element, {
       onStatus: reportPreview,
       onModulation: reportModulation,
+      onGpuTimings: reportGpuTimings,
       onError: setError,
       onNotes: setNotes,
     });
@@ -89,7 +94,12 @@ export function CanvasPane(): React.JSX.Element {
       hostRef.current = null;
       if (activeHost === host) activeHost = null;
     };
-  }, [reportPreview, reportModulation]);
+  }, [reportPreview, reportModulation, reportGpuTimings]);
+
+  // The performance HUD (S12): the preview times each layer only while it is open.
+  useEffect(() => {
+    hostRef.current?.setProfiling(hudOpen);
+  }, [hudOpen]);
 
   useEffect(() => {
     hostRef.current?.setDocument(document, analysis);
@@ -159,6 +169,9 @@ export function CanvasPane(): React.JSX.Element {
           </select>
         </label>
         <span className="badge dim">{effective.width}×{effective.height}</span>
+        <button type="button" data-action="perf-hud" className={hudOpen ? 'active' : ''} title="GPU time per layer, and what it means at full size and 4K (S12)" onClick={() => setHudOpen(!hudOpen)}>
+          HUD
+        </button>
       </div>
 
       <div className={`canvas-stage${editTarget === 'base' ? '' : ' overriding'}`}>
@@ -170,6 +183,7 @@ export function CanvasPane(): React.JSX.Element {
           </div>
         )}
         <TapOverlay />
+        <PerformanceHud />
         {editTarget !== 'base' && (
           <button type="button" className="override-banner" onClick={() => setEditTarget('base')}>
             Editing the {editTarget} override — click to edit the base instead

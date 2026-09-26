@@ -39,6 +39,8 @@ export interface FramesOptions {
   readonly dither?: boolean;
   /** Motion blur (S10); absent is off. */
   readonly motionBlur?: MotionBlur;
+  /** Time each layer on the GPU (S12); the summary comes back as `gpu`. */
+  readonly profile?: boolean;
   /** Decoded images by content hash, for layers that reference assets. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
   /** Font files by content hash, beyond the bundled default (which is always registered when present). */
@@ -65,6 +67,7 @@ export interface FramesSummary {
   readonly frames: readonly RenderedFrame[];
   readonly warnings: readonly string[];
   readonly paramIssues: readonly string[];
+  readonly gpu?: SpikeFramesResult['gpu'];
 }
 
 export class FramesRunError extends Error {
@@ -116,6 +119,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     frames: [...options.frames],
     dither: options.dither ?? false,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
+    ...(options.profile === true ? { profile: true } : {}),
   };
   const { result, log } = await runElectron<SpikeFramesResult>(config);
   if (!result.ok) throw new FramesRunError(`Frame render failed: ${result.error ?? 'unknown error'}`, log);
@@ -133,5 +137,5 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     });
   }
 
-  return { context: result.context, frames, warnings: result.warnings, paramIssues: result.paramIssues };
+  return { context: result.context, frames, warnings: result.warnings, paramIssues: result.paramIssues, ...(result.gpu === undefined ? {} : { gpu: result.gpu }) };
 }

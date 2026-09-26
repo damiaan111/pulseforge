@@ -313,8 +313,10 @@ them, and a layer can react to them — a flash at every scene change.
 **Karaoke:** once a track's stems are separated, export it with the instrumental as the soundtrack —
 the song without its vocals, with the lyrics on screen.
 
-**Still to come:** the rest of the Should-have list — a performance HUD, Shadertoy shaders, LUTs
-and more.
+**Performance HUD:** see what each layer costs on the GPU while you edit, and what that means at
+4K, before you commit to a long render. Every render report lists the per-layer cost too.
+
+**Still to come:** the rest of the Should-have list — Shadertoy shaders, LUTs, draft mode and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

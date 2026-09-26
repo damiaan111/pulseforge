@@ -44,6 +44,7 @@ import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
 import { sourceToTimelineSeconds } from '../engine/core/time.ts';
 import type { LyricsAlignMode, LyricsAlignProgress, UserSettings } from '../shell/ipc.ts';
 import type { BatchStatus, QueueFinishedEvent } from '../shell/ipc.ts';
+import type { GpuFrameTimings } from '../engine/render/gpu-profiler.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import { loadTemplates as loadTemplateLibrary, type LoadedTemplate, type TemplateProblem } from '../director/template-library.ts';
 import type { DirectorLock } from '../project/document.ts';
@@ -259,6 +260,13 @@ export interface StudioState {
   /** Live modulation from the preview (M13): rendered values, binding levels, compile issues. */
   liveModulation: LiveModulation;
   reportModulation(live: LiveModulation): void;
+  /** The performance HUD (S12): open, and the latest GPU times the preview measured. */
+  hudOpen: boolean;
+  setHudOpen(open: boolean): void;
+  gpuTimings: GpuFrameTimings | null;
+  /** Null until the preview has said whether timer queries exist here. */
+  gpuAvailable: boolean | null;
+  reportGpuTimings(timings: GpuFrameTimings | null, available: boolean): void;
   /** The binding whose editor is expanded, in the inspector and the matrix. */
   openBinding: string | null;
   setOpenBinding(id: string | null): void;
@@ -1044,6 +1052,16 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   reportPreview(transport, timelineSeconds, stats) {
     set({ transport, timelineSeconds, stats });
+  },
+
+  hudOpen: false,
+  setHudOpen(open) {
+    set(open ? { hudOpen: true } : { hudOpen: false, gpuTimings: null });
+  },
+  gpuTimings: null,
+  gpuAvailable: null,
+  reportGpuTimings(timings, available) {
+    set({ gpuTimings: timings, gpuAvailable: available });
   },
 
   async autosave(reason) {

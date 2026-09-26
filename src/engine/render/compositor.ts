@@ -20,6 +20,7 @@ import type { BlendMode } from '../core/project.ts';
 import { HASH_GLSL } from '../core/prng.ts';
 import { runEffectChain, type EffectPass } from './effects.ts';
 import { FULLSCREEN_VERT, createProgram, drawFullscreenTriangle, uniformLocation } from './gl.ts';
+import type { GpuProfiler } from './gpu-profiler.ts';
 import type { RenderTarget, TargetPool } from './targets.ts';
 
 export type OutputTransfer = 'srgb' | 'bt709';
@@ -35,6 +36,8 @@ export interface OutputOptions {
 }
 
 export interface CompositeLayer {
+  /** What the performance HUD calls this layer's GPU time (S12): its id. Top-level layers only are timed. */
+  readonly profileKey?: string;
   readonly opacity: number;
   readonly blend: BlendMode;
   /**
@@ -273,6 +276,8 @@ void main() {
 `;
 
 export class Compositor {
+  /** Set while profiling (S12): each top-level layer, the global chain and the output pass are timed. */
+  profiler: GpuProfiler | null = null;
   private readonly gl: WebGL2RenderingContext;
   private readonly pool: TargetPool;
   private readonly vao: WebGLVertexArrayObject;
@@ -444,10 +449,12 @@ export class Compositor {
     gl.clearColor(background.r, background.g, background.b, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    this.drawInto(composite, layers);
+    this.drawInto(composite, layers, true);
 
     if (globalEffects.length > 0) {
+      this.profiler?.begin('global');
       composite = runEffectChain(gl, this.pool, composite, globalEffects);
+      this.profiler?.end();
     }
     return composite;
   }
@@ -461,6 +468,7 @@ export class Compositor {
   ): void {
     const gl = this.gl;
     const { width, height } = output;
+    this.profiler?.begin('output');
     gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
     resetState(gl, width, height);
     gl.useProgram(this.outputProgram);
@@ -477,18 +485,22 @@ export class Compositor {
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.useProgram(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.profiler?.end();
   }
 
   /**
    * Composites `layers` into `into`, which must already hold what they draw over (the background,
    * or nothing for a group). Used for the frame itself and, recursively, for each group.
    */
-  drawInto(into: RenderTarget, layers: readonly CompositeLayer[]): void {
+  drawInto(into: RenderTarget, layers: readonly CompositeLayer[], timed = false): void {
     const gl = this.gl;
     const { width, height } = into;
 
     for (const layer of layers) {
       if (!(layer.opacity > 0)) continue;
+      // Only the frame's own layers are timed: queries cannot nest, and a group's time is its children's.
+      const span = timed && this.profiler !== null && layer.profileKey !== undefined;
+      if (span) this.profiler?.begin(layer.profileKey as string);
       let target = this.pool.acquire(width, height, 'rgba16f');
       gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
       resetState(gl, width, height);
@@ -574,6 +586,7 @@ export class Compositor {
       }
       gl.bindTexture(gl.TEXTURE_2D, null);
       this.pool.release(target);
+      if (span) this.profiler?.end();
     }
   }
 

@@ -139,6 +139,8 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     ...(request.motionBlur === undefined ? {} : { motionBlur: request.motionBlur }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
+  // Per-layer GPU cost for the report (PROJECT.md §8.15, S12). Observes only; never changes a pixel.
+  engine.setProfiling(true);
   request.onEngine?.(engine);
   const readback = readbackMode === 'sync' ? engine.createSyncReadback(width, height) : engine.createReadback(width, height, request.readbackDepth);
   const warnings = new Set<string>();
@@ -218,6 +220,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
           : { source: request.audio?.label ?? '', totalSamples: prepared.totalSamples, sourceSamples: prepared.sourceSamples, adjustmentSamples: prepared.adjustmentSamples },
       timing: { ...stats, fps: frames / (stats.wallMs / 1000), prepareMs, finalizeMs, targetHighWaterMark: engine.targetHighWaterMark },
       gpu: { renderer: engine.context.renderer, vendor: engine.context.vendor },
+      gpuTimings: engine.profiling.available ? engine.gpuTimingSummary() : null,
       verification,
       warnings: [...warnings],
     };
