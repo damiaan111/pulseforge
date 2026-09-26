@@ -18,6 +18,10 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { AnalysisCache } from '../analysis/cache.ts';
 import type { MotionBlur } from '../engine/core/time.ts';
 import { rangeFrames, type RenderRange } from './range.ts';
+import { InstrumentalError, buildInstrumental } from './instrumental.ts';
+
+/** The soundtrack of a render: the song, or its instrumental for a karaoke render (S15). */
+export type AudioMix = 'full' | 'instrumental';
 import { loadImageAssets } from '../assets/load-images.ts';
 import { defaultFontFile, loadFontAssets } from '../assets/fonts.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -84,6 +88,10 @@ export interface RenderDocumentOptions {
   readonly motionBlur?: MotionBlur | undefined;
   /** Part of the timeline (S9: between markers); absent renders all of it. */
   readonly range?: RenderRange | undefined;
+  /** 'instrumental': the karaoke variant (S15) — every stem but the vocals, summed. Default 'full'. */
+  readonly audioMix?: AudioMix | undefined;
+  /** Where separation keeps stems (`<root>/<audioHash>/<model>/<stem>.flac`); defaults to `<cacheRoot>/stems`. */
+  readonly stemsRoot?: string | undefined;
   readonly outputPath: string;
   /** Scratch: the analysis blob, the encoder's temporary files, the result JSON. */
   readonly workDir: string;
@@ -262,14 +270,37 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     rm(options.outputPath, { force: true, maxRetries: 5, retryDelay: 200 }),
     rm(`${options.outputPath}.report.json`, { force: true }),
   ]);
+  // Karaoke (S15): the instrumental stem sum stands in for the song; placement, trim and fades apply
+  // to it unchanged (export-spec §7: "everything else is identical").
+  let soundtrack = audioPath;
+  let soundtrackLabel = audioPath;
+  if (options.audioMix === 'instrumental') {
+    const model = document.analysisSettings.stemModel;
+    try {
+      const built = await buildInstrumental({
+        ffmpegExe: FFMPEG_EXE,
+        stemDir: join(options.stemsRoot ?? join(options.cacheRoot, 'stems'), analysed.audioHash, model),
+        model,
+        outPath: join(options.workDir, `${options.name}-instrumental.wav`),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      soundtrack = built.path;
+      soundtrackLabel = `${audioPath} — instrumental (${built.stems.join(' + ')}, ${model})`;
+      say(`Karaoke: the soundtrack is ${built.stems.join(' + ')} (no vocals)`);
+    } catch (error) {
+      if (error instanceof InstrumentalError) throw new RenderDocumentError(error.message, error.fixes);
+      throw error;
+    }
+  }
+
   const summary = await runExportSpike({
     workDir: options.workDir,
     name: options.name,
     project: { ...project, durationTicks },
     analysisPcm: decoded.pcm,
     analysis: { analysis: analysed.analysis, beatGrid: analysed.beatGrid },
-    audioPath,
-    audioLabel: audioPath,
+    audioPath: soundtrack,
+    audioLabel: soundtrackLabel,
     audioPlacement: {
       leadInSamples: document.audio.leadInTicks,
       clipInSamples: document.audio.clipInTicks,
@@ -300,7 +331,11 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   }).catch(async (error: unknown) => {
     await discardPartial();
     throw error;
-  }).finally(() => Promise.all(images.map((image) => rm(image.file, { force: true }))));
+  }).finally(() => Promise.all([
+    ...images.map((image) => rm(image.file, { force: true })),
+    // The instrumental is scratch: rebuilt from the stems whenever a karaoke render needs it.
+    ...(soundtrack === audioPath ? [] : [rm(soundtrack, { force: true })]),
+  ]));
 
   const { report } = summary.first;
   return {

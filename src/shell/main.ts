@@ -1318,6 +1318,7 @@ function registerBatchHandlers(renders: RenderService, onChange: (status: BatchS
         presetId: request.presetId,
         outputPath: request.outputPath,
         motionBlur: request.motionBlur,
+        audioMix: request.audioMix,
       });
     },
   });
@@ -1376,6 +1377,9 @@ function registerRenderHandlers(renders: RenderService): void {
     if (typeof request?.text !== 'string' || typeof request.presetId !== 'string' || typeof request.outputPath !== 'string'
       || (request.projectPath !== null && typeof request.projectPath !== 'string')) {
       throw new Error('enqueueRender needs text, presetId, outputPath and projectPath');
+    }
+    if (request.audioMix !== undefined && request.audioMix !== 'full' && request.audioMix !== 'instrumental') {
+      throw new Error('enqueueRender: audioMix must be "full" or "instrumental"');
     }
     const range = request.range;
     if (range != null && (typeof range !== 'object' || !Number.isSafeInteger(range.inTicks) || !Number.isSafeInteger(range.outTicks) || range.inTicks < 0 || range.outTicks <= range.inTicks)) {
@@ -1446,10 +1450,24 @@ async function createWindow(): Promise<BrowserWindow> {
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
       spellcheck: false,
+      // The self-check polls with timers, and a window Chromium thinks is hidden or covered has its
+      // timers slowed to one a minute — the check then stalls for good. The studio itself keeps the
+      // default: a hidden studio should idle.
+      backgroundThrottling: process.env['PULSEFORGE_SMOKE'] !== '1',
     },
   });
 
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    if (process.env['PULSEFORGE_SMOKE'] === '1') {
+      // The self-check drives the page with DOM events, so its window is deaf to the real mouse: a
+      // click on it while it runs (its recovery dialog invites one) would otherwise answer a dialog
+      // the check is waiting to see, and fail it for no fault of the app.
+      window.show();
+      window.setIgnoreMouseEvents(true);
+      return;
+    }
+    window.show();
+  });
   watchModules(window);
   // The page vetoed its unload because the project has unsaved changes (ui/main.tsx). Without a
   // handler Electron silently keeps the window open, which reads as "the close button is broken".
@@ -1471,6 +1489,11 @@ async function createWindow(): Promise<BrowserWindow> {
 
 // Sandboxing every renderer by default, not just the ones that remember to ask.
 app.enableSandbox();
+
+// The self-check must not depend on what else is on screen: Windows' occlusion tracking marks a
+// covered window hidden, and a hidden page stops painting and running animation frames — so a
+// window someone happens to cover mid-check stalled it. Set before the app is ready, as switches must be.
+if (process.env['PULSEFORGE_SMOKE'] === '1') app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 app.whenReady().then(async () => {
   lockDownSession();
@@ -1827,6 +1850,7 @@ app.whenReady().then(async () => {
       // preview's context → PNG → the main process's cache → back as a blob); a click must apply a
       // preset as one undo step; Save must produce a card with its thumbnail drawn straight away
       // (D45); Delete must remove it again.
+      const recoveryTrace = [];
       const waitFor = async (test, tries = 100) => {
         for (let i = 0; i < tries; i += 1) {
           const value = test();
@@ -2140,6 +2164,7 @@ app.whenReady().then(async () => {
       // Settings (M36): the screen opens from the top bar; a change is saved and survives a
       // re-render; the light theme swaps the chrome's tokens; the environment names the GPU; and
       // Verify runs the real npm run setup -- --verify under the Node inside Electron and reports back.
+      recoveryTrace.push('settings:' + (document.querySelector('#app .recovery-dialog') !== null));
       let settingsUi = false;
       {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2158,6 +2183,9 @@ app.whenReady().then(async () => {
         choose('#app [data-setting="theme"]', 'dark');
         const dark = await waitFor(() => document.documentElement.dataset.theme === 'dark', 60);
         const gpu = await waitFor(() => /GPU/.test(document.querySelector('#app [data-testid="settings-environment"]')?.textContent ?? '') && !/Reading/.test(document.querySelector('#app [data-testid="settings-environment"]')?.textContent ?? ''), 60);
+        const verifySection = document.querySelector('#app [data-testid="settings-setup"]');
+        const verifyButton = document.querySelector('#app [data-action="setup-verify"]');
+        const verifyState = verifyButton === null ? 'missing' : verifyButton.disabled ? 'disabled' : 'enabled';
         click('#app [data-action="setup-verify"]');
         const verified = await waitFor(() => /checks out/.test(document.querySelector('#app [data-testid="setup-result"]')?.textContent ?? ''), 3600);
         const logged = (document.querySelector('#app [data-testid="setup-log"]')?.textContent ?? '').includes('Verification passed');
@@ -2165,11 +2193,13 @@ app.whenReady().then(async () => {
         const closed = await waitFor(() => document.querySelector('#app [data-testid="settings-dialog"]') === null, 40);
         const steps = { shown: shown !== null && shown !== false, saved: saved === true, light: light === true, dark: dark === true, gpu: gpu === true, verified: verified === true, logged, closed: closed === true };
         settingsUi = Object.values(steps).every(Boolean);
-        if (!settingsUi) console.error('[smoke] settingsUi steps ' + JSON.stringify(steps) + ' ' + (document.querySelector('#app [data-testid="setup-result"]')?.textContent ?? ''));
+        if (!settingsUi) console.error('[smoke] settingsUi steps ' + JSON.stringify(steps) + ' ' + (document.querySelector('#app [data-testid="setup-result"]')?.textContent ?? '')
+          + ' | setup section ' + (verifySection === null ? 'missing' : 'present') + ', verify button was ' + verifyState + ', log chars ' + (document.querySelector('#app [data-testid="setup-log"]')?.textContent ?? '').length);
       }
 
       // Storage (M33): the breakdown lists the smoke song's track (analysed by autoUi) as in use,
       // and Clear everything frees the rest but keeps it. The smoke has its own cache root.
+      recoveryTrace.push('storage:' + (document.querySelector('#app .recovery-dialog') !== null));
       let storageUi = false;
       {
         window.confirm = () => true;
@@ -2306,11 +2336,17 @@ app.whenReady().then(async () => {
         if (!maskUi) console.error('[smoke] maskUi steps ' + JSON.stringify(steps));
       }
 
+      recoveryTrace.push('export:' + (document.querySelector('#app .recovery-dialog') !== null));
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
       const presets = document.querySelectorAll('#app .export-dialog input[data-action="export-preset"]').length;
+      // Karaoke (S15): the audio choice is there, and offers the instrumental only once stems are ready.
+      const audioSelect = document.querySelector('#app .export-dialog [data-action="export-audio"]');
+      const audioChoice = audioSelect !== null && [...audioSelect.options].some((o) => o.value === 'instrumental')
+        && (audioSelect.disabled || (document.querySelector('#app [data-testid="stems-controls"]')?.getAttribute('data-state') === 'ready'));
+      if (!audioChoice) console.error('[smoke] exportDialog: no karaoke audio choice, or it is offered without stems');
       // Motion blur (S10): off, its choices disabled, until ticked.
       const blurSamples = () => document.querySelector('#app .export-dialog [data-action="export-blur-samples"]');
       const blurWasOff = blurSamples()?.disabled === true;
@@ -2321,8 +2357,9 @@ app.whenReady().then(async () => {
       if (!blurToggles) console.error('[smoke] exportDialog: the motion-blur toggle did not enable its choices');
       document.querySelector('#app .modal-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
-      const exportDialog = presets >= 6 && blurToggles && document.querySelector('#app .export-dialog') === null;
+      const exportDialog = presets >= 6 && blurToggles && audioChoice && document.querySelector('#app .export-dialog') === null;
 
+      recoveryTrace.push('markers:' + (document.querySelector('#app .recovery-dialog') !== null));
       // Markers (S9): M adds one at the playhead (one undo step), a double-click in the markers lane
       // adds another and opens its editor, typing renames it, and the export dialog then offers a
       // range between markers.
@@ -2352,6 +2389,7 @@ app.whenReady().then(async () => {
       const markerUi = Object.values(markerSteps).every(Boolean);
       if (!markerUi) console.error('[smoke] markerUi steps ' + JSON.stringify(markerSteps));
 
+      recoveryTrace.push('batch:' + (document.querySelector('#app .recovery-dialog') !== null));
       // Batch mode (S13): the top bar opens the dialog, which starts empty and cannot start; a drop
       // of something that is not audio on disk is answered rather than ignored; the queue drawer
       // offers "Shut down when done". The batch itself is run from the main process below.
@@ -2375,6 +2413,7 @@ app.whenReady().then(async () => {
       // "crashed" run is offered on start with its summary, and Restore opens it — unsaved — with
       // its layer. (The main process then checks the old session was let go and this one holds a
       // fresh snapshot.) The "discard your changes?" question is answered yes: nothing here is kept.
+      recoveryTrace.push('recovery:' + (document.querySelector('#app .recovery-dialog') !== null));
       let recoveryDialog = ${initialProjectPath() === undefined ? 'false' : 'undefined'};
       const offered = recoveryDialog === undefined ? null : await waitFor(() => document.querySelector('#app .recovery-dialog [data-recovery="smokecrashed"]'), 60);
       if (offered !== null && offered !== false) {
@@ -2388,7 +2427,7 @@ app.whenReady().then(async () => {
           && document.querySelector('#app .recovery-dialog') === null;
         if (!recoveryDialog) console.error('[smoke] recoveryDialog steps ' + JSON.stringify({ summary: summary.slice(0, 120), restored, open: document.querySelector('#app .recovery-dialog') !== null }));
       } else if (recoveryDialog === false) {
-        console.error('[smoke] recoveryDialog: the dialog was not offered');
+        console.error('[smoke] recoveryDialog: the dialog was not offered; on screen: ' + JSON.stringify({ dialog: document.querySelector('#app .recovery-dialog') !== null, cards: [...document.querySelectorAll('#app [data-recovery]')].map((c) => c.getAttribute('data-recovery')), modals: [...document.querySelectorAll('#app .modal')].map((m) => m.className), trace: recoveryTrace }));
       }
 
       return {
@@ -2430,6 +2469,7 @@ app.whenReady().then(async () => {
       };
     })()`) as Record<string, boolean>;
 
+    console.log('[smoke] phase: renderer checks finished');
     // The other half of the diagnostics check: the clipboard holds the report, and the log file has
     // the app's start, the copy itself, and lines captured from the studio's own console.
     if (checks['diagnosticsUi'] === true) {
@@ -2462,6 +2502,7 @@ app.whenReady().then(async () => {
       if (!checks['recoveryDialog']) console.error(`[smoke] recovery sessions after restore: ${JSON.stringify(sessions)} (this run: ${recoverySessionId})`);
     }
 
+    console.log('[smoke] phase: queued render');
     // A real render through the studio's queue, from inside Electron's main process. This is the
     // path the Node-side check cannot cover: here `electron` is the API object, not a path, and
     // esbuild must load at runtime rather than from the bundle.
@@ -2481,6 +2522,7 @@ app.whenReady().then(async () => {
       checks['queuedRender'] = finished?.status === 'done' && existsSync(output) && finished.progress?.fraction === 1 && blurred;
     }
 
+    console.log('[smoke] phase: batch run');
     // Batch mode (S13), from the main process: the smoke song becomes an auto-directed project in its
     // own folder, queued for rendering. Without a smoke render the queued job is cancelled (a
     // full-length render is minutes); with one, it renders with "shut down when done" on, and the
@@ -2493,6 +2535,7 @@ app.whenReady().then(async () => {
       const before = new Set(renders.list().map((job) => job.id));
       const started = await batchService.start({ tracks: [smokeAudioPath], outDir: batchDir, presetId: 'project-h264', templateId: null, seed: 1, stems: false, motionBlur: null });
       await batchService.settled();
+      console.log('[smoke] phase: batch directed');
       const status = batchService.status();
       const track = status?.tracks[0];
       const job = renders.list().find((entry) => !before.has(entry.id));
@@ -2500,6 +2543,7 @@ app.whenReady().then(async () => {
       let rendered = true;
       if (job !== undefined && renderToo) {
         await Promise.race([renders.idle(), new Promise((done) => setTimeout(done, 240_000))]);
+        console.log('[smoke] phase: batch render finished waiting');
         const finishedJob = renders.list().find((entry) => entry.id === job.id);
         rendered = finishedJob?.status === 'done' && existsSync(finishedJob.outputPath)
           && smokeShutdownCalls.some((call) => call[0] === '/s');
@@ -2518,6 +2562,7 @@ app.whenReady().then(async () => {
       shutdownWhenDone = false;
     }
 
+    console.log('[smoke] phase: verdict');
     const failed = [...(settled ? [] : ["settled"]), ...Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name)];
     for (const [name, ok] of Object.entries(checks)) console.log(`[smoke] ${ok ? 'ok  ' : 'FAIL'} ${name}`);
 

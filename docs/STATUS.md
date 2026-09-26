@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1151 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 1154 tests, `npm run golden` 29/29 identical,
 > `--smoke` 33/33 (34/34 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -58,11 +58,12 @@
 > `npm run batch`, and each becomes an auto-directed project and a render, with a notification and
 > an optional shutdown when everything is finished. And markers (S9, §4.69): named, coloured
 > markers on the timeline that everything snaps to, the transport jumps between, an export can
-> render between, and bindings can react to as scene changes.
+> render between, and bindings can react to as scene changes. And karaoke export (S15, §4.70):
+> render with the instrumental, the track's stems but the vocals, as the soundtrack.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — Shadertoy
-> compatibility (S2), LUTs (S11), the performance HUD (S12), karaoke export (S15), librosa (S16),
-> Unicode fonts (S17) and draft mode (S18).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — the performance
+> HUD (S12), Shadertoy compatibility (S2), LUTs (S11), librosa (S16), Unicode fonts (S17) and draft
+> mode (S18).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -147,6 +148,7 @@
 | 4.67 | The 6-stem model (P8 step 5) — S6 |
 | 4.68 | Batch mode (P8 step 6) — S13 |
 | 4.69 | Markers (P8 step 7) — S9 |
+| 4.70 | Karaoke export (P8 step 8) — S15; the smoke check made independent of the screen |
 
 ---
 
@@ -258,8 +260,8 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
-| `npm run batch` | `-- <tracks or folders…> -o <folder>`; `--preset`, `--template`, `--seed`, `--stems`, `--motion-blur`, `--seconds`, `--direct-only` — every track auto-directed into a project and rendered (§4.68) | minutes per track |
-| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet`, `--motion-blur`, `--blur-samples N`, `--shutter DEG`, `--from X` / `--to X` (a marker's name or a time) | seconds |
+| `npm run batch` | `-- <tracks or folders…> -o <folder>`; `--preset`, `--template`, `--seed`, `--stems`, `--motion-blur`, `--seconds`, `--direct-only`, `--instrumental` — every track auto-directed into a project and rendered (§4.68) | minutes per track |
+| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet`, `--motion-blur`, `--blur-samples N`, `--shutter DEG`, `--from X` / `--to X` (a marker's name or a time), `--instrumental` (karaoke) | seconds |
 | `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d, lyrics) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
 | `npm run presets:builtin` | regenerate `presets/builtin/` from `scripts/make-builtin-presets.ts` (refuses unknown modules/keys); commit the diff | ~2 s |
 | `npm run modules:check` | conformance test for drop-in modules in `modules/` (params, compile, determinism, reflow) → `out/modules-check.json`; `-- <dir>` for another folder | ~15 s |
@@ -3745,6 +3747,84 @@ disk) is still open, for single renders as well as batches.
   - the transport has the prev and next buttons.
   - `lyricsUi` clicked at a fixed height and needed the 16 px lane added.
 - The UI tour adds `14-markers`: three markers, one recoloured with its editor open.
+
+### 4.70 Karaoke export (P8 step 8) — S15, export-spec §7
+
+**What it does.** A render whose soundtrack is the **instrumental**: every stem the track was
+separated into except the vocals, summed. Export-spec §7 says "a karaoke variant substitutes the
+instrumental stem sum; everything else is identical", and it is: lead-in, trim, gain, fades,
+video-length reconciliation, range renders and motion blur all apply unchanged.
+- **Export dialog:** Audio is **The song** or **Instrumental — karaoke (no vocals)**. The choice is
+  enabled only when the track's stems are ready; otherwise it says "Karaoke needs the stems:
+  separate them in the Audio panel first". A queued job's label ends in "· karaoke".
+- **CLI:** `npm run render -- … --instrumental`.
+- **Batch:** a **Karaoke** tick box, which turns on "Separate stems first" because karaoke needs the
+  stems. The CLI has `npm run batch -- … --instrumental`, which implies `--stems`.
+- The render report's `audio.source` names it, for example
+  `…Voltage.wav — instrumental (drums + bass + other, htdemucs)`.
+- **Refused, never quietly wrong:** a track without its stems is refused, naming the missing stems
+  and how to separate them. A karaoke render that silently shipped the vocals would be the worst
+  outcome.
+
+**How.**
+- `src/export/instrumental.ts`:
+  - `instrumentalStems(model)` is `stemsForModel(model)` minus the vocals, so the 6-stem model's
+    guitar and piano are in the instrumental.
+  - `buildInstrumental` sums the stems' kept FLACs (`<stemsRoot>/<audioHash>/<model>/`) with FFmpeg's
+    `amix` at **`normalize=0`** into a 48 kHz stereo float WAV. `amix` averages by default, which
+    would give a third of the level with three stems.
+- `renderDocument` builds it in the job's work folder when `audioMix: 'instrumental'`, hands it to the
+  export as its audio (the song's placement unchanged), and removes it afterwards.
+- `audioMix` is plumbed like the range: `RenderRequest` (validated in the main process) → the queued
+  job (optional, so older queue files load as "the song") → `renderDocument`. The batch service
+  passes it per track.
+
+**Measured here** (the owner's "Voltage", one command: `npm run batch -- Voltage.wav -o … --instrumental
+--seconds 70 --preset shorts`):
+- 55 s end to end: stems separated (htdemucs), directed, and rendered as a 70 s Short that passed
+  verification.
+- The soundtrack against the original over 60 s:
+  - correlation with **song − vocal stem: 0.9995**;
+  - with the vocal stem: **0.045**;
+  - with the song: 0.73.
+  - The vocals were 47% of this song's energy. They are gone, and the rest is intact through AAC.
+- Without stems, `npm run render -- … --instrumental` refused with "drums, bass, other are not
+  separated yet" and the fix.
+
+**Verified here:**
+- `npm run check` **1154 tests**. `tests/export/instrumental.test.ts`:
+  - the stems per model;
+  - three sine stems plus a louder vocal sine become exactly the three-sine sum at 48 kHz, at full
+    level and with no delay (error below 10⁻³);
+  - missing stems are refused, named.
+- `npm run golden` 29/29.
+- `--smoke` **33/33**, and **34/34** with the queued render. `exportDialog` checks the audio choice
+  exists and offers the instrumental only with stems ready.
+
+**The smoke check made independent of the screen.** Several runs this step failed or stalled
+without any code at fault:
+- `recoveryDialog` failed four runs in five: its **Later** button was clicked mid-run.
+- Runs stalled for good right after start.
+
+The causes:
+- The smoke window is shown on the desktop while it runs. A real click on it (its "Recover unsaved
+  work?" dialog invites one) answers the dialog the check later looks for.
+- A window covered by another is marked hidden by Windows' occlusion tracking. A hidden page stops
+  painting and running animation frames, and its timers are slowed to one a minute, so the check
+  never finishes.
+
+What changed, in smoke mode only:
+- the window ignores the real mouse (`setIgnoreMouseEvents`; the check drives it with DOM events);
+- `CalculateNativeWinOcclusion` is disabled;
+- background throttling is off, as the headless render harness already had it.
+
+The studio itself is unchanged. The smoke also now prints its main-side phases as it goes, and the
+recovery check reports where along the run the dialog disappeared. Both are cheap and made this one
+findable. Since the change: every run green (33/33 twice, 34/34).
+
+**Also found:** force-stopping Electron mid-run corrupted Chromium's disk-cache index in the dev
+profile (`Corrupt Index file` at start). Chromium rebuilds it, and it is harmless, but it is why a
+stalled run should be let time out rather than killed if it can be.
 
 ---
 

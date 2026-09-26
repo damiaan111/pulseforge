@@ -21,6 +21,8 @@
 //   --motion-blur                average 8 subframes across a 180° shutter (export-spec §9)
 //   --blur-samples N             subframes per frame, 2–32 (implies --motion-blur)
 //   --shutter DEG                shutter angle, 1–360 (implies --motion-blur)
+//   --instrumental               karaoke: the soundtrack is every stem but the vocals (S15; needs
+//                                the track's stems separated)
 //   --from X / --to X            render part of the timeline: X is a marker's name, or a time
 //                                (seconds, or m:ss); either may be left out (S9)
 //   --quiet                      only errors and the final line
@@ -56,11 +58,12 @@ export interface Options {
   /** Marker names or times, resolved against the project once it is read. */
   readonly from: string | undefined;
   readonly to: string | undefined;
+  readonly instrumental: boolean;
   readonly quiet: boolean;
 }
 
 /** Flags that stand alone. Everything else consumes the next token as its value. */
-const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache', '--motion-blur']);
+const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache', '--motion-blur', '--instrumental']);
 
 export function parseArgs(argv: readonly string[]): Options {
   const positional: string[] = [];
@@ -135,6 +138,7 @@ export function parseArgs(argv: readonly string[]): Options {
     motionBlur,
     from: flags.get('from'),
     to: flags.get('to'),
+    instrumental: flags.has('instrumental'),
     quiet: flags.has('quiet'),
     noCache: flags.has('no-cache'),
   };
@@ -196,6 +200,7 @@ export async function render(argv: readonly string[]): Promise<void> {
     result = await renderDocument({
       documentText,
       range,
+      audioMix: options.instrumental ? 'instrumental' : 'full',
       projectPath: options.projectPath,
       audioOverride: options.audioOverride,
       aspect: options.aspect,

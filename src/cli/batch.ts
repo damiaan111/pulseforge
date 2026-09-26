@@ -15,6 +15,7 @@
 //   --seed N             the batch seed (default 1); each track draws its own from it and its name
 //   --stems              separate stems first (Demucs on the GPU); stem-driven looks read better
 //   --motion-blur        8 subframes at a 180° shutter (export-spec §9)
+//   --instrumental       karaoke versions: the soundtrack without the vocals (S15; implies --stems)
 //   --seconds N          render only the first N seconds of each (a quick look at a batch)
 //   --direct-only        write the projects, render nothing
 
@@ -50,9 +51,10 @@ export interface BatchCliOptions {
   readonly motionBlur: MotionBlur | undefined;
   readonly seconds: number | undefined;
   readonly directOnly: boolean;
+  readonly instrumental: boolean;
 }
 
-const BOOLEAN_FLAGS = new Set(['--stems', '--motion-blur', '--direct-only']);
+const BOOLEAN_FLAGS = new Set(['--stems', '--motion-blur', '--direct-only', '--instrumental']);
 
 export function parseBatchArgs(argv: readonly string[]): BatchCliOptions {
   const inputs: string[] = [];
@@ -87,10 +89,12 @@ export function parseBatchArgs(argv: readonly string[]): BatchCliOptions {
     preset,
     templateId: flags.get('template') ?? null,
     seed,
-    stems: flags.has('stems'),
+    // Karaoke needs the stems, so asking for it separates them.
+    stems: flags.has('stems') || flags.has('instrumental'),
     motionBlur: flags.has('motion-blur') ? MOTION_BLUR_DEFAULT : undefined,
     seconds,
     directOnly: flags.has('direct-only'),
+    instrumental: flags.has('instrumental'),
   };
 }
 
@@ -198,6 +202,7 @@ export async function batch(argv: readonly string[]): Promise<number> {
           codec: options.preset.codec,
           seconds: options.seconds,
           motionBlur: options.motionBlur,
+          audioMix: options.instrumental ? 'instrumental' : 'full',
           outputPath: outcome.track.outputPath,
           workDir: join(ROOT, 'out', 'batch-render'),
           cacheRoot,
@@ -221,6 +226,7 @@ export async function batch(argv: readonly string[]): Promise<number> {
     template: options.templateId,
     stems: options.stems,
     motionBlur: options.motionBlur ?? null,
+    instrumental: options.instrumental,
     skipped,
     tracks: outcomes.map((o) => ({
       name: o.track.name, audioPath: o.track.audioPath, projectPath: o.track.projectPath,

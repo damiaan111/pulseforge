@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-26, P8 in progress (S1, S6, S7, S9, S10 and S13 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-26, P8 in progress (S1, S6, S7, S9, S10, S13 and S15 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -116,11 +116,12 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; loop region and I/O keys not built |
 | S11 Colour management | 🔶 | linear-light, premultiplied compositing and correct output transfer; no LUTs |
 | S13 Batch mode | ✅ | 4.68 — drop tracks or Batch…, `npm run batch`; completion notification, shutdown when done; the free-space precheck (export-spec §14) is still open |
+| S15 Karaoke export | ✅ | 4.70 — export dialog, `render --instrumental`, batch; every stem but the vocals, summed; refused without stems |
 | S14 Headless CLI | ✅ | `npm run render` (4.13), `npm run batch` (4.68) |
 | S18 Draft/proxy mode | 🔶 | preview resolution scale and video proxies; no effect approximations |
 | S19 Collect files | ✅ | 4.37 |
 
-S12, S15, S16 and S17 are not started. Could-haves (C1–C15) are untouched.
+S12, S16 and S17 are not started. Could-haves (C1–C15) are untouched.
 
 ---
 
@@ -138,9 +139,9 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 7. ✅ **Operability (M33, M34, M36)** — done (STATUS 4.59–4.61).
 8. ✅ **P1 remainder** — done (STATUS 4.62).
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
-   6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69); next S15 karaoke export
-   (small: stems exist), S12 the performance HUD, S2 Shadertoy, S11 LUTs, S16–S18, and the free-space
-   precheck before a render (export-spec §14).
+   6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
+   4.70); next S12 the performance HUD, S2 Shadertoy, S11 LUTs, S16–S18, and the free-space precheck
+   before a render (export-spec §14).
 
 ---
 

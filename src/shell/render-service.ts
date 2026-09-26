@@ -48,6 +48,8 @@ export interface RenderRequest {
   readonly motionBlur?: MotionBlur | null;
   /** Part of the timeline (S9); absent or null renders all of it. */
   readonly range?: JobRange | null;
+  /** 'instrumental': a karaoke render (S15). Absent: the song. */
+  readonly audioMix?: 'full' | 'instrumental';
 }
 
 export interface RenderService {
@@ -102,6 +104,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           codec: preset.codec,
           motionBlur: job.motionBlur ?? undefined,
           range: job.range ?? undefined,
+          audioMix: job.audioMix ?? 'full',
           outputPath: job.outputPath,
           workDir: join(options.workRoot, job.id),
           cacheRoot: typeof options.cacheRoot === 'function' ? options.cacheRoot() : options.cacheRoot,
@@ -159,8 +162,9 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         presetName: preset.id,
         motionBlur: request.motionBlur ?? null,
         range: request.range ?? null,
+        ...(request.audioMix === undefined ? {} : { audioMix: request.audioMix }),
         outputPath: request.outputPath,
-        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}`,
+        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}`,
       });
       kick();
       return job;

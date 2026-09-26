@@ -31,6 +31,7 @@ export function BatchDialog(): React.JSX.Element | null {
   const [seed, setSeed] = useState(1);
   const [stems, setStems] = useState(false);
   const [motionBlur, setMotionBlur] = useState(false);
+  const [karaoke, setKaraoke] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (open) setPresetId(opening);
@@ -54,8 +55,9 @@ export function BatchDialog(): React.JSX.Element | null {
     setBusy(true);
     try {
       const status = await window.pulseforge.startBatch({
-        tracks, outDir, presetId: preset.id, templateId: templateId === '' ? null : templateId, seed, stems,
+        tracks, outDir, presetId: preset.id, templateId: templateId === '' ? null : templateId, seed, stems: stems || karaoke,
         motionBlur: motionBlur ? MOTION_BLUR_DEFAULT : null,
+        audioMix: karaoke ? 'instrumental' : 'full',
       });
       useStudio.getState().setBatch(status);
       notify({ text: `Batch started: ${tracks.length} track${tracks.length === 1 ? '' : 's'}, ${preset.label}.`, kind: 'ok' });
@@ -116,8 +118,12 @@ export function BatchDialog(): React.JSX.Element | null {
             <input type="number" step={1} value={seed} onChange={(e) => setSeed(Math.trunc(Number(e.target.value)) || 1)} title="The same seed gives the same looks for the same tracks" />
           </label>
           <label>
-            <input type="checkbox" checked={stems} onChange={(e) => setStems(e.target.checked)} />
+            <input type="checkbox" checked={stems || karaoke} disabled={karaoke} onChange={(e) => setStems(e.target.checked)} />
             {' '}Separate stems first <span className="dim-text">(about 20–40 s per track on the GPU; stem-driven looks read better)</span>
+          </label>
+          <label>
+            <input type="checkbox" data-action="batch-karaoke" checked={karaoke} onChange={(e) => setKaraoke(e.target.checked)} />
+            {' '}Karaoke <span className="dim-text">(the instrumental as the soundtrack — separates stems first)</span>
           </label>
           <label>
             <input type="checkbox" checked={motionBlur} onChange={(e) => setMotionBlur(e.target.checked)} />

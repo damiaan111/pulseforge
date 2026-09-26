@@ -310,8 +310,11 @@ notification when they are done and, if you ask, the computer shutting down afte
 snaps to markers, [ and ] jump between them, an export can render just the part between two of
 them, and a layer can react to them — a flash at every scene change.
 
-**Still to come:** the rest of the Should-have list — Shadertoy shaders, LUTs, a performance HUD,
-karaoke export and more.
+**Karaoke:** once a track's stems are separated, export it with the instrumental as the soundtrack —
+the song without its vocals, with the lyrics on screen.
+
+**Still to come:** the rest of the Should-have list — a performance HUD, Shadertoy shaders, LUTs
+and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

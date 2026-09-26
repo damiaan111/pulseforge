@@ -38,6 +38,9 @@ export function ExportDialog(): React.JSX.Element | null {
   // The range (S9): the whole timeline, or between two markers (either end may be the timeline's own).
   const [fromId, setFromId] = useState('');
   const [toId, setToId] = useState('');
+  // Karaoke (S15): the instrumental — every stem but the vocals — as the soundtrack.
+  const [karaoke, setKaraoke] = useState(false);
+  const stemsReady = useStudio((s) => s.stems.state === 'ready');
   // The dialog stays mounted while closed, so each opening starts from the setting again.
   useEffect(() => {
     if (open) setPresetId(opening);
@@ -71,6 +74,7 @@ export function ExportDialog(): React.JSX.Element | null {
         outputPath,
         motionBlur: blurOn ? { samples, shutterDegrees: shutter } : null,
         range: ranged ? { inTicks: fromTicks, outTicks: toTicks } : null,
+        audioMix: karaoke && stemsReady ? 'instrumental' : 'full',
       });
       notify({ text: `Queued: ${document.name} — ${preset.label}`, kind: 'ok' });
       setOpen(false);
@@ -131,6 +135,17 @@ export function ExportDialog(): React.JSX.Element | null {
             </span>
           </fieldset>
         ) : null}
+
+        <fieldset className="export-audio" data-testid="export-audio">
+          <span>Audio</span>
+          <select aria-label="Audio" data-action="export-audio" value={karaoke && stemsReady ? 'instrumental' : 'full'} disabled={!stemsReady} onChange={(e) => setKaraoke(e.target.value === 'instrumental')}>
+            <option value="full">The song</option>
+            <option value="instrumental">Instrumental — karaoke (no vocals)</option>
+          </select>
+          <span className="dim-text">
+            {stemsReady ? (karaoke ? 'Every stem but the vocals, summed; fades and trim as the song.' : '') : 'Karaoke needs the stems: separate them in the Audio panel first.'}
+          </span>
+        </fieldset>
 
         <fieldset className="export-blur">
           <label>

@@ -20,6 +20,8 @@ export interface BatchRequest {
   /** Separate stems before directing each track. */
   readonly stems: boolean;
   readonly motionBlur: MotionBlur | null;
+  /** Karaoke (S15): render with the instrumental. Needs stems, so `stems` should be on. Absent: the song. */
+  readonly audioMix?: 'full' | 'instrumental';
 }
 
 export interface BatchTrackStatus {
@@ -43,7 +45,7 @@ export interface BatchStatus {
 export interface BatchServiceOptions {
   readonly directTrack: (track: BatchTrack, options: { readonly preset: ExportPreset; readonly templateId: string | null; readonly stems: boolean }) => Promise<DirectedTrack>;
   /** Queues one directed project's render; the queue snapshots the file as it is. */
-  readonly enqueue: (request: { readonly projectPath: string; readonly presetId: string; readonly outputPath: string; readonly motionBlur: MotionBlur | null }) => Promise<unknown>;
+  readonly enqueue: (request: { readonly projectPath: string; readonly presetId: string; readonly outputPath: string; readonly motionBlur: MotionBlur | null; readonly audioMix: 'full' | 'instrumental' }) => Promise<unknown>;
   readonly templateIds: () => Promise<readonly string[]>;
   readonly newId: () => string;
   readonly onChange?: (status: BatchStatus) => void;
@@ -91,7 +93,7 @@ export function createBatchService(options: BatchServiceOptions): BatchService {
       setTrack(index, { state: 'directing' });
       try {
         const directed = await options.directTrack(track, { preset, templateId: request.templateId, stems: request.stems });
-        await options.enqueue({ projectPath: track.projectPath, presetId: preset.id, outputPath: track.outputPath, motionBlur: request.motionBlur });
+        await options.enqueue({ projectPath: track.projectPath, presetId: preset.id, outputPath: track.outputPath, motionBlur: request.motionBlur, audioMix: request.audioMix ?? 'full' });
         setTrack(index, { state: 'queued', detail: directed.summary, notes: directed.notes });
       } catch (error) {
         // One bad track never stops the batch: it is marked, with why, and the next one starts.
@@ -116,6 +118,9 @@ export function createBatchService(options: BatchServiceOptions): BatchService {
       if (!Number.isSafeInteger(request.seed)) throw new BatchRequestError('The seed must be a whole number.');
       if (request.motionBlur !== null && motionBlurProblems(request.motionBlur).length > 0) {
         throw new BatchRequestError(motionBlurProblems(request.motionBlur).join('; '));
+      }
+      if (request.audioMix !== undefined && request.audioMix !== 'full' && request.audioMix !== 'instrumental') {
+        throw new BatchRequestError('The audio must be the song ("full") or the instrumental.');
       }
       const plan = planBatch(request.tracks, { outDir: request.outDir, preset, seed: request.seed, templateId: request.templateId });
       cancelled = false;
