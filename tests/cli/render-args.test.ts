@@ -7,7 +7,7 @@
 import { basename } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { canvasForAspect, parseArgs, type CliError } from '../../src/cli/render.ts';
+import { canvasForAspect, parseArgs, resolveRangeBound, type CliError } from '../../src/cli/render.ts';
 
 const base = ['project.pvproj', '-o', 'out.mp4'];
 
@@ -109,6 +109,27 @@ describe('canvasForAspect', () => {
     } catch (error) {
       expect((error as CliError).fixes.join(' ')).toContain('16:9');
       expect((error as CliError).fixes.join(' ')).toContain('--size');
+    }
+  });
+});
+
+describe('--from / --to (S9)', () => {
+  const markers = [
+    { id: 'a', ticks: 480_000, name: 'Drop', color: null, extra: {} },
+    { id: 'b', ticks: 960_000, name: 'Outro', color: null, extra: {} },
+  ];
+  it('takes a marker name (any case), seconds, or m:ss', () => {
+    expect(resolveRangeBound('drop', markers)).toBe(480_000);
+    expect(resolveRangeBound('12.5', markers)).toBe(600_000);
+    expect(resolveRangeBound('1:30', markers)).toBe(4_320_000);
+    expect(parseArgs([...base, '--from', 'Drop', '--to', '1:00'])).toMatchObject({ from: 'Drop', to: '1:00' });
+  });
+  it('refuses a name that is not a marker, listing the markers', () => {
+    expect(() => resolveRangeBound('Chorus', markers)).toThrow(/neither a marker nor a time/);
+    try {
+      resolveRangeBound('Chorus', markers);
+    } catch (error) {
+      expect((error as CliError).fixes.join(' ')).toContain('Drop, Outro');
     }
   });
 });

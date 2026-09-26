@@ -21,6 +21,13 @@
 // drag moves the selection — snapping to beats and the playhead, not with Shift — Alt-drag copies,
 // Delete removes. A drag is computed from the document as it was when it started, so passing over
 // another key never destroys it mid-drag, and the whole drag is one undo step.
+//
+// **Markers** (S9, ui-spec §3) have a lane under the waveform: a flag and a name each, and a faint
+// line down through every lane. M adds one at the playhead, a double-click in the lane adds one
+// there; click a flag to jump to it, drag it to move it, double-click or right-click it to rename,
+// recolour or delete it, Delete removes the selected one. [ and ] jump to the previous and next
+// marker (or section boundary). Every drag on the timeline — keys, lyric edges, markers — snaps to
+// the beat grid, section boundaries, markers and the playhead; Shift turns snapping off.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -30,7 +37,8 @@ import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds } from '../..
 import { onsetPeaks } from '../../lyrics/tap.ts';
 import { detectVocalSegments } from '../../lyrics/vocal-segments.ts';
 import { dragEdgeTicks, planLyricDrag, snapDelta, snapTargets, type LyricDrag } from '../../lyrics/timeline-edit.ts';
-import { walkLayers, type AutomationTrack, type Layer, type LyricLine, type Lyrics, type ProjectDocument } from '../../project/document.ts';
+import { MARKER_COLORS, walkLayers, type AutomationTrack, type Layer, type LyricLine, type Lyrics, type Marker, type ProjectDocument } from '../../project/document.ts';
+import { addMarker, markerTicks, moveMarker, nearestTarget, removeMarkers, renameMarker, setMarkerColor } from '../../project/markers.ts';
 import { moveKeyframes, removeKeyframes, setKeyframe } from '../../project/automation-commands.ts';
 import { newId } from '../../project/ids.ts';
 import { setLineTimings } from '../../project/lyrics-commands.ts';
@@ -38,10 +46,16 @@ import { timelineDurationTicks } from '../../project/snapshot.ts';
 import { history, useStudio } from '../store.ts';
 import { clampView, fitView, follow, panBy, zoomAt, type TimelineView } from '../timeline-view.ts';
 import { previewControls } from './CanvasPane.tsx';
+import { jumpToStop } from '../marker-nav.ts';
 
 const ROW_HEIGHT = 18;
 const WAVE_HEIGHT = 56;
 const LYRIC_HEIGHT = 30;
+/** The markers lane, between the waveform and the lyrics. */
+const MARKER_HEIGHT = 16;
+const MARKER_TOP = WAVE_HEIGHT + 2;
+/** Where the lanes under the markers start. */
+const LANES_TOP = WAVE_HEIGHT + 4 + MARKER_HEIGHT;
 const PADDING = 8;
 /** The timeline grows with the layer count up to a cap, so the canvas keeps most of the window. */
 const MIN_HEIGHT = 132;
@@ -120,6 +134,12 @@ export function Timeline(): React.JSX.Element {
   const run = useStudio((s) => s.run);
   const keySelection = useStudio((s) => s.keySelection);
   const setKeySelection = useStudio((s) => s.setKeySelection);
+  const markerSelection = useStudio((s) => s.markerSelection);
+  const setMarkerSelection = useStudio((s) => s.setMarkerSelection);
+  /** The marker editor (name, colour, delete), open over the lane at a flag. */
+  const [editing, setEditing] = useState<{ readonly id: string; readonly left: number } | null>(null);
+  /** Where each flag and its label were drawn, for the hit test. */
+  const flagHits = useRef<{ readonly id: string; readonly left: number; readonly right: number }[]>([]);
 
   const duration = Math.max(0.001, ticksToSeconds(timelineDurationTicks(document)));
   const { leadInTicks, clipInTicks } = document.audio;
@@ -164,6 +184,22 @@ export function Timeline(): React.JSX.Element {
   const onsetTicks = useMemo(
     () => (vocalOnset === undefined ? [] : onsetPeaks(vocalOnset).map((s) => Math.round(sourceToTimelineSeconds(s, placement) * TICKS_PER_SECOND))),
     [vocalOnset, placement],
+  );
+
+  // What a drag snaps to (ui-spec §3): the beat grid, section boundaries, markers and the playhead.
+  const beatTicks = useMemo(
+    () => (analysis?.beatGrid?.beats ?? []).map((b) => Math.round(sourceToTimelineSeconds(b, placement) * TICKS_PER_SECOND)),
+    [analysis, placement],
+  );
+  const sectionTicks = useMemo(
+    () => sections.flatMap((sec) => [sec.startSeconds, sec.endSeconds]).map((sec) => Math.round(sourceToTimelineSeconds(sec, placement) * TICKS_PER_SECOND)),
+    [sections, placement],
+  );
+  const snapTargetsFor = useCallback(
+    (exceptMarkers: ReadonlySet<string> = new Set()) => [
+      ...beatTicks, ...sectionTicks, ...markerTicks(document, exceptMarkers), Math.round(timelineSeconds * TICKS_PER_SECOND),
+    ],
+    [beatTicks, sectionTicks, document, timelineSeconds],
   );
 
   const geometry = useCallback((): Geometry | null => {
@@ -255,7 +291,49 @@ export function Timeline(): React.JSX.Element {
       ctx.stroke();
     }
 
-    let top = WAVE_HEIGHT + 4;
+    // The markers lane: a flag and a name per marker; the lines through every lane come last.
+    ctx.fillStyle = colour('--lane', 'rgba(255,255,255,0.025)');
+    ctx.fillRect(PADDING, MARKER_TOP, inner, MARKER_HEIGHT);
+    ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    const hits: { id: string; left: number; right: number }[] = [];
+    const markers = document.markers;
+    if (markers.length === 0) {
+      ctx.fillStyle = dim;
+      ctx.globalAlpha = 0.6;
+      ctx.fillText('Markers — M adds one at the playhead', PADDING + 4, MARKER_TOP + MARKER_HEIGHT / 2 + 0.5);
+      ctx.globalAlpha = 1;
+    }
+    for (const [i, marker] of markers.entries()) {
+      const mx = x(ticksToSeconds(marker.ticks));
+      if (mx < PADDING - 60 || mx > rect.width - PADDING) continue;
+      const next = markers[i + 1];
+      const room = next === undefined ? rect.width - PADDING - mx : x(ticksToSeconds(next.ticks)) - mx;
+      const selected = markerSelection === marker.id;
+      ctx.fillStyle = marker.color ?? accent;
+      ctx.beginPath();
+      ctx.moveTo(mx, MARKER_TOP + 1);
+      ctx.lineTo(mx + 7, MARKER_TOP + 5);
+      ctx.lineTo(mx, MARKER_TOP + 9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(mx - 0.5, MARKER_TOP + 1, 1.5, MARKER_HEIGHT - 2);
+      const label = marker.name === '' ? '(unnamed)' : marker.name;
+      const labelWidth = Math.min(ctx.measureText(label).width, Math.max(0, room - 14));
+      if (labelWidth > 8) {
+        ctx.fillStyle = selected ? text : dim;
+        ctx.fillText(label, mx + 9, MARKER_TOP + MARKER_HEIGHT / 2 + 0.5, labelWidth);
+      }
+      if (selected) {
+        ctx.strokeStyle = marker.color ?? accent;
+        ctx.strokeRect(mx - 3.5, MARKER_TOP + 0.5, Math.max(12, labelWidth + 14), MARKER_HEIGHT - 1);
+      }
+      hits.push({ id: marker.id, left: mx - 5, right: mx + Math.max(9, labelWidth + 11) });
+    }
+    flagHits.current = hits;
+    ctx.textBaseline = 'alphabetic';
+
+    let top = LANES_TOP;
     if (hasLyricsLane) {
       const laneTop = top;
       ctx.fillStyle = colour('--lane', 'rgba(255,255,255,0.025)');
@@ -387,6 +465,23 @@ export function Timeline(): React.JSX.Element {
       ctx.textAlign = 'left';
     }
 
+    // Each marker's line through every lane, faint, so a block or a key can be lined up by eye.
+    for (const marker of document.markers) {
+      const mx = x(ticksToSeconds(marker.ticks));
+      if (mx < PADDING || mx > rect.width - PADDING) continue;
+      ctx.strokeStyle = marker.color ?? accent;
+      ctx.globalAlpha = markerSelection === marker.id ? 0.7 : 0.35;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(mx + 0.5, 0);
+      ctx.lineTo(mx + 0.5, MARKER_TOP);
+      ctx.moveTo(mx + 0.5, MARKER_TOP + MARKER_HEIGHT);
+      ctx.lineTo(mx + 0.5, rect.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+
     // Playhead last, so it is never hidden behind a block.
     const px = x(timelineSeconds);
     ctx.strokeStyle = accent;
@@ -396,7 +491,7 @@ export function Timeline(): React.JSX.Element {
     ctx.lineTo(px, rect.height);
     ctx.stroke();
     ctx.lineWidth = 1;
-  }, [document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection]);
+  }, [document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection, markerSelection]);
 
   useEffect(() => {
     draw();
@@ -436,13 +531,31 @@ export function Timeline(): React.JSX.Element {
       const target = event.target as HTMLElement | null;
       const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
       if (typing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() === 'f') setView(fitView(duration));
+      const key = event.key.toLowerCase();
+      if (key === 'f') setView(fitView(duration));
+      else if (key === 'm') {
+        // M adds a marker at the playhead (ui-spec §9), selected so it can be named at once.
+        event.preventDefault();
+        const state = useStudio.getState();
+        const id = newId();
+        state.run(addMarker(Math.round(state.timelineSeconds * TICKS_PER_SECOND), { id }));
+        state.setMarkerSelection(id);
+      } else if (key === '[' || key === ']') {
+        event.preventDefault();
+        jumpToStop(key === ']' ? 1 : -1);
+      }
     };
     const onDelete = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
       if (typing || event.key !== 'Delete') return;
       const state = useStudio.getState();
+      if (state.keySelection.length === 0 && state.markerSelection !== null) {
+        event.preventDefault();
+        state.run(removeMarkers([state.markerSelection]));
+        state.setMarkerSelection(null);
+        return;
+      }
       if (state.keySelection.length === 0) return;
       event.preventDefault();
       state.run(removeKeyframes(state.keySelection));
@@ -457,15 +570,26 @@ export function Timeline(): React.JSX.Element {
   }, [duration]);
 
   const drag = useRef<DragState | null>(null);
+  const markerDrag = useRef<{ readonly id: string; readonly startTicks: number; readonly originX: number; readonly mergeKey: string; moved: boolean } | null>(null);
   const keyDrag = useRef<KeyDragState | null>(null);
   const scrubbing = useRef(false);
   const [cursor, setCursor] = useState('pointer');
 
-  function laneAt(y: number): 'wave' | 'lyrics' | 'layers' {
-    if (y <= WAVE_HEIGHT + 2) return 'wave';
-    if (hasLyricsLane && y <= WAVE_HEIGHT + 4 + LYRIC_HEIGHT + 2) return 'lyrics';
+  function laneAt(y: number): 'wave' | 'markers' | 'lyrics' | 'layers' {
+    if (y < MARKER_TOP) return 'wave';
+    if (y <= MARKER_TOP + MARKER_HEIGHT + 1) return 'markers';
+    if (hasLyricsLane && y <= LANES_TOP + LYRIC_HEIGHT + 2) return 'lyrics';
     return 'layers';
   }
+
+  const flagAt = (px: number) => {
+    // The last drawn wins, as it is on top.
+    for (let i = flagHits.current.length - 1; i >= 0; i -= 1) {
+      const hit = flagHits.current[i] as { id: string; left: number; right: number };
+      if (px >= hit.left && px <= hit.right) return hit.id;
+    }
+    return null;
+  };
 
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>): void {
     const canvas = canvasRef.current;
@@ -481,6 +605,23 @@ export function Timeline(): React.JSX.Element {
       capture(canvas, event.pointerId);
       scrubbing.current = true;
       previewControls.seek(seconds);
+      return;
+    }
+    if (lane === 'markers') {
+      if (event.button !== 0) return;
+      const id = flagAt(px);
+      setEditing(null);
+      if (id === null) {
+        setMarkerSelection(null);
+        previewControls.seek(seconds);
+        return;
+      }
+      const marker = document.markers.find((m) => m.id === id);
+      if (marker === undefined) return;
+      setMarkerSelection(id);
+      capture(canvas, event.pointerId);
+      dragCount += 1;
+      markerDrag.current = { id, startTicks: marker.ticks, originX: px, mergeKey: `marker-drag:${dragCount}`, moved: false };
       return;
     }
     if (lane === 'lyrics') {
@@ -518,7 +659,7 @@ export function Timeline(): React.JSX.Element {
       return;
     }
     // Below the lanes, the click picks a layer row — or, on a keyframe row, a key.
-    const rowsTop = WAVE_HEIGHT + 4 + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
+    const rowsTop = LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
     const index = Math.floor((y - rowsTop) / ROW_HEIGHT);
     const entry = timelineRows(document)[index];
     if (entry === undefined) return;
@@ -558,6 +699,16 @@ export function Timeline(): React.JSX.Element {
       previewControls.seek(Math.min(duration, Math.max(0, secondsAt(g, px))));
       return;
     }
+    const flag = markerDrag.current;
+    if (flag !== null) {
+      if (!flag.moved && Math.abs(px - flag.originX) < 3) return;
+      flag.moved = true;
+      const pxPerTick = (g.width - PADDING * 2) / (g.view.span * TICKS_PER_SECOND);
+      let ticks = Math.max(0, flag.startTicks + Math.round((px - flag.originX) / pxPerTick));
+      if (!event.shiftKey) ticks = nearestTarget(ticks, snapTargetsFor(new Set([flag.id])), SNAP_PX / pxPerTick) ?? ticks;
+      run(moveMarker(flag.id, ticks, flag.mergeKey), { seal: false });
+      return;
+    }
     const keys = keyDrag.current;
     if (keys !== null) {
       if (!keys.moved && Math.abs(px - keys.originX) < 3) return;
@@ -565,14 +716,8 @@ export function Timeline(): React.JSX.Element {
       const pxPerTick = (g.width - PADDING * 2) / (g.view.span * TICKS_PER_SECOND);
       let delta = Math.round((px - keys.originX) / pxPerTick);
       if (!event.shiftKey) {
-        const targets = [
-          ...(analysis?.beatGrid?.beats ?? []).map((b) => Math.round(sourceToTimelineSeconds(b, placement) * TICKS_PER_SECOND)),
-          Math.round(timelineSeconds * TICKS_PER_SECOND),
-        ];
-        const want = keys.anchorTicks + delta;
-        let best: number | undefined;
-        for (const t of targets) if (Math.abs(t - want) * pxPerTick <= SNAP_PX && (best === undefined || Math.abs(t - want) < Math.abs(best - want))) best = t;
-        if (best !== undefined) delta = best - keys.anchorTicks;
+        const best = nearestTarget(keys.anchorTicks + delta, snapTargetsFor(), SNAP_PX / pxPerTick);
+        if (best !== null) delta = best - keys.anchorTicks;
       }
       const from = keys.start;
       const ids = keys.ids;
@@ -605,7 +750,9 @@ export function Timeline(): React.JSX.Element {
       if (!event.shiftKey && edge !== null) {
         const extra = [
           ...(lyricSnap.onsets ? onsetTicks : []),
-          ...(lyricSnap.beats ? (analysis?.beatGrid?.beats ?? []).map((b) => Math.round(sourceToTimelineSeconds(b, placement) * TICKS_PER_SECOND)) : []),
+          ...(lyricSnap.beats ? beatTicks : []),
+          ...sectionTicks,
+          ...markerTicks(document),
           Math.round(timelineSeconds * TICKS_PER_SECOND),
         ];
         delta = snapDelta(edge, delta, snapTargets(current.start, current.drag, extra), SNAP_PX / pxPerTick);
@@ -616,9 +763,12 @@ export function Timeline(): React.JSX.Element {
       return;
     }
     // Hover: say what a press would grab.
-    if (laneAt(event.clientY - rect.top) === 'lyrics') {
+    const hoverLane = laneAt(event.clientY - rect.top);
+    if (hoverLane === 'lyrics') {
       const hit = hitLyric(document.lyrics, g, px, lyricsSelection);
       setCursor(hit === null ? 'pointer' : hit.kind === 'move' ? 'grab' : 'ew-resize');
+    } else if (hoverLane === 'markers') {
+      setCursor(flagAt(px) === null ? 'copy' : 'grab');
     } else {
       setCursor('pointer');
     }
@@ -627,6 +777,14 @@ export function Timeline(): React.JSX.Element {
   function onPointerUp(event: React.PointerEvent<HTMLCanvasElement>): void {
     if (canvasRef.current?.hasPointerCapture(event.pointerId) === true) canvasRef.current.releasePointerCapture(event.pointerId);
     scrubbing.current = false;
+    const flag = markerDrag.current;
+    if (flag !== null) {
+      markerDrag.current = null;
+      // A click without a drag jumps to the marker.
+      if (flag.moved) history.seal();
+      else previewControls.seek(ticksToSeconds(flag.startTicks));
+      return;
+    }
     if (keyDrag.current !== null) {
       const keys = keyDrag.current;
       keyDrag.current = null;
@@ -650,24 +808,104 @@ export function Timeline(): React.JSX.Element {
 
   function onDoubleClick(event: React.MouseEvent<HTMLCanvasElement>): void {
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (rect === undefined || laneAt(event.clientY - rect.top) !== 'lyrics') return;
+    const g = geometry();
+    if (rect === undefined || g === null) return;
+    const lane = laneAt(event.clientY - rect.top);
+    if (lane === 'markers') {
+      // On a flag: edit it. On empty lane: a new marker there, snapped like a drag would be.
+      const px = event.clientX - rect.left;
+      const id = flagAt(px);
+      if (id !== null) {
+        setEditing({ id, left: px });
+        return;
+      }
+      const pxPerTick = (g.width - PADDING * 2) / (g.view.span * TICKS_PER_SECOND);
+      const wanted = Math.round(Math.min(duration, Math.max(0, secondsAt(g, px))) * TICKS_PER_SECOND);
+      const ticks = event.shiftKey ? wanted : nearestTarget(wanted, snapTargetsFor(), SNAP_PX / pxPerTick) ?? wanted;
+      const created = newId();
+      run(addMarker(ticks, { id: created }));
+      setMarkerSelection(created);
+      setEditing({ id: created, left: px });
+      return;
+    }
+    if (lane !== 'lyrics') return;
     setLyricsOpen(true, 'lines');
   }
 
-  const lanes = WAVE_HEIGHT + 4 + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
+  function onContextMenu(event: React.MouseEvent<HTMLCanvasElement>): void {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect === undefined || laneAt(event.clientY - rect.top) !== 'markers') return;
+    const px = event.clientX - rect.left;
+    const id = flagAt(px);
+    if (id === null) return;
+    event.preventDefault();
+    setMarkerSelection(id);
+    setEditing({ id, left: px });
+  }
+
+  const lanes = LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
   const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, lanes + timelineRows(document).length * ROW_HEIGHT + 6));
+  const editingMarker = editing === null ? undefined : document.markers.find((m) => m.id === editing.id);
   return (
-    <canvas
-      ref={canvasRef}
-      className="timeline"
-      data-testid="timeline"
-      style={{ height, cursor }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onDoubleClick={onDoubleClick}
-    />
+    <div className="timeline-wrap">
+      <canvas
+        ref={canvasRef}
+        className="timeline"
+        data-testid="timeline"
+        style={{ height, cursor }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
+      />
+      {editing !== null && editingMarker !== undefined ? (
+        <MarkerEditor marker={editingMarker} left={editing.left} onClose={() => setEditing(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The marker editor: its name (typing is one undo step per marker), a colour, and delete. Enter or
+ * Escape closes it; so does a click elsewhere on the timeline.
+ */
+function MarkerEditor({ marker, left, onClose }: { marker: Marker; left: number; onClose: () => void }): React.JSX.Element {
+  const run = useStudio((s) => s.run);
+  const setMarkerSelection = useStudio((s) => s.setMarkerSelection);
+  return (
+    <div
+      className="marker-editor"
+      data-testid="marker-editor"
+      style={{ left: Math.max(4, left - 8), top: MARKER_TOP + MARKER_HEIGHT + 2 }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === 'Escape') {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <input
+        autoFocus
+        aria-label="Marker name"
+        data-action="marker-name"
+        value={marker.name}
+        onChange={(event) => run(renameMarker(marker.id, event.target.value))}
+        onBlur={() => history.seal()}
+      />
+      <div className="marker-swatches" role="group" aria-label="Marker colour">
+        <button type="button" className={marker.color === null ? 'swatch selected' : 'swatch'} title="Accent" style={{ background: 'var(--accent)' }} onClick={() => run(setMarkerColor(marker.id, null))} />
+        {MARKER_COLORS.map((c) => (
+          <button key={c} type="button" className={marker.color === c ? 'swatch selected' : 'swatch'} title={c} aria-label={`Colour ${c}`} style={{ background: c }} onClick={() => run(setMarkerColor(marker.id, c))} />
+        ))}
+      </div>
+      <button type="button" data-action="marker-delete" onClick={() => {
+        run(removeMarkers([marker.id]));
+        setMarkerSelection(null);
+        onClose();
+      }}>Delete</button>
+    </div>
   );
 }
 

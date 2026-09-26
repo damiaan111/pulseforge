@@ -306,8 +306,12 @@ dialog, or `--motion-blur` on the command line).
 each becomes its own auto-directed project and video, rendered one after another, with a
 notification when they are done and, if you ask, the computer shutting down after.
 
-**Still to come:** the rest of the Should-have list — markers, Shadertoy shaders, LUTs, a
-performance HUD and more.
+**Markers:** press M to drop a named, coloured marker at the playhead. Everything on the timeline
+snaps to markers, [ and ] jump between them, an export can render just the part between two of
+them, and a layer can react to them — a flash at every scene change.
+
+**Still to come:** the rest of the Should-have list — Shadertoy shaders, LUTs, a performance HUD,
+karaoke export and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

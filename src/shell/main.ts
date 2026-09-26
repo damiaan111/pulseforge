@@ -1377,6 +1377,10 @@ function registerRenderHandlers(renders: RenderService): void {
       || (request.projectPath !== null && typeof request.projectPath !== 'string')) {
       throw new Error('enqueueRender needs text, presetId, outputPath and projectPath');
     }
+    const range = request.range;
+    if (range != null && (typeof range !== 'object' || !Number.isSafeInteger(range.inTicks) || !Number.isSafeInteger(range.outTicks) || range.inTicks < 0 || range.outTicks <= range.inTicks)) {
+      throw new Error('enqueueRender: the range must be whole ticks with 0 ≤ in < out');
+    }
     const blur = request.motionBlur;
     if (blur != null && (typeof blur !== 'object' || motionBlurProblems(blur).length > 0)) {
       throw new Error(`enqueueRender: ${typeof blur === 'object' ? motionBlurProblems(blur).join('; ') : 'motionBlur must be an object'}`);
@@ -2027,7 +2031,7 @@ app.whenReady().then(async () => {
           // The fitted view spans the timeline (at least a second): the block's middle, 0.7 s, is there.
           const total = seconds((document.querySelector('#app .transport .timecode')?.textContent ?? '').split('/')[1]?.trim());
           const span = Math.max(1, Number.isFinite(total) ? total : 0);
-          const at = { clientX: box.left + 8 + (0.7 / span) * (box.width - 16), clientY: box.top + 56 + 4 + 15, pointerId: 1, bubbles: true };
+          const at = { clientX: box.left + 8 + (0.7 / span) * (box.width - 16), clientY: box.top + 56 + 4 + 16 + 15, pointerId: 1, bubbles: true }; // waveform, gap, markers lane (S9), half the lyrics lane
           timeline.dispatchEvent(new PointerEvent('pointerdown', at));
           timeline.dispatchEvent(new PointerEvent('pointermove', { ...at, clientX: at.clientX + 20, shiftKey: true }));
           timeline.dispatchEvent(new PointerEvent('pointermove', { ...at, clientX: at.clientX + 40, shiftKey: true }));
@@ -2319,6 +2323,35 @@ app.whenReady().then(async () => {
       await new Promise((done) => setTimeout(done, 50));
       const exportDialog = presets >= 6 && blurToggles && document.querySelector('#app .export-dialog') === null;
 
+      // Markers (S9): M adds one at the playhead (one undo step), a double-click in the markers lane
+      // adds another and opens its editor, typing renames it, and the export dialog then offers a
+      // range between markers.
+      const undoLabel = () => document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '';
+      const canvasEl = document.querySelector('#app [data-testid="timeline"]');
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+      const addedByKey = (await waitFor(() => undoLabel().includes('Add marker'), 40)) === true;
+      let editorOpened = false;
+      let renamed = false;
+      if (canvasEl !== null) {
+        const r = canvasEl.getBoundingClientRect();
+        canvasEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: r.left + r.width * 0.7, clientY: r.top + 66 }));
+        const nameInput = await waitFor(() => document.querySelector('#app [data-action="marker-name"]'), 40);
+        editorOpened = nameInput !== null && nameInput !== false;
+        if (editorOpened) {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(nameInput, 'Smoke drop');
+          nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+          renamed = (await waitFor(() => undoLabel().includes('Rename marker'), 40)) === true;
+          nameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        }
+      }
+      document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const rangeOffered = (await waitFor(() => [...(document.querySelector('#app [data-action="export-range-from"]')?.options ?? [])].some((o) => o.textContent.includes('Smoke drop')), 40)) === true;
+      document.querySelector('#app .modal-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const navButtons = document.querySelector('#app [data-action="marker-prev"]') !== null && document.querySelector('#app [data-action="marker-next"]') !== null;
+      const markerSteps = { addedByKey, editorOpened, renamed, rangeOffered, navButtons };
+      const markerUi = Object.values(markerSteps).every(Boolean);
+      if (!markerUi) console.error('[smoke] markerUi steps ' + JSON.stringify(markerSteps));
+
       // Batch mode (S13): the top bar opens the dialog, which starts empty and cannot start; a drop
       // of something that is not audio on disk is answered rather than ignored; the queue drawer
       // offers "Shut down when done". The batch itself is run from the main process below.
@@ -2392,6 +2425,7 @@ app.whenReady().then(async () => {
         ...(alignLive === undefined ? {} : { alignLive }),
         exportDialog,
         batchUi,
+        markerUi,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;
@@ -2656,6 +2690,21 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
       ${click('#app [data-action="batch-add"]')}; await new Promise((d) => setTimeout(d, 300))`);
     await snap(`${label}-13-batch`);
     await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    // Markers (S9): three at the playhead, the middle one recoloured and its editor open.
+    const pressM = `document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true })); await new Promise((d) => setTimeout(d, 150))`;
+    for (const at of [12, 30, 45]) {
+      await js(seekTo(at));
+      await js(pressM);
+    }
+    await js(`
+      const timeline = document.querySelector('#app [data-testid="timeline"]');
+      const box = timeline.getBoundingClientRect();
+      timeline.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: box.left + 8 + (30 / 60) * (box.width - 16) + 2, clientY: box.top + 66 }));
+      await new Promise((d) => setTimeout(d, 200));
+      document.querySelectorAll('#app .marker-swatches .swatch')[2]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((d) => setTimeout(d, 200))`);
+    await snap(`${label}-14-markers`);
+    await js(`document.querySelector('#app [data-action="marker-name"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     // Settings (M36), then the whole studio in the light theme, then back to dark.
     const theme = (value: string) => `
       const select = document.querySelector('#app [data-setting="theme"]');

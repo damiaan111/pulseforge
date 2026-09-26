@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1132 tests, `npm run golden` 29/29 identical,
-> `--smoke` 32/32 (33/33 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1151 tests, `npm run golden` 29/29 identical,
+> `--smoke` 33/33 (34/34 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -56,11 +56,13 @@
 > And the 6-stem model (S6, §4.67): `htdemucs_6s` is an optional model that adds guitar and piano
 > stems, chosen per project. And batch mode (S13, §4.68): drop tracks onto the studio, or
 > `npm run batch`, and each becomes an auto-directed project and a render, with a notification and
-> an optional shutdown when everything is finished.
+> an optional shutdown when everything is finished. And markers (S9, §4.69): named, coloured
+> markers on the timeline that everything snaps to, the transport jumps between, an export can
+> render between, and bindings can react to as scene changes.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — markers (S9),
-> Shadertoy compatibility (S2), LUTs (S11), the performance HUD (S12), karaoke export (S15),
-> librosa (S16), Unicode fonts (S17) and draft mode (S18).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — Shadertoy
+> compatibility (S2), LUTs (S11), the performance HUD (S12), karaoke export (S15), librosa (S16),
+> Unicode fonts (S17) and draft mode (S18).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -144,6 +146,7 @@
 | 4.66 | Motion blur (P8 step 4) — S10 |
 | 4.67 | The 6-stem model (P8 step 5) — S6 |
 | 4.68 | Batch mode (P8 step 6) — S13 |
+| 4.69 | Markers (P8 step 7) — S9 |
 
 ---
 
@@ -256,7 +259,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
 | `npm run batch` | `-- <tracks or folders…> -o <folder>`; `--preset`, `--template`, `--seed`, `--stems`, `--motion-blur`, `--seconds`, `--direct-only` — every track auto-directed into a project and rendered (§4.68) | minutes per track |
-| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet`, `--motion-blur`, `--blur-samples N`, `--shutter DEG` | seconds |
+| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet`, `--motion-blur`, `--blur-samples N`, `--shutter DEG`, `--from X` / `--to X` (a marker's name or a time) | seconds |
 | `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d, lyrics) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
 | `npm run presets:builtin` | regenerate `presets/builtin/` from `scripts/make-builtin-presets.ts` (refuses unknown modules/keys); commit the diff | ~2 s |
 | `npm run modules:check` | conformance test for drop-in modules in `modules/` (params, compile, determinism, reflow) → `out/modules-check.json`; `-- <dir>` for another folder | ~15 s |
@@ -3641,6 +3644,107 @@ disk) is still open, for single renders as well as batches.
     opens with layers and a director roll, and its render is queued. With the smoke render it
     renders to a verified file, and "shut down when done" requests `shutdown /s` (recorded, not run).
 - The UI tour adds `13-batch`: the dialog with two tracks.
+
+### 4.69 Markers (P8 step 7) — S9, ui-spec §3 and §9
+
+**What it does.** A marker is a named, coloured point on the timeline.
+- **Adding:**
+  - **M** adds one at the playhead (ui-spec §9), named "Marker N" and selected.
+  - A **double-click in the markers lane** adds one there, snapped like a drag, and opens its editor.
+- **The markers lane** sits between the waveform and the lyrics. Each marker is a flag and its
+  name, plus a faint dashed line down through every lane, so a block, a key or a lyric line can be
+  lined up with it by eye. With no markers, the lane says "M adds one at the playhead".
+- **Editing:**
+  - Click a flag to jump to it.
+  - Drag it to move it (one undo step per drag).
+  - Double-click or right-click it for the **editor**: its name (typing is one undo step), seven
+    colours (the accent and six swatches), and Delete.
+  - **Delete** removes the selected marker.
+- **Snapping** (ui-spec §3): every drag on the timeline — keys, lyric edges and markers — now snaps
+  to the beat grid, section boundaries, markers and the playhead. Lyric edges also snap to vocal
+  onsets (when asked) and other lines, as before. **Shift** turns snapping off.
+- **Jumping** (PROJECT.md §8, "prev/next marker"): the transport's **◂◆ / ◆▸** buttons and the
+  **[ / ]** keys go to the previous or next marker *or section boundary*. The sections make the keys
+  useful before any marker exists.
+- **Render ranges** (ui-spec §3, "used as render-range bounds"; export-spec §12's `range`):
+  - The export dialog, once the project has markers, offers **Range: Start | marker … to marker … |
+    End**, shows the times, and refuses an end before the start. The queued job's label shows the
+    range.
+  - `npm run render -- … --from X --to X` takes a marker's name, seconds, or m:ss.
+  - The render report records `range: {inTicks, outTicks, startFrame, frames}`.
+- **Scene changes as sources:** two new modulation sources.
+  - **Markers**: a hit at every marker, falling to 0 over 0.25 s. The binding's envelope can stretch
+    it. Use it to cut, flash or jump at the scene changes you placed.
+  - **Scene progress**: 0 at a marker rising to 1 at the next, so a move plays out once per scene.
+  - With no markers they say so (the binding is kept and inactive), like the lyric sources.
+
+**How.**
+- **Model:** `Marker {id, ticks, name, color | null}` in `document.markers`, kept sorted. It is saved
+  only when there are markers (every earlier file keeps its bytes). A bad colour falls back to the
+  accent with an issue, and ids take part in the duplicate check.
+- **Commands and helpers** (`src/project/markers.ts`): add (next free default name), remove, move
+  (with a merge key for drags), rename (merged per marker) and colour. `neighbourStop`,
+  `nearestTarget` and `markerTicks` are shared by the timeline, the transport (`src/ui/marker-nav.ts`)
+  and the tests.
+- **Ranges** (`src/export/range.ts`):
+  - `rangeFrames` goes from the first frame at or after *in* to the last before *out*, cut to the
+    timeline's end. Samples are derived from frame indices at both ends, so there is no drift at NTSC
+    rates.
+  - The export job renders **timeline frame `startFrame + n`**, and video layers fetch that frame too.
+    So a range is the same frames a full render makes, not a re-timed copy.
+  - The audio is placed exactly as a full render places it (lead-in, trim, gain, fades) and then cut:
+    `placeAudioWindow`. The audio after the window is not reported as a "cut".
+  - The range is plumbed like motion blur: job ← spike child ← `renderDocument` ← queued job (the
+    queue already had a `range` slot; it is now used) ← `RenderRequest`, validated in the main process.
+- **Sources:** `markerTicks` goes into the render project. `markerPulse` and `markerProgress` are
+  pure functions of `t` (binary search), and both are fixed-range, so `inputRange: 'auto'` leaves
+  them alone.
+
+**Decisions (ROADMAP §4):**
+- **The markers lane sits under the waveform**, not in the ruler. The waveform's top edge stays the
+  scrub strip, and the flags stay next to what they mark.
+- **[ / ] also stop at section boundaries.**
+- **Timeline markers are separate from the lyrics' section markers.** The `[Chorus]` lines pasted
+  lyrics carry (lyrics-spec §2) stay in the lyrics.
+
+**Not done** (ui-spec items that are not S9):
+- the loop region;
+- **I / O** keys setting a range without markers;
+- snapping to other layer blocks. Layer blocks are not dragged on the timeline yet; their time range
+  is set in the inspector.
+
+**Measured / checked here:**
+- A 640×360 render of one of the owner's projects between two markers by name ("Drop" at 1:00,
+  "After drop" at 1:05) gave exactly 300 frames from timeline frame 3600 and 240,000 samples. It
+  passed verification.
+- Its sound correlates with the source at 60–65 s at **0.9999 with zero lag**: picture and sound are
+  locked.
+
+**Verified here:**
+- `npm run check` **1151 tests**:
+  - `tests/project/markers.test.ts`:
+    - add, sorted, with free default names;
+    - move re-sorts; rename and colour, with the colour checked;
+    - drag and typing merge keys;
+    - stops and snapping;
+    - pre-S9 bytes unchanged; round-trip; a bad colour repaired with an issue; a duplicate id reported.
+  - `tests/export/range.test.ts`:
+    - whole and partial ranges, a start between frames, cut to the end;
+    - NTSC sample continuity;
+    - refusals;
+    - the audio window is exactly the slice of the full placement, fades and lead-in included.
+  - `tests/engine/modulation.test.ts`: the pulse and the scene progress, a binding driven by
+    markers, and the "no markers yet" issue.
+  - `tests/cli/render-args.test.ts`: `--from/--to` by name, seconds and m:ss, and the refusal
+    listing the markers.
+- `npm run golden` 29/29.
+- `--smoke` **33/33**. New `markerUi`:
+  - M adds a marker (one undo step, "Add marker");
+  - a double-click in the lane opens the editor, and typing renames ("Rename marker");
+  - the export dialog then offers the range with that marker;
+  - the transport has the prev and next buttons.
+  - `lyricsUi` clicked at a fixed height and needed the 16 px lane added.
+- The UI tour adds `14-markers`: three markers, one recoloured with its editor open.
 
 ---
 

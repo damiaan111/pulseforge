@@ -6,6 +6,7 @@ import { ticksToSeconds } from '../../engine/core/time.ts';
 import { timelineDurationTicks } from '../../project/snapshot.ts';
 import { useStudio } from '../store.ts';
 import { previewControls } from './CanvasPane.tsx';
+import { jumpToStop } from '../marker-nav.ts';
 
 export function TransportBar(): React.JSX.Element {
   const document = useStudio((s) => s.document);
@@ -49,6 +50,8 @@ export function TransportBar(): React.JSX.Element {
         {transport === 'playing' ? '⏸' : '▶'}
       </button>
       <button type="button" onClick={() => previewControls.stop()} title="Stop">⏹</button>
+      <button type="button" data-action="marker-prev" onClick={() => jumpToStop(-1)} title="Previous marker or section ([)">◂◆</button>
+      <button type="button" data-action="marker-next" onClick={() => jumpToStop(1)} title="Next marker or section (])">◆▸</button>
 
       <span className="timecode">{formatTime(timelineSeconds)} / {formatTime(total)}</span>
 

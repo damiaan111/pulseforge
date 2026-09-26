@@ -13,9 +13,10 @@ import type { DecodedImage } from '../engine/core/image.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
 import type { ModuleDefinition } from '../engine/core/module.ts';
 import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
-import { frameCount, type MotionBlur } from '../engine/core/time.ts';
+import type { MotionBlur } from '../engine/core/time.ts';
+import { rangeFrames, type RenderRange } from './range.ts';
 import { ENGINE_VERSION, createEngine, type Engine } from '../engine/engine.ts';
-import { prepareExportAudio, samplesForFrames, type AudioPlacement, type AudioSource, type PreparedAudio } from './audio.ts';
+import { prepareExportAudio, type AudioPlacement, type AudioSource, type PreparedAudio } from './audio.ts';
 import { startEncoder, type EncoderProcess } from './encoder.ts';
 import { buildFfmpegArgs, formatCommandLine, resolveConversion, settingsProblems, type EncodeSettings } from './ffmpeg-args.ts';
 import { pumpFrames } from './pump.ts';
@@ -60,6 +61,8 @@ export interface ExportRequest {
   readonly dither?: boolean;
   /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
   readonly motionBlur?: MotionBlur;
+  /** Part of the timeline (S9: markers as range bounds); absent renders all of it. */
+  readonly range?: RenderRange;
   readonly now: () => number;
   readonly yieldToEventLoop: () => Promise<void>;
   readonly onProgress?: (progress: { readonly collected: number; readonly encoded: number; readonly total: number }) => void;
@@ -98,14 +101,19 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
   const problems = settingsProblems(settings, width, height);
   if (problems.length > 0) throw new ExportError('prepare', problems.join(' '));
 
-  const frames = frameCount(request.durationTicks, fps);
+  let window;
+  try {
+    window = rangeFrames(request.range, fps, request.durationTicks);
+  } catch (error) {
+    throw new ExportError('prepare', (error as Error).message);
+  }
+  const { frames, startFrame, startSample, totalSamples } = window;
   if (frames === 0) throw new ExportError('prepare', 'the timeline is empty (0 frames)');
-  const totalSamples = samplesForFrames(frames, fps);
 
   let prepared: PreparedAudio | undefined;
   if (request.audio !== undefined) {
     try {
-      prepared = await prepareExportAudio(request.audio.source, request.audio.placement, totalSamples, join(request.scratchDir, 'export-audio.wav'));
+      prepared = await prepareExportAudio(request.audio.source, request.audio.placement, totalSamples, join(request.scratchDir, 'export-audio.wav'), startSample);
     } catch (error) {
       throw new ExportError('audio', (error as Error).message, { cause: error });
     }
@@ -149,9 +157,10 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
       sink: activeEncoder.sink,
       source: {
         readback,
-        ...(request.prepareFrame !== undefined ? { prepareFrame: request.prepareFrame } : {}),
+        // The pump counts from 0; the engine is given the timeline frame (a range starts later).
+        ...(request.prepareFrame !== undefined ? { prepareFrame: (frameIndex: number) => request.prepareFrame!(startFrame + frameIndex) } : {}),
         renderFrame(frameIndex) {
-          const report = engine.renderFrame(project, request.analysis, frameIndex);
+          const report = engine.renderFrame(project, request.analysis, startFrame + frameIndex);
           for (const w of report.warnings) warnings.add(w);
           for (const p of report.paramIssues) for (const i of p.issues) warnings.add(`${p.layerId}.${i.key}: ${i.detail}`);
         },
@@ -194,6 +203,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
         combinedSha256: request.hashFrames ? createHash('sha256').update(frameHashes.join('\n')).digest('hex') : undefined,
       },
       motionBlur: request.motionBlur ?? null,
+      range: request.range === undefined ? null : { ...request.range, startFrame, frames },
       encode: {
         settings,
         commandLine: formatCommandLine(request.ffmpegExe, args),

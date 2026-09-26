@@ -90,6 +90,7 @@ export function createDocument(options: CreateDocumentOptions = {}): ProjectDocu
     globalModulations: [],
     lyrics: EMPTY_LYRICS,
     automation: [],
+    markers: [],
     director: null,
     extra: {},
   };

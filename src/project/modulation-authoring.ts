@@ -41,6 +41,8 @@ export const SOURCE_CHOICES: readonly SourceChoice[] = [
   { type: 'lyricActive', label: 'Singing', hint: 'One while a lyric line is being sung, zero between lines (needs timed lyrics).', audio: false },
   { type: 'lineProgress', label: 'Line progress', hint: 'Zero to one through the line being sung (needs timed lyrics).', audio: false },
   { type: 'wordActive', label: 'Words', hint: 'A short pulse on every sung word — karaoke-synced accents (needs timed lyrics).', audio: false },
+  { type: 'marker', label: 'Markers', hint: 'A hit at every timeline marker — cut, flash or jump at the scene changes you placed (M adds one).', audio: false },
+  { type: 'markerProgress', label: 'Scene progress', hint: 'Zero at a marker, one at the next: a move that plays out once per scene.', audio: false },
 ];
 
 /** guitar and piano need the 6-stem model (S6); on another, a binding to them reports the stem missing. */

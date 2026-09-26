@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-26, P8 in progress (S1, S6, S7, S10 and S13 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-26, P8 in progress (S1, S6, S7, S9, S10 and S13 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -113,7 +113,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S10 Motion blur | ✅ | 4.66 — export dialog and CLI, 2–32 samples, 1–360° shutter, in the render report; spatial SSAA (export-spec §9) is not built |
 | S2 Custom GLSL layer | 🔶 | drop-in shader modules (M35) cover "a shader with audio uniforms and live compile errors"; Shadertoy compatibility (`iTime`, `iResolution`, `mainImage`) is not there |
 | S8 Preset browser | ✅ | 4.44 |
-| S9 Sections/markers | 🔶 | automatic section detection (4.21); no markers or snapping UI |
+| S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; loop region and I/O keys not built |
 | S11 Colour management | 🔶 | linear-light, premultiplied compositing and correct output transfer; no LUTs |
 | S13 Batch mode | ✅ | 4.68 — drop tracks or Batch…, `npm run batch`; completion notification, shutdown when done; the free-space precheck (export-spec §14) is still open |
 | S14 Headless CLI | ✅ | `npm run render` (4.13), `npm run batch` (4.68) |
@@ -138,8 +138,9 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 7. ✅ **Operability (M33, M34, M36)** — done (STATUS 4.59–4.61).
 8. ✅ **P1 remainder** — done (STATUS 4.62).
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
-   6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68); next markers (S9), then S2, S11, S12,
-   S15–S18, and the free-space precheck before a render (export-spec §14).
+   6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69); next S15 karaoke export
+   (small: stems exist), S12 the performance HUD, S2 Shadertoy, S11 LUTs, S16–S18, and the free-space
+   precheck before a render (export-spec §14).
 
 ---
 
@@ -162,6 +163,7 @@ it was made; they are collected here so none is a surprise.
 | **Layer opacity is a modulation target** (`layers.<id>.opacity`) | modulation-spec §4 targets module parameters | the director's section presence has to fade a layer in and out; one opacity binding does it for every module, and is editable in the matrix | STATUS 4.57 |
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
+| The markers lane sits **under the waveform**; **[ / ] also stop at section boundaries**; timeline markers are **separate from the lyrics' `[Chorus]` section markers** | ui-spec §3 lists a Markers track without placing it | the waveform stays the scrub strip; the keys work before any marker exists; lyrics own their structure | STATUS 4.69 |
 | **Dropped audio files open the Batch dialog**, even one; a CLI folder is read **one level deep**; "shut down when done" waits **two minutes** | export-spec §12 says "optional shutdown-when-done" and nothing about drops or folders | the dialog is where the folder and preset are chosen; a library's subfolders are albums; two minutes to see it and cancel | STATUS 4.68 |
 | Motion-blur subframes **keep the frame's index** (only `t` moves), and one **before the timeline is held at 0** | export-spec §9 gives the shutter interval only | a video layer has one decoded frame per frame and its own motion blur; grain keyed on the frame should not smear; frame 0 has nothing before it | STATUS 4.66 |
 | Masks are applied **in canvas space** (the source as drawn in the frame, after both layers' transforms); a source that is **off leaves the target unmasked** | compositor-spec §5 places the mask step before the target's transform and does not say what an off source means | "a shape masks what is under it on screen" is what people expect; switching a mask's eye off to compare is a common gesture | STATUS 4.65 |

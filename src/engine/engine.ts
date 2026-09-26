@@ -250,6 +250,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       durationSeconds: ticksToSeconds(project.durationTicks ?? 0),
       seed: project.seed,
       ...(project.lyrics === undefined ? {} : { lyrics: project.lyrics }),
+      ...(project.markerTicks === undefined ? {} : { markers: project.markerTicks }),
       placement: project.audio,
     });
     compiled = { project, analysis, program };

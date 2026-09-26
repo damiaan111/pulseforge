@@ -304,6 +304,10 @@ export function toJson(document: ProjectDocument): Json {
     ...(hasLyrics(document.lyrics) ? { lyrics: lyricsJson(document.lyrics) } : {}),
     // Only a project with keyframes carries them, so every file saved before S1 keeps its bytes.
     ...(document.automation.length > 0 ? { automation: document.automation.map(trackJson) } : {}),
+    // Markers (S9) likewise: absent from a project that has none.
+    ...(document.markers.length > 0
+      ? { markers: document.markers.map((m) => withExtra(m.extra, { id: m.id, ticks: m.ticks, name: m.name, ...(m.color === null ? {} : { color: m.color }) })) }
+      : {}),
     // And again: only a directed project carries the director's record.
     ...(document.director === null ? {} : { director: directorJson(document.director) }),
   });

@@ -271,6 +271,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       analysis,
       dither: config.dither,
       ...(config.motionBlur === undefined ? {} : { motionBlur: config.motionBlur }),
+      ...(config.range === undefined ? {} : { range: config.range }),
       audio: {
         source: { kind: 'file', path: config.audioPath, ffmpegExe: config.ffmpegExe },
         placement: config.audioPlacement,

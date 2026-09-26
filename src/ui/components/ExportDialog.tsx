@@ -6,7 +6,9 @@
 
 import { useEffect, useState } from 'react';
 
-import { MOTION_BLUR_DEFAULT } from '../../engine/core/time.ts';
+import { MOTION_BLUR_DEFAULT, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
+import { timelineDurationTicks } from '../../project/snapshot.ts';
+import { formatTime } from './TransportBar.tsx';
 import { EXPORT_PRESETS, findExportPreset, presetCanvas, suggestedOutputName } from '../../export/export-presets.ts';
 import { stringifyDocument } from '../../project/serialize.ts';
 import { history, useStudio } from '../store.ts';
@@ -33,6 +35,9 @@ export function ExportDialog(): React.JSX.Element | null {
   const [blurOn, setBlurOn] = useState(false);
   const [samples, setSamples] = useState(MOTION_BLUR_DEFAULT.samples);
   const [shutter, setShutter] = useState(MOTION_BLUR_DEFAULT.shutterDegrees);
+  // The range (S9): the whole timeline, or between two markers (either end may be the timeline's own).
+  const [fromId, setFromId] = useState('');
+  const [toId, setToId] = useState('');
   // The dialog stays mounted while closed, so each opening starts from the setting again.
   useEffect(() => {
     if (open) setPresetId(opening);
@@ -42,6 +47,12 @@ export function ExportDialog(): React.JSX.Element | null {
   const preset = findExportPreset(presetId);
   const canvas = preset === undefined ? null : presetCanvas(preset, document.canvas);
   const noAudio = document.audio.path === '' || audio === null;
+  const markers = document.markers;
+  const endTicks = timelineDurationTicks(document);
+  const fromTicks = markers.find((m) => m.id === fromId)?.ticks ?? 0;
+  const toTicks = markers.find((m) => m.id === toId)?.ticks ?? endTicks;
+  const ranged = fromId !== '' || toId !== '';
+  const badRange = ranged && toTicks - fromTicks < TICKS_PER_SECOND / document.canvas.fps.num * document.canvas.fps.den;
 
   async function choose(): Promise<void> {
     if (preset === undefined) return;
@@ -59,6 +70,7 @@ export function ExportDialog(): React.JSX.Element | null {
         presetId: preset.id,
         outputPath,
         motionBlur: blurOn ? { samples, shutterDegrees: shutter } : null,
+        range: ranged ? { inTicks: fromTicks, outTicks: toTicks } : null,
       });
       notify({ text: `Queued: ${document.name} — ${preset.label}`, kind: 'ok' });
       setOpen(false);
@@ -102,6 +114,24 @@ export function ExportDialog(): React.JSX.Element | null {
           </p>
         )}
 
+        {markers.length > 0 ? (
+          <fieldset className="export-range" data-testid="export-range">
+            <span>Range</span>
+            <select aria-label="Range start" data-action="export-range-from" value={fromId} onChange={(e) => setFromId(e.target.value)}>
+              <option value="">Start</option>
+              {markers.map((m) => <option key={m.id} value={m.id}>{m.name || '(unnamed)'} · {formatTime(ticksToSeconds(m.ticks))}</option>)}
+            </select>
+            <span>to</span>
+            <select aria-label="Range end" data-action="export-range-to" value={toId} onChange={(e) => setToId(e.target.value)}>
+              <option value="">End</option>
+              {markers.map((m) => <option key={m.id} value={m.id}>{m.name || '(unnamed)'} · {formatTime(ticksToSeconds(m.ticks))}</option>)}
+            </select>
+            <span className={badRange ? 'warn-text' : 'dim-text'}>
+              {badRange ? 'The end must come after the start.' : ranged ? `${formatTime(ticksToSeconds(fromTicks))} – ${formatTime(ticksToSeconds(toTicks))}` : 'The whole timeline'}
+            </span>
+          </fieldset>
+        ) : null}
+
         <fieldset className="export-blur">
           <label>
             <input type="checkbox" data-action="export-motion-blur" checked={blurOn} onChange={(event) => setBlurOn(event.target.checked)} />
@@ -130,7 +160,7 @@ export function ExportDialog(): React.JSX.Element | null {
             type="button"
             className="primary"
             data-action="export-enqueue"
-            disabled={busy || noAudio || outputPath === null || preset === undefined}
+            disabled={busy || noAudio || badRange || outputPath === null || preset === undefined}
             onClick={() => void enqueue()}
           >
             Add to queue

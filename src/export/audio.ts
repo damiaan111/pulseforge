@@ -52,6 +52,23 @@ export function framesForSamples(samples: number, fps: Rational): number {
   return frameCount(samples, fps);
 }
 
+/**
+ * The timeline's audio from `startSample` for `totalSamples` (a range render, S9): placed exactly
+ * as a full render places it — lead-in, trim, gain and fades — and then cut, so a range's sound is
+ * a slice of the full one's.
+ */
+export function placeAudioWindow(source: readonly Float32Array[], placement: AudioPlacement, startSample: number, totalSamples: number): { channels: Float32Array[]; sourceSamples: number; adjustmentSamples: number } {
+  if (startSample <= 0) return placeAudio(source, placement, totalSamples);
+  const whole = placeAudio(source, placement, startSample + totalSamples);
+  // The audio after the window is cut on purpose, so it is not reported as a cut; silence padded
+  // inside the window (it runs past the clip's end) still is.
+  return {
+    ...whole,
+    channels: whole.channels.map((c) => c.slice(startSample)),
+    adjustmentSamples: Math.max(0, Math.min(totalSamples, whole.adjustmentSamples)),
+  };
+}
+
 export function placeAudio(source: readonly Float32Array[], placement: AudioPlacement, totalSamples: number): { channels: Float32Array[]; sourceSamples: number; adjustmentSamples: number } {
   const channelCount = Math.max(1, source.length);
   const available = source[0]?.length ?? 0;
@@ -134,9 +151,9 @@ export function decodeStereo48k(ffmpegExe: string, path: string): Promise<Float3
   });
 }
 
-export async function prepareExportAudio(source: AudioSource, placement: AudioPlacement, totalSamples: number, outPath: string): Promise<PreparedAudio> {
+export async function prepareExportAudio(source: AudioSource, placement: AudioPlacement, totalSamples: number, outPath: string, startSample = 0): Promise<PreparedAudio> {
   const decoded = source.kind === 'file' ? await decodeStereo48k(source.ffmpegExe, source.path) : [...source.channels];
-  const placed = placeAudio(decoded, placement, totalSamples);
+  const placed = placeAudioWindow(decoded, placement, startSample, totalSamples);
   await writeFile(outPath, encodeWavFloat32(placed.channels, EXPORT_SAMPLE_RATE));
   return {
     path: outPath,

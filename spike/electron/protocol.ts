@@ -3,6 +3,7 @@
 import type { AudioPlacement } from '../../src/export/audio.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { MotionBlur } from '../../src/engine/core/time.ts';
+import type { RenderRange } from '../../src/export/range.ts';
 import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import type { RenderReport } from '../../src/export/report.ts';
@@ -79,6 +80,8 @@ export interface ExportConfig {
   dither: boolean;
   /** Motion blur (S10); absent is off. */
   motionBlur?: MotionBlur;
+  /** Part of the timeline (S9); absent is all of it. */
+  range?: RenderRange;
   outputPath: string;
   scratchDir: string;
   settings: EncodeSettings;

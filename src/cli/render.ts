@@ -21,13 +21,17 @@
 //   --motion-blur                average 8 subframes across a 180° shutter (export-spec §9)
 //   --blur-samples N             subframes per frame, 2–32 (implies --motion-blur)
 //   --shutter DEG                shutter angle, 1–360 (implies --motion-blur)
+//   --from X / --to X            render part of the timeline: X is a marker's name, or a time
+//                                (seconds, or m:ss); either may be left out (S9)
 //   --quiet                      only errors and the final line
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { MOTION_BLUR_DEFAULT, motionBlurProblems, type MotionBlur } from '../engine/core/time.ts';
+import { MOTION_BLUR_DEFAULT, TICKS_PER_SECOND, motionBlurProblems, type MotionBlur } from '../engine/core/time.ts';
 import { RenderDocumentError, canvasForAspect as sharedCanvasForAspect, renderDocument } from '../export/render-document.ts';
+import type { Marker } from '../project/document.ts';
+import { loadDocument } from '../project/load.ts';
 import { ROOT } from '../../setup/lib/paths.ts';
 
 export class CliError extends Error {
@@ -49,6 +53,9 @@ export interface Options {
   readonly noCache: boolean;
   readonly seconds: number | undefined;
   readonly motionBlur: MotionBlur | undefined;
+  /** Marker names or times, resolved against the project once it is read. */
+  readonly from: string | undefined;
+  readonly to: string | undefined;
   readonly quiet: boolean;
 }
 
@@ -126,6 +133,8 @@ export function parseArgs(argv: readonly string[]): Options {
     audioOverride: flags.get('audio'),
     seconds,
     motionBlur,
+    from: flags.get('from'),
+    to: flags.get('to'),
     quiet: flags.has('quiet'),
     noCache: flags.has('no-cache'),
   };
@@ -144,6 +153,22 @@ export function canvasForAspect(aspect: string, base: { width: number; height: n
   }
 }
 
+/**
+ * `--from` / `--to` to ticks: a marker's name (case-insensitive, exact), or a time as seconds
+ * ("90", "12.5") or m:ss ("1:30.5"). A name that is not a marker is refused with the list.
+ */
+export function resolveRangeBound(value: string, markers: readonly Marker[]): number {
+  const byName = markers.filter((m) => m.name.toLowerCase() === value.trim().toLowerCase());
+  if (byName.length === 1) return (byName[0] as Marker).ticks;
+  if (byName.length > 1) throw new CliError(`Two markers are called "${value}".`, ['Rename one in the studio, or give a time instead']);
+  const clock = /^(\d+):(\d+(?:\.\d+)?)$/.exec(value.trim());
+  const seconds = clock !== null ? Number(clock[1]) * 60 + Number(clock[2]) : Number(value);
+  if (value.trim() !== '' && Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * TICKS_PER_SECOND);
+  throw new CliError(`"${value}" is neither a marker nor a time.`, [
+    markers.length === 0 ? 'The project has no markers; give seconds or m:ss' : `Markers: ${markers.map((m) => m.name).join(', ')}`,
+  ]);
+}
+
 export async function render(argv: readonly string[]): Promise<void> {
   const options = parseArgs(argv);
   const say = (line: string) => {
@@ -159,8 +184,18 @@ export async function render(argv: readonly string[]): Promise<void> {
   try {
     // The same pipeline the studio's render queue uses (src/export/render-document.ts), so the
     // CLI cannot render differently from the app.
+    const documentText = await readFile(options.projectPath, 'utf8');
+    let range: { inTicks: number; outTicks: number } | undefined;
+    if (options.from !== undefined || options.to !== undefined) {
+      const { document } = loadDocument(documentText);
+      range = {
+        inTicks: options.from === undefined ? 0 : resolveRangeBound(options.from, document.markers),
+        outTicks: options.to === undefined ? Number.MAX_SAFE_INTEGER : resolveRangeBound(options.to, document.markers),
+      };
+    }
     result = await renderDocument({
-      documentText: await readFile(options.projectPath, 'utf8'),
+      documentText,
+      range,
       projectPath: options.projectPath,
       audioOverride: options.audioOverride,
       aspect: options.aspect,

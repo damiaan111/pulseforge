@@ -18,6 +18,8 @@ export interface RenderReport {
   frames: { count: number; combinedSha256: string | undefined };
   /** Motion blur (S10, export-spec §9): null when off. Absent in reports written before it existed. */
   motionBlur?: MotionBlur | null;
+  /** A range render (S9): the ticks asked for and the timeline frames rendered. Null or absent: the whole timeline. */
+  range?: { inTicks: number; outTicks: number; startFrame: number; frames: number } | null;
   encode: {
     settings: EncodeSettings;
     commandLine: string;

@@ -512,6 +512,27 @@ export interface AutomationTrack {
 }
 
 // ---------------------------------------------------------------------------
+// Markers (S9, ui-spec §3)
+// ---------------------------------------------------------------------------
+
+/**
+ * A named, coloured point on the timeline: a snap target, a place to jump to, a render-range bound,
+ * and a "scene change" a binding can react to. Kept sorted by time; two may share a tick.
+ */
+export interface Marker {
+  readonly id: string;
+  /** Timeline ticks. */
+  readonly ticks: number;
+  readonly name: string;
+  /** "#rrggbb", or null for the theme's accent. */
+  readonly color: string | null;
+  readonly extra: Extra;
+}
+
+/** The swatches the marker editor offers; any "#rrggbb" in a file is kept. */
+export const MARKER_COLORS: readonly string[] = ['#e5484d', '#f5a524', '#3ddc97', '#4cc2ff', '#8e7cff', '#ff6fd8'];
+
+// ---------------------------------------------------------------------------
 // The auto-director's record (auto-director-spec §8–§9)
 // ---------------------------------------------------------------------------
 
@@ -604,6 +625,8 @@ export interface ProjectDocument {
   readonly lyrics: Lyrics;
   /** Keyframe tracks (S1, docs/keyframes-spec.md): each replaces its target's base over time. */
   readonly automation: readonly AutomationTrack[];
+  /** Timeline markers (S9), sorted by ticks. */
+  readonly markers: readonly Marker[];
   /** What the auto-director made of this project, when it made it (M21, M22); null otherwise. */
   readonly director: DirectorState | null;
   readonly extra: Extra;

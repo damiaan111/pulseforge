@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ANALYSIS_RATE, type AnalysisSet, type AnalysisTrack } from '../../src/engine/core/analysis.ts';
 import {
-  applyCurve, bindingLevels, compileModulation, modulateValue, sampleCurve, smoothEnvelope, valueNoise,
+  applyCurve, bindingLevels, compileModulation, markerProgress, markerPulse, modulateValue, sampleCurve, smoothEnvelope, valueNoise,
   type ModulationBinding, type ModulationSource,
 } from '../../src/engine/core/modulation.ts';
 import { resolveParams, type ParamSpec } from '../../src/engine/core/params.ts';
@@ -486,5 +486,35 @@ describe("the curve source (the auto-director's arrangement, standing in for key
     const program = compile([binding({ source: source({ type: 'curve', points: [] }) })], EMPTY_ANALYSIS);
     expect(program.issues.map((i) => i.bindingId)).toEqual(['B1']);
     expect(modulateValue(program, TARGET, 0.3, 1)).toBe(0.3);
+  });
+});
+
+describe('marker sources (S9)', () => {
+  const S = 48_000;
+  const markers = [S, 3 * S];
+
+  it('marker: a hit at each marker that falls to nothing in a quarter second', () => {
+    expect(markerPulse(markers, 0.5)).toBe(0);
+    expect(markerPulse(markers, 1)).toBe(1);
+    expect(markerPulse(markers, 1.125)).toBeCloseTo(0.5, 9);
+    expect(markerPulse(markers, 2)).toBe(0);
+    expect(markerPulse(markers, 3)).toBe(1);
+  });
+
+  it('markerProgress: 0 to 1 across each scene, from the start and to the end', () => {
+    expect(markerProgress(markers, 0.5, 4)).toBeCloseTo(0.5, 9);
+    expect(markerProgress(markers, 1, 4)).toBe(0);
+    expect(markerProgress(markers, 2, 4)).toBeCloseTo(0.5, 9);
+    expect(markerProgress(markers, 3.5, 4)).toBeCloseTo(0.5, 9);
+  });
+
+  it('drives a binding, and says so when the project has no markers', () => {
+    const b = binding({ source: source({ type: 'marker' }) });
+    const program = compileModulation({ bindings: [b], analysis: EMPTY_ANALYSIS, durationSeconds: DURATION, seed: 7, markers });
+    expect(program.issues).toEqual([]);
+    expect(bindingLevels(program, 1).get('B1')).toBeCloseTo(1, 6);
+    expect(bindingLevels(program, 2).get('B1')).toBeCloseTo(0, 6);
+    const none = compileModulation({ bindings: [b], analysis: EMPTY_ANALYSIS, durationSeconds: DURATION, seed: 7 });
+    expect(none.issues[0]?.detail).toMatch(/markers/);
   });
 });

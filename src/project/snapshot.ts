@@ -230,6 +230,7 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     globalModulations: [...document.globalModulations, ...groupBindings(document.layers)].map(toEngineBinding),
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
     ...(document.lyrics.lines.length > 0 ? { lyrics: toRenderLyrics(document.lyrics) } : {}),
+    ...(document.markers.length > 0 ? { markerTicks: document.markers.map((m) => m.ticks) } : {}),
     // Keyframes (S1): enabled tracks with keys, palette links in colour keys resolved here, as
     // they are for parameters — the engine never learns palettes exist.
     ...(document.automation.some((t) => t.enabled && t.keyframes.length > 0)

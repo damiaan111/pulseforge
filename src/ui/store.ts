@@ -323,6 +323,9 @@ export interface StudioState {
   /** Selected keyframes (UI only, never undoable): the key editor and the timeline lanes share it. */
   keySelection: readonly string[];
   setKeySelection(ids: readonly string[]): void;
+  /** The selected timeline marker (S9), for Delete and the editor. */
+  markerSelection: string | null;
+  setMarkerSelection(id: string | null): void;
   /** The Settings screen (M36). */
   settingsOpen: boolean;
   setSettingsOpen(open: boolean): void;
@@ -1380,9 +1383,14 @@ export const useStudio = create<StudioState>((set, get) => ({
     if (audio !== null) await get().loadAudio(audio.path);
   },
 
+  markerSelection: null,
+  setMarkerSelection(id) {
+    // One selection at a time on the timeline: a marker and keys never both answer Delete.
+    set(id === null ? { markerSelection: null } : { markerSelection: id, keySelection: [] });
+  },
   keySelection: [],
   setKeySelection(ids) {
-    set({ keySelection: ids });
+    set(ids.length === 0 ? { keySelection: ids } : { keySelection: ids, markerSelection: null });
   },
 
   settingsOpen: false,

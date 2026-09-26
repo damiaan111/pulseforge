@@ -264,6 +264,13 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .transport button { min-width: 30px; }
 .timecode { font-variant-numeric: tabular-nums; color: var(--text-dim); margin-left: 6px; }
 .timeline { display: block; width: 100%; cursor: pointer; }
+.timeline-wrap { position: relative; }
+/* The marker editor (S9): floats under the markers lane at the flag. */
+.marker-editor { position: absolute; z-index: 20; display: flex; gap: 6px; align-items: center; padding: 6px; background: var(--panel-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.marker-editor input { width: 140px; }
+.marker-swatches { display: flex; gap: 3px; }
+.marker-swatches .swatch { width: 16px; height: 16px; min-width: 0; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+.marker-swatches .swatch.selected { border-color: var(--text); }
 
 /* --- toast --------------------------------------------------------------- */
 
@@ -340,6 +347,7 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .batch-problems .warn { color: var(--warn); }
 .queue-shutdown { display: block; margin: 0 0 10px; font-size: 12px; }
 .shutdown-banner { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); z-index: 60; display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-radius: 6px; background: var(--warn); color: #111; font-weight: 600; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
+.export-range { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; padding: 0; border: 0; }
 .export-blur { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; padding: 0; border: 0; }
 .export-blur .dim-text { flex-basis: 100%; }
 .output-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }

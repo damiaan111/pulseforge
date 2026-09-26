@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { findExportPreset } from '../export/export-presets.ts';
 import { ProgressTracker } from '../export/progress.ts';
-import { RenderQueue, type RenderJob } from '../export/queue.ts';
+import { RenderQueue, type JobRange, type RenderJob } from '../export/queue.ts';
 import type { GpuQueue } from '../node/gpu-queue.ts';
 import { renderDocument } from '../export/render-document.ts';
 import { aspectBucket } from '../project/document.ts';
@@ -46,6 +46,8 @@ export interface RenderRequest {
   readonly outputPath: string;
   /** Motion blur (S10); absent or null is off. */
   readonly motionBlur?: MotionBlur | null;
+  /** Part of the timeline (S9); absent or null renders all of it. */
+  readonly range?: JobRange | null;
 }
 
 export interface RenderService {
@@ -59,6 +61,13 @@ export interface RenderService {
   stop(): Promise<void>;
   /** Resolves when nothing is queued or running. */
   idle(): Promise<void>;
+}
+
+/** m:ss.s for a job label. */
+function clock(ticks: number): string {
+  const seconds = ticks / 48_000;
+  const m = Math.floor(seconds / 60);
+  return `${m}:${(seconds - m * 60).toFixed(1).padStart(4, '0')}`;
 }
 
 export class RenderRequestError extends Error {
@@ -92,6 +101,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           size: preset.size ?? undefined,
           codec: preset.codec,
           motionBlur: job.motionBlur ?? undefined,
+          range: job.range ?? undefined,
           outputPath: job.outputPath,
           workDir: join(options.workRoot, job.id),
           cacheRoot: typeof options.cacheRoot === 'function' ? options.cacheRoot() : options.cacheRoot,
@@ -148,8 +158,9 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         aspect: aspectBucket(size.width, size.height),
         presetName: preset.id,
         motionBlur: request.motionBlur ?? null,
+        range: request.range ?? null,
         outputPath: request.outputPath,
-        label: `${document.name} — ${preset.label}${request.motionBlur == null ? '' : ' · motion blur'}`,
+        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}`,
       });
       kick();
       return job;

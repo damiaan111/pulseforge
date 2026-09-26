@@ -271,6 +271,8 @@ export interface CompileOptions {
    * timeline is the file (lead-in and trim both zero).
    */
   readonly placement?: ClipPlacement;
+  /** Timeline markers' ticks, sorted (S9), for the `marker` and `markerProgress` sources. */
+  readonly markers?: readonly number[];
 }
 
 export interface ClipPlacement {
@@ -296,7 +298,7 @@ export interface ModulationProgram {
 const GENERATORS = new Set(['lfo', 'ramp', 'progress', 'noise']);
 
 /** Sources that are 0..1 by definition, so `inputRange: 'auto'` leaves them alone. */
-const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive', 'curve']);
+const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive', 'curve', 'marker', 'markerProgress']);
 
 /** Built once per compile and shared by every lyric binding: the signals scan the lines. */
 const lyricSignalCache = new WeakMap<RenderLyrics, ReturnType<typeof lyricSignals>>();
@@ -427,11 +429,60 @@ function rawSampler(
       }
       return signals[source.type];
     }
+    case 'marker':
+    case 'markerProgress': {
+      const markers = options.markers ?? [];
+      // Said, not silently zero, like the lyric sources: a flat 0 looks like a broken binding.
+      if (markers.length === 0) {
+        return { error: 'unsupported', detail: `"${source.type}" follows the timeline's markers, and the project has none yet; the binding is kept and inactive` };
+      }
+      return source.type === 'marker' ? (t) => markerPulse(markers, t) : (t) => markerProgress(markers, t, durationSeconds);
+    }
     case 'parameter':
       return { error: 'unsupported', detail: 'parameter chaining needs the dependency graph (modulation-spec §9.3); the binding is kept and inactive' };
     default:
       return { error: 'unknown-source', detail: `"${source.type}" is not a modulation source this build knows; the binding is kept and inactive` };
   }
+}
+
+/** How long the `marker` source's hit takes to fall from 1 to 0; the binding's envelope can stretch it. */
+export const MARKER_PULSE_SECONDS = 0.25;
+
+/** Index of the last marker at or before `ticks`, or -1. `markers` is sorted. */
+function lastAtOrBefore(markers: readonly number[], ticks: number): number {
+  let lo = 0;
+  let hi = markers.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if ((markers[mid] as number) <= ticks) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
+/** `marker` (S9): 1 at each marker, falling linearly to 0 over MARKER_PULSE_SECONDS — a scene change as a hit. */
+export function markerPulse(markers: readonly number[], t: number): number {
+  const i = lastAtOrBefore(markers, t * TICKS_PER_SECOND);
+  if (i < 0) return 0;
+  const since = t - (markers[i] as number) / TICKS_PER_SECOND;
+  return Math.max(0, 1 - since / MARKER_PULSE_SECONDS);
+}
+
+/**
+ * `markerProgress` (S9): 0 at a marker rising to 1 at the next — how far through the current scene.
+ * Before the first marker the scene starts at 0; after the last it ends at the timeline's end.
+ */
+export function markerProgress(markers: readonly number[], t: number, durationSeconds: number): number {
+  const i = lastAtOrBefore(markers, t * TICKS_PER_SECOND);
+  const start = i < 0 ? 0 : (markers[i] as number) / TICKS_PER_SECOND;
+  const next = markers[i + 1];
+  const end = next === undefined ? Math.max(durationSeconds, start) : next / TICKS_PER_SECOND;
+  return end - start > 1e-9 ? Math.min(1, Math.max(0, (t - start) / (end - start))) : 1;
 }
 
 /**

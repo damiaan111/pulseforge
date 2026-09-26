@@ -17,6 +17,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { AnalysisCache } from '../analysis/cache.ts';
 import type { MotionBlur } from '../engine/core/time.ts';
+import { rangeFrames, type RenderRange } from './range.ts';
 import { loadImageAssets } from '../assets/load-images.ts';
 import { defaultFontFile, loadFontAssets } from '../assets/fonts.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -26,7 +27,7 @@ import { analyzeCached } from '../analysis/cached.ts';
 import { cacheOptionsFor } from '../analysis/project-settings.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
-import { frameCount, rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
+import { rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { loadDocument } from '../project/load.ts';
 import { timelineDurationTicks, toRenderProject, type SnapshotNote } from '../project/snapshot.ts';
 import type { DocumentIssue } from '../project/parse.ts';
@@ -81,6 +82,8 @@ export interface RenderDocumentOptions {
   readonly codec: VideoCodec;
   /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
   readonly motionBlur?: MotionBlur | undefined;
+  /** Part of the timeline (S9: between markers); absent renders all of it. */
+  readonly range?: RenderRange | undefined;
   readonly outputPath: string;
   /** Scratch: the analysis blob, the encoder's temporary files, the result JSON. */
   readonly workDir: string;
@@ -184,9 +187,15 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   }
 
   const fps = rational(project.canvas.fps.num, project.canvas.fps.den);
-  const frames = frameCount(durationTicks, fps);
+  // A range (S9) renders only its frames; they are counted here so progress and the result agree.
+  let frames: number;
+  try {
+    frames = rangeFrames(options.range, fps, durationTicks).frames;
+  } catch (error) {
+    throw new RenderDocumentError(`The render range does not fit this timeline: ${(error as Error).message}.`, ['Choose a start before the end, inside the timeline']);
+  }
   say(`Rendering ${project.layers.length} layer(s) at ${canvas.width}×${canvas.height} (${aspect}) `
-    + `${fps.num / fps.den} fps, ${frames} frames, ${options.codec}`);
+    + `${fps.num / fps.den} fps, ${frames} frames${options.range === undefined ? '' : ` from ${(options.range.inTicks / TICKS_PER_SECOND).toFixed(2)} s`}, ${options.codec}`);
 
   // Image assets decode here, through the same code the studio preview uses, and cross to the
   // Electron child as raw files. Problems become notes: the render still goes ahead.
@@ -280,6 +289,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     hashFrames: false,
     dither: true,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
+    ...(options.range === undefined ? {} : { range: options.range }),
     runs: 1,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
     onProgress: (line) => {

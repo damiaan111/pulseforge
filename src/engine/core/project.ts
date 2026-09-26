@@ -167,4 +167,6 @@ export interface RenderProject {
    * base value at step 3 of the value pipeline (module-spec §5), before modulation.
    */
   readonly automation?: readonly AutomationTrackSpec[];
+  /** Timeline markers' ticks, sorted (S9): the `marker` and `markerProgress` sources' scene changes. */
+  readonly markerTicks?: readonly number[];
 }

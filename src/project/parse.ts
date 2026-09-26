@@ -19,7 +19,7 @@ import {
   DECISION_STEPS, DIRECTOR_LOCKS, MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
-  MASK_CHANNELS, NAMED_EASINGS, type MaskSettings, type AutomationTrack, type Keyframe, type KeyframeEasing,
+  MASK_CHANNELS, NAMED_EASINGS, type MaskSettings, type AutomationTrack, type Keyframe, type KeyframeEasing, type Marker,
   type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
   type ScaleReference, type SourceSpec, type TimeRange, type Transform,
@@ -661,6 +661,17 @@ function parseTrack(node: Node, issues: DocumentIssue[]): AutomationTrack {
   return { id: node.id('id', node.path), target: node.str('target', '', true), enabled: node.bool('enabled', true), keyframes, extra: node.rest() };
 }
 
+/** Markers (S9): a bad colour falls back to the accent, with an issue; order is by time. */
+function parseMarkers(nodes: readonly Node[], issues: DocumentIssue[]): Marker[] {
+  return nodes.map((n): Marker => {
+    const raw = n.take('color');
+    let color: string | null = null;
+    if (typeof raw === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw)) color = raw.toLowerCase();
+    else if (raw !== undefined && raw !== null) issues.push({ path: `${n.path}.color`, problem: 'invalid-value', detail: `${JSON.stringify(raw)} is not a "#rrggbb" colour; using the accent` });
+    return { id: n.id('id', n.path), ticks: n.ticks('ticks', 0), name: n.str('name', ''), color, extra: n.rest() };
+  }).sort((a, b) => a.ticks - b.ticks);
+}
+
 /**
  * The director's record (auto-director-spec §8–§9). Nothing in it affects a render — the project
  * it made is ordinary layers — so a damaged record is repaired with defaults and reported, never
@@ -842,6 +853,7 @@ function checkReferences(document: ProjectDocument, issues: DocumentIssue[]): vo
       issues.push({ path: `${where}.modulations.${b.id}.target`, problem: 'broken-reference', detail: `"${b.target}" points at layer "${id}", which is not in this project; the binding is kept and inactive` });
     }
   }
+  document.markers.forEach((marker, i) => claim(marker.id, `markers[${i}]`));
   document.automation.forEach((track, i) => {
     claim(track.id, `automation[${i}]`);
     track.keyframes.forEach((k, j) => claim(k.id, `automation[${i}].keyframes[${j}]`));
@@ -892,6 +904,7 @@ export function parseDocument(raw: unknown): ParseResult {
     assets: root.children('assets').map((n) => parseAsset(n, issues)),
     lyrics: parseLyrics(root.child('lyrics'), issues),
     automation: root.children('automation').map((n) => parseTrack(n, issues)),
+    markers: parseMarkers(root.children('markers'), issues),
     director: root.take('director') === undefined || root.take('director') === null ? null : parseDirector(root.child('director')),
     extra: root.rest(RESERVED_DOCUMENT_KEYS),
   };
