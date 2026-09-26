@@ -43,6 +43,7 @@ import { applyAlignment, importLyrics, lyricsToText, setLyricsText, setTranscrib
 import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
 import { sourceToTimelineSeconds } from '../engine/core/time.ts';
 import type { LyricsAlignMode, LyricsAlignProgress, UserSettings } from '../shell/ipc.ts';
+import type { BatchStatus, QueueFinishedEvent } from '../shell/ipc.ts';
 import type { ModuleFolderProblem } from '../modules-folder/scan.ts';
 import { loadTemplates as loadTemplateLibrary, type LoadedTemplate, type TemplateProblem } from '../director/template-library.ts';
 import type { DirectorLock } from '../project/document.ts';
@@ -206,6 +207,23 @@ export interface StudioState {
   setRenders(jobs: readonly RenderJob[]): void;
   setExportOpen(open: boolean): void;
   setQueueOpen(open: boolean): void;
+
+  /** Batch mode (S13): the dialog, the tracks it holds, and the running batch pushed from main. */
+  batchOpen: boolean;
+  batchTracks: readonly string[];
+  batch: BatchStatus | null;
+  /** Opens the dialog, adding `tracks` (a drop, say) to what it already holds. */
+  openBatch(tracks?: readonly string[]): void;
+  setBatchOpen(open: boolean): void;
+  setBatchTracks(tracks: readonly string[]): void;
+  setBatch(status: BatchStatus | null): void;
+  /** "Shut down when done" (export-spec §12), as main holds it. */
+  shutdownWhenDone: boolean;
+  setShutdownWhenDone(on: boolean): Promise<void>;
+  /** A shutdown is scheduled: when it was announced, in seconds of grace; null when none. */
+  shutdownPending: number | null;
+  queueFinished(event: QueueFinishedEvent): void;
+  cancelShutdown(): Promise<void>;
 
   run(command: Command, options?: { seal?: boolean }): void;
   undo(): void;
@@ -747,6 +765,47 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
   setQueueOpen(open) {
     set(open ? { queueOpen: true, matrixOpen: false, lyricsOpen: false, autoOpen: false } : { queueOpen: false });
+  },
+
+  batchOpen: false,
+  batchTracks: [],
+  batch: null,
+  openBatch(tracks = []) {
+    set({ batchOpen: true, batchTracks: [...get().batchTracks, ...tracks] });
+  },
+  setBatchOpen(open) {
+    set({ batchOpen: open });
+  },
+  setBatchTracks(tracks) {
+    set({ batchTracks: tracks });
+  },
+  setBatch(status) {
+    set({ batch: status });
+  },
+  shutdownWhenDone: false,
+  async setShutdownWhenDone(on) {
+    try {
+      set({ shutdownWhenDone: await window.pulseforge.setShutdownWhenDone(on) });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Setting shutdown when done'), kind: 'bad' } });
+    }
+  },
+  shutdownPending: null,
+  queueFinished(event) {
+    // Main clears its flag once it has fired; the checkbox follows.
+    set({
+      shutdownWhenDone: false,
+      shutdownPending: event.shutdownInSeconds,
+      toast: { text: `All renders finished: ${event.done} done${event.failed > 0 ? `, ${event.failed} failed` : ''}.`, kind: event.failed > 0 ? 'warn' : 'ok' },
+    });
+  },
+  async cancelShutdown() {
+    try {
+      await window.pulseforge.cancelShutdown();
+      set({ shutdownPending: null, toast: { text: 'Shutdown cancelled.', kind: 'ok' } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Cancelling the shutdown'), kind: 'bad' } });
+    }
   },
 
   run(command, options) {

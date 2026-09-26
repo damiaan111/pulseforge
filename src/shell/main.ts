@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { BrowserWindow, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
+import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
 import { EXTRAS, EXTRA_ARTEFACTS, WAV2VEC2_EN, type ExtraId } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
@@ -70,7 +70,13 @@ import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
-import { createDocument, createModuleLayer } from '../project/create.ts';
+import { BatchRequestError, completionWatcher, createBatchService, type BatchRequest, type BatchService, type BatchStatus } from './batch-service.ts';
+import { directTrack } from '../batch/direct-track.ts';
+import { BATCH_AUDIO_EXTENSIONS } from '../batch/plan.ts';
+import { loadTemplates } from '../director/template-library.ts';
+import { shaderModuleDefinition } from '../engine/modules/shader-module.ts';
+import type { QueueFinishedEvent } from './ipc.ts';
+import { DEFAULT_ANALYSIS_SETTINGS, createDocument, createModuleLayer } from '../project/create.ts';
 import { stringifyDocument } from '../project/serialize.ts';
 
 /** Library thumbnails: decoded this small, so a panel of fifty costs little. */
@@ -1230,6 +1236,124 @@ function unavailableRenderService(reason: string): RenderService {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Batch mode (S13) and "shut down when done" (export-spec §12, ui-spec §7)
+// ---------------------------------------------------------------------------
+
+/** Set from the queue drawer; cleared once it has fired, so it never carries into the next session's work. */
+let shutdownWhenDone = false;
+/** Seconds between everything finishing and the computer shutting down: time to see it and cancel. */
+const SHUTDOWN_GRACE_SECONDS = 120;
+/** In smoke mode the shutdown is recorded here instead of run — a self-check must never turn the machine off. */
+const smokeShutdownCalls: string[][] = [];
+
+function systemShutdown(args: readonly string[]): void {
+  if (process.env['PULSEFORGE_SMOKE'] === '1') {
+    smokeShutdownCalls.push([...args]);
+    return;
+  }
+  // By absolute path, like every other tool this app runs (CLAUDE.md).
+  const exe = join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32', 'shutdown.exe');
+  spawn(exe, [...args], { windowsHide: true, detached: true, stdio: 'ignore' }).unref();
+}
+
+function onAllFinished(summary: { readonly done: number; readonly failed: number }): void {
+  if (summary.done + summary.failed === 0) return;
+  const shutdown = shutdownWhenDone;
+  shutdownWhenDone = false;
+  const text = `${summary.done} render${summary.done === 1 ? '' : 's'} finished${summary.failed > 0 ? `, ${summary.failed} failed` : ''}.`;
+  log().write('info', 'render', `All work finished: ${text}${shutdown ? ` Shutting down in ${SHUTDOWN_GRACE_SECONDS} s.` : ''}`);
+  if (shutdown) systemShutdown(['/s', '/t', String(SHUTDOWN_GRACE_SECONDS), '/c', `Pulseforge: ${text} Shutting down.`]);
+  if (process.env['PULSEFORGE_SMOKE'] !== '1' && Notification.isSupported()) {
+    new Notification({ title: 'Pulseforge', body: shutdown ? `${text} The computer shuts down in ${SHUTDOWN_GRACE_SECONDS / 60} minutes.` : text }).show();
+  }
+  const event: QueueFinishedEvent = { done: summary.done, failed: summary.failed, shutdownInSeconds: shutdown ? SHUTDOWN_GRACE_SECONDS : null };
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.queueFinished, event);
+}
+
+function registerBatchHandlers(renders: RenderService, onChange: (status: BatchStatus) => void): BatchService {
+  const builtinIds = new Set(BUILTIN_MODULES.map((m) => m.manifest.id));
+  const templateFiles = () => readTemplateFiles({ builtin: join(ROOT, 'templates', 'builtin'), user: templatesFolderPath() });
+  const service = createBatchService({
+    newId,
+    onChange,
+    templateIds: async () => loadTemplates(await templateFiles()).templates.map((t) => t.template.id),
+    async directTrack(track, options) {
+      // Read per track: a template or module added mid-batch is used by the tracks after it.
+      const templates = loadTemplates(await templateFiles()).templates.map((t) => t.template);
+      const scanned = await scanModules(MODULES_DIR, builtinIds);
+      const manifests = [...BUILTIN_MODULES, ...scanned.modules.map(shaderModuleDefinition)].map((m) => m.manifest);
+      const byId = new Map(manifests.map((m) => [m.id, m]));
+      const settings = currentSettings;
+      return directTrack(track, {
+        ffmpegExe: FFMPEG_EXE,
+        cacheRoot: analysisCacheRoot(),
+        templates,
+        modules: { get: (id) => byId.get(id), all: manifests },
+        preset: options.preset,
+        templateId: options.templateId,
+        appVersion: packageVersion(),
+        ...(options.stems ? {
+          separateStems: async (audioPath: string) => {
+            if (!existsSync(join(MODELS, 'demucs', 'htdemucs.yaml'))) throw new Error('the stems part of setup is not installed');
+            await gpuQueue.run('ml', `Stems: ${basename(audioPath)}`, () => separateStems({
+              ffmpegExe: FFMPEG_EXE,
+              sidecar: sidecar(),
+              cacheRoot: analysisCacheRoot(),
+              stemsRoot: join(cacheRootPath(), 'stems'),
+              scratchDir: scratchPath(),
+              modelRepo: join(MODELS, 'demucs'),
+              audioPath,
+              // New projects use the default model; the stem model setting is honoured here too.
+              settings: { ...DEFAULT_ANALYSIS_SETTINGS, stemModel: settings.stemModel },
+            }));
+          },
+        } : {}),
+      });
+    },
+    async enqueue(request) {
+      await renders.enqueue({
+        text: await readFile(request.projectPath, 'utf8'),
+        projectPath: request.projectPath,
+        presetId: request.presetId,
+        outputPath: request.outputPath,
+        motionBlur: request.motionBlur,
+      });
+    },
+  });
+
+  ipcMain.handle(IPC.batchPickTracks, async (): Promise<readonly string[]> => {
+    // The smoke check's own song, as "Import audio…" answers, instead of a dialog nobody is there to answer.
+    if (smokeAudioPath !== null) return [smokeAudioPath];
+    const result = await dialog.showOpenDialog({
+      title: 'Add tracks to the batch',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Audio', extensions: BATCH_AUDIO_EXTENSIONS.map((e) => e.slice(1)) }, { name: 'All files', extensions: ['*'] }],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+  ipcMain.handle(IPC.batchStart, async (_event, request: BatchRequest) => {
+    try {
+      const missing = (Array.isArray(request?.tracks) ? request.tracks : []).filter((t) => typeof t !== 'string' || !existsSync(t));
+      if (missing.length > 0) throw new BatchRequestError(`Not found: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` and ${missing.length - 3} more` : ''}`);
+      return await service.start(request);
+    } catch (error) {
+      throw error instanceof BatchRequestError ? new Error(error.message) : describe(error);
+    }
+  });
+  ipcMain.handle(IPC.batchCancel, () => service.cancel());
+  ipcMain.handle(IPC.batchStatus, () => service.status());
+  ipcMain.handle(IPC.queueSetShutdown, (_event, on: unknown): boolean => {
+    shutdownWhenDone = on === true;
+    return shutdownWhenDone;
+  });
+  ipcMain.handle(IPC.queueCancelShutdown, (): void => {
+    systemShutdown(['/a']);
+    log().write('info', 'render', 'Scheduled shutdown cancelled.');
+  });
+  return service;
+}
+
 function registerRenderHandlers(renders: RenderService): void {
   const needId = (id: unknown): string => {
     if (typeof id !== 'string') throw new Error('a render job id is required');
@@ -1412,6 +1536,10 @@ app.whenReady().then(async () => {
   // A queue that cannot start must not take the studio down with it: editing still works, and
   // rendering explains itself when used.
   const loggedJobStatus = new Map<string, string>();
+  // "When everything is finished" (export-spec §12): a notification, and the shutdown if asked for.
+  // Batches count as work too — the queue is briefly empty between two directed tracks.
+  let batchService: BatchService | null = null;
+  const completion = completionWatcher((summary) => onAllFinished(summary));
   let renders: RenderService;
   try {
     renders = await createRenderService({
@@ -1428,6 +1556,7 @@ app.whenReady().then(async () => {
           log().write(job.status === 'failed' ? 'error' : 'info', 'render', `${job.label}: ${job.status}${job.error === null ? '' : ` — ${job.error}`}`, { id: job.id, output: job.outputPath, report: job.reportPath });
         }
         for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.renderChanged, jobs);
+        completion.update(jobs, batchService?.busy() ?? false);
       },
     });
   } catch (error) {
@@ -1437,6 +1566,10 @@ app.whenReady().then(async () => {
   }
   registerRenderHandlers(renders);
   rendersForDiagnostics = () => renders.list();
+  batchService = registerBatchHandlers(renders, (status) => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.batchChanged, status);
+    completion.update(renders.list(), batchService?.busy() ?? status.state === 'running');
+  });
 
   // A render runs in its own Electron process, which would outlive the app if the app simply
   // quit. Cancel it first; the queue records it as cancelled and the child is killed.
@@ -2186,6 +2319,25 @@ app.whenReady().then(async () => {
       await new Promise((done) => setTimeout(done, 50));
       const exportDialog = presets >= 6 && blurToggles && document.querySelector('#app .export-dialog') === null;
 
+      // Batch mode (S13): the top bar opens the dialog, which starts empty and cannot start; a drop
+      // of something that is not audio on disk is answered rather than ignored; the queue drawer
+      // offers "Shut down when done". The batch itself is run from the main process below.
+      document.querySelector('#app header button[data-action="batch"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const batchDialog = await waitFor(() => document.querySelector('#app .batch-dialog'), 40);
+      const startDisabled = document.querySelector('#app [data-action="batch-start"]')?.disabled === true;
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['x'], 'not-on-disk.wav', { type: 'audio/wav' }));
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      const dropAnswered = (await waitFor(() => (document.querySelector('#app .toast')?.textContent ?? '').includes('Drop audio files'), 40)) === true;
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const batchClosed = (await waitFor(() => document.querySelector('#app .batch-dialog') === null, 40)) === true;
+      document.querySelector('#app header button[data-action="render-queue"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const shutdownOffered = (await waitFor(() => document.querySelector('#app [data-action="shutdown-when-done"]') !== null, 40)) === true;
+      document.querySelector('#app header button[data-action="render-queue"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const batchSteps = { dialog: batchDialog !== null && batchDialog !== false, startDisabled, dropAnswered, batchClosed, shutdownOffered };
+      const batchUi = Object.values(batchSteps).every(Boolean);
+      if (!batchUi) console.error('[smoke] batchUi steps ' + JSON.stringify(batchSteps));
+
       // Crash recovery (M1), last because it replaces the project: the seeded autosave of a
       // "crashed" run is offered on start with its summary, and Restore opens it — unsaved — with
       // its layer. (The main process then checks the old session was let go and this one holds a
@@ -2239,6 +2391,7 @@ app.whenReady().then(async () => {
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
         exportDialog,
+        batchUi,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;
@@ -2292,6 +2445,43 @@ app.whenReady().then(async () => {
         && (JSON.parse(readFileSync(finished.reportPath, 'utf8')) as { motionBlur?: { samples: number } | null }).motionBlur?.samples === 4;
       if (!blurred) console.error('[smoke] queuedRender: the report does not record the motion blur');
       checks['queuedRender'] = finished?.status === 'done' && existsSync(output) && finished.progress?.fraction === 1 && blurred;
+    }
+
+    // Batch mode (S13), from the main process: the smoke song becomes an auto-directed project in its
+    // own folder, queued for rendering. Without a smoke render the queued job is cancelled (a
+    // full-length render is minutes); with one, it renders with "shut down when done" on, and the
+    // shutdown is requested — recorded, never run, in smoke mode.
+    if (batchService !== null && smokeAudioPath !== null) {
+      const batchDir = join(ROOT, 'out', 'smoke-batch');
+      await rm(batchDir, { recursive: true, force: true });
+      const renderToo = smokeAudio !== undefined && smokeAudio !== '';
+      if (renderToo) shutdownWhenDone = true;
+      const before = new Set(renders.list().map((job) => job.id));
+      const started = await batchService.start({ tracks: [smokeAudioPath], outDir: batchDir, presetId: 'project-h264', templateId: null, seed: 1, stems: false, motionBlur: null });
+      await batchService.settled();
+      const status = batchService.status();
+      const track = status?.tracks[0];
+      const job = renders.list().find((entry) => !before.has(entry.id));
+      const project = track === undefined || !existsSync(track.projectPath) ? null : loadDocument(readFileSync(track.projectPath, 'utf8')).document;
+      let rendered = true;
+      if (job !== undefined && renderToo) {
+        await Promise.race([renders.idle(), new Promise((done) => setTimeout(done, 240_000))]);
+        const finishedJob = renders.list().find((entry) => entry.id === job.id);
+        rendered = finishedJob?.status === 'done' && existsSync(finishedJob.outputPath)
+          && smokeShutdownCalls.some((call) => call[0] === '/s');
+      } else if (job !== undefined) {
+        await renders.cancel(job.id);
+      }
+      const steps = {
+        started: started.tracks.length === 1,
+        queued: status?.state === 'finished' && track?.state === 'queued',
+        project: project !== null && project.layers.length > 0 && project.director !== null,
+        job: job !== undefined && job.outputPath === track?.outputPath,
+        rendered,
+      };
+      checks['batchRun'] = Object.values(steps).every(Boolean);
+      if (!checks['batchRun']) console.error(`[smoke] batchRun steps ${JSON.stringify(steps)} ${JSON.stringify(status)}`);
+      shutdownWhenDone = false;
     }
 
     const failed = [...(settled ? [] : ["settled"]), ...Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name)];
@@ -2460,6 +2650,12 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
       if (easing) { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(easing, 'easeInOut'); easing.dispatchEvent(new Event('change', { bubbles: true })); }
       document.querySelector('#app [data-testid="key-editor"]')?.scrollIntoView()`);
     await snap(`${label}-12-keyframes`);
+    // Batch mode (S13): the dialog with two tracks in it.
+    await js(`${click('#app header button[data-action="batch"]')}; await new Promise((d) => setTimeout(d, 200));
+      ${click('#app [data-action="batch-add"]')}; await new Promise((d) => setTimeout(d, 300));
+      ${click('#app [data-action="batch-add"]')}; await new Promise((d) => setTimeout(d, 300))`);
+    await snap(`${label}-13-batch`);
+    await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     // Settings (M36), then the whole studio in the light theme, then back to dark.
     const theme = (value: string) => `
       const select = document.querySelector('#app [data-setting="theme"]');

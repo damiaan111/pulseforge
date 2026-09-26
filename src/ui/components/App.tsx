@@ -5,7 +5,9 @@ import { useEffect } from 'react';
 
 import { useStudio } from '../store.ts';
 import { CanvasPane } from './CanvasPane.tsx';
+import { BatchDialog } from './BatchDialog.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
+import { isBatchAudio } from '../../batch/plan.ts';
 import { SavePresetDialog } from './SavePresetDialog.tsx';
 import { RenderQueue } from './RenderQueue.tsx';
 import { ModulationMatrix } from './Modulation.tsx';
@@ -18,6 +20,19 @@ import { LeftRail } from './LeftRail.tsx';
 import { Timeline } from './Timeline.tsx';
 import { TopBar } from './TopBar.tsx';
 import { TransportBar } from './TransportBar.tsx';
+
+/** A scheduled shutdown stays on screen, with its cancel, until cancelled or the machine goes down. */
+function ShutdownBanner(): React.JSX.Element | null {
+  const pending = useStudio((s) => s.shutdownPending);
+  const cancel = useStudio((s) => s.cancelShutdown);
+  if (pending === null) return null;
+  return (
+    <div className="shutdown-banner" role="alert" data-testid="shutdown-banner">
+      Everything is finished. The computer shuts down in {Math.round(pending / 60)} minutes.
+      <button type="button" data-action="shutdown-cancel" onClick={() => void cancel()}>Cancel shutdown</button>
+    </div>
+  );
+}
 
 export function App(): React.JSX.Element {
   const toast = useStudio((s) => s.toast);
@@ -41,6 +56,47 @@ export function App(): React.JSX.Element {
       off();
     };
   }, [setRenders]);
+
+  // Batch mode (S13): the running batch is pushed from main; "all finished" too (export-spec §12).
+  const setBatch = useStudio((s) => s.setBatch);
+  const queueFinished = useStudio((s) => s.queueFinished);
+  useEffect(() => {
+    let alive = true;
+    void window.pulseforge.batchStatus().then((status) => {
+      if (alive) setBatch(status);
+    });
+    const offBatch = window.pulseforge.onBatchChanged(setBatch);
+    const offFinished = window.pulseforge.onQueueFinished(queueFinished);
+    return () => {
+      alive = false;
+      offBatch();
+      offFinished();
+    };
+  }, [setBatch, queueFinished]);
+
+  // Audio files dropped anywhere on the window go to the batch dialog ("drop 10 tracks in", S13).
+  // Other drops (a layer row being dragged) are left to the element they land on.
+  const openBatch = useStudio((s) => s.openBatch);
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') === true;
+    const over = (event: DragEvent) => {
+      if (hasFiles(event)) event.preventDefault();
+    };
+    const drop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      const files = [...(event.dataTransfer?.files ?? [])];
+      const paths = files.map((file) => window.pulseforge.pathForFile(file)).filter((path) => path !== '' && isBatchAudio(path));
+      if (paths.length > 0) openBatch(paths);
+      else if (files.length > 0) notify({ text: 'Drop audio files (WAV, MP3, FLAC, …) to render them as a batch.', kind: 'warn' });
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('drop', drop);
+    };
+  }, [openBatch, notify]);
 
   // Stem separation progress, pushed from the main process while Demucs runs (M5).
   const reportStemsProgress = useStudio((s) => s.reportStemsProgress);
@@ -108,6 +164,7 @@ export function App(): React.JSX.Element {
         if (state.settingsOpen) state.setSettingsOpen(false);
         else if (state.presetDialog !== null) state.setPresetDialog(null);
         else if (state.exportOpen) state.setExportOpen(false);
+        else if (state.batchOpen) state.setBatchOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.matrixOpen) state.setMatrixOpen(false);
         else if (state.lyricsOpen) state.setLyricsOpen(false);
@@ -164,9 +221,11 @@ export function App(): React.JSX.Element {
       <LyricsDrawer />
       <AutoDrawer />
       <ExportDialog />
+      <BatchDialog />
       <SettingsDialog />
       <SavePresetDialog />
       <RecoveryDialog />
+      <ShutdownBanner />
       {toast === null ? null : (
         <button type="button" className={`toast ${toast.kind}`} onClick={() => notify(null)}>
           {toast.text}

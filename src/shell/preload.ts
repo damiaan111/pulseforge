@@ -8,7 +8,7 @@
 // Arguments are passed straight through and validated on the main side (they arrive from a
 // renderer that, in principle, could be running a third-party module).
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC, type ProjectFile, type PulseforgeApi, type RenderJob, type SaveRequest, type SaveResult } from './ipc.ts';
 // (SaveResult stays imported for saveProject's cast.)
 
@@ -130,6 +130,33 @@ const api: PulseforgeApi = {
     ipcRenderer.on(IPC.renderChanged, handler);
     return () => {
       ipcRenderer.removeListener(IPC.renderChanged, handler);
+    };
+  },
+  pickBatchTracks: () => ipcRenderer.invoke(IPC.batchPickTracks) as ReturnType<PulseforgeApi['pickBatchTracks']>,
+  pathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
+  startBatch: (request) => ipcRenderer.invoke(IPC.batchStart, request) as ReturnType<PulseforgeApi['startBatch']>,
+  cancelBatch: () => ipcRenderer.invoke(IPC.batchCancel) as Promise<void>,
+  batchStatus: () => ipcRenderer.invoke(IPC.batchStatus) as ReturnType<PulseforgeApi['batchStatus']>,
+  onBatchChanged(listener) {
+    const handler = (_event: unknown, status: Parameters<typeof listener>[0]) => listener(status);
+    ipcRenderer.on(IPC.batchChanged, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.batchChanged, handler);
+    };
+  },
+  setShutdownWhenDone: (on) => ipcRenderer.invoke(IPC.queueSetShutdown, on) as Promise<boolean>,
+  cancelShutdown: () => ipcRenderer.invoke(IPC.queueCancelShutdown) as Promise<void>,
+  onQueueFinished(listener) {
+    const handler = (_event: unknown, finished: Parameters<typeof listener>[0]) => listener(finished);
+    ipcRenderer.on(IPC.queueFinished, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.queueFinished, handler);
     };
   },
 };

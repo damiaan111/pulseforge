@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1119 tests, `npm run golden` 29/29 identical,
-> `--smoke` 30/30 (31/31 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1132 tests, `npm run golden` 29/29 identical,
+> `--smoke` 32/32 (33/33 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -54,11 +54,13 @@
 > feathered, and a mask source is hidden unless shown. So is motion blur (S10, §4.66): an export
 > option that averages 4–16 subframes across a 90–360° shutter, in the export dialog and the CLI.
 > And the 6-stem model (S6, §4.67): `htdemucs_6s` is an optional model that adds guitar and piano
-> stems, chosen per project.
+> stems, chosen per project. And batch mode (S13, §4.68): drop tracks onto the studio, or
+> `npm run batch`, and each becomes an auto-directed project and a render, with a notification and
+> an optional shutdown when everything is finished.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — Shadertoy
-> compatibility (S2), markers (S9), LUTs (S11), the performance HUD (S12), batch rendering (S13),
-> karaoke export (S15), librosa (S16), Unicode fonts (S17) and draft mode (S18).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — markers (S9),
+> Shadertoy compatibility (S2), LUTs (S11), the performance HUD (S12), karaoke export (S15),
+> librosa (S16), Unicode fonts (S17) and draft mode (S18).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -141,6 +143,7 @@
 | 4.65 | Masking (P8 step 3) — S7 |
 | 4.66 | Motion blur (P8 step 4) — S10 |
 | 4.67 | The 6-stem model (P8 step 5) — S6 |
+| 4.68 | Batch mode (P8 step 6) — S13 |
 
 ---
 
@@ -252,6 +255,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
+| `npm run batch` | `-- <tracks or folders…> -o <folder>`; `--preset`, `--template`, `--seed`, `--stems`, `--motion-blur`, `--seconds`, `--direct-only` — every track auto-directed into a project and rendered (§4.68) | minutes per track |
 | `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet`, `--motion-blur`, `--blur-samples N`, `--shutter DEG` | seconds |
 | `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d, lyrics) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
 | `npm run presets:builtin` | regenerate `presets/builtin/` from `scripts/make-builtin-presets.ts` (refuses unknown modules/keys); commit the diff | ~2 s |
@@ -3541,6 +3545,102 @@ other four.
 - The first `npm run check` of this step had one test file time out in setup (302 s, 24 tests
   skipped). The two full runs after it passed 1119/1119, and no stray Electron, Python or FFmpeg
   process was left. It did not recur; noted in case it does.
+
+### 4.68 Batch mode (P8 step 6) — S13, export-spec §12
+
+**What it does.** "Drop 10 tracks in, auto-direct and render them all overnight." Every track
+becomes its own project, auto-directed exactly as Generate does it and saved as `<name>.pvproj` in
+the output folder (so it can be opened and changed later), and a video beside it.
+
+- **In the studio:**
+  - **Batch…** in the top bar, or **drop audio files anywhere on the window**, opens the Batch
+    dialog. It shows the tracks (add more, remove, clear), the export preset, the template ("Best
+    match for each track", or one for all), a seed, **Separate stems first**, **Motion blur**, and
+    the output folder.
+  - **Start** hands the batch to the main process and opens the render queue. Each track is queued
+    for rendering the moment it is directed, so the first video renders while the rest are still
+    being directed. Renders go ahead of stem separation on the GPU (M28).
+  - The queue drawer shows the batch: how many tracks are directed, which one is being directed,
+    every track that failed or was skipped with the reason, and any notes (stems that could not be
+    separated). **Cancel batch** stops directing more tracks. Renders already queued stay, and can
+    be cancelled one by one.
+- **When everything is finished** (every queued render done and no batch still directing): a
+  desktop notification ("3 renders finished, 1 failed") and a toast. With **Shut down when done**
+  ticked in the queue drawer, Windows is asked to shut down after **two minutes**. A banner says so,
+  with **Cancel shutdown** (`shutdown /a`). The tick clears once it has fired, so it never carries
+  over into later work.
+- **CLI:** `npm run batch -- <tracks or folders…> -o <folder>`:
+  - `--preset` (default `youtube-1080p`), `--template`, `--seed`, `--stems`, `--motion-blur`;
+  - `--seconds N` for a quick look at a batch;
+  - `--direct-only` to write the projects and render nothing.
+  - It directs every track first, so a bad file shows up in the first minute rather than at 3 a.m.,
+    then renders them one after another.
+  - It writes `batch-report.json` in the output folder: every track, its template and summary, its
+    notes, its status and any error, and the render time. The exit code is 1 if any track failed.
+
+**How.**
+- `src/batch/plan.ts` (pure, shared by the dialog, the main process and the CLI):
+  - each track's name is its file name, cleaned of characters Windows refuses, with "name (2)" for
+    a repeat;
+  - its project and video paths;
+  - its seed, `hash32(batch seed, name)`: the same batch gives the same looks, and each track differs.
+- `src/batch/direct-track.ts` (Node), for one track:
+  - optionally separates stems; a failure there becomes a note, and the track is directed from the
+    mix alone;
+  - decodes and analyses through the studio's analysis cache (a track the studio has seen is a hit);
+  - creates the project **at the preset's canvas**, so a Shorts batch is laid out for vertical;
+  - runs `direct` with the vocal segments, as the studio's Generate does;
+  - writes the project with its paths stored relative where they can be.
+- `src/shell/batch-service.ts` (Node, directing and queueing injected): one batch at a time, request
+  validation, a status per track (waiting, directing, queued, failed, skipped), and cancel. It also
+  has `completionWatcher`, which fires once when the work runs out. Last session's finished jobs
+  count as history, and the moment between two directed tracks does not count as finished.
+- **Main process:** the real `directTrack`, with templates and drop-in modules re-read per track,
+  and stems through the GPU queue and the sidecar. It enqueues into the existing render queue, so a
+  batch's renders snapshot, persist, retry and report like any other. Shutdown runs `shutdown.exe`
+  from System32 by absolute path. In smoke mode the call is recorded instead.
+- **Preload:** `webUtils.getPathForFile` gives a dropped file its path. The page never sees the
+  file system otherwise.
+
+**Decisions (ROADMAP §4):**
+- **A drop of audio files opens the Batch dialog**, even for one file. The dialog is where the
+  output folder and preset are chosen, and "Import audio" stays the way to put a track into the
+  open project.
+- **A folder given to the CLI is read one level deep**, not recursively. A music library's subfolders
+  are usually albums, and rendering all of them by accident would be an overnight mistake.
+- **The shutdown waits two minutes**, cancellable from the banner or with `shutdown /a`.
+
+**Not done:** export-spec §14's free-space precheck before each render (estimated size against the
+disk) is still open, for single renders as well as batches.
+
+**Measured here** (the CLI on the owner's music folder):
+- Directing all 11 tracks took 0.2–5.4 s each; a cache hit is 0.2 s. They got varied looks: Minimal
+  Type, Cinematic Particles and Cinematic Depth, in gold, pink, magenta, orange and cyan.
+- Two tracks as 10-second Shorts: 28 s end to end, both videos verified.
+
+**Verified here:**
+- `npm run check` **1132 tests**:
+  - `tests/batch/batch.test.ts`:
+    - the plan: names, paths, collisions and seeds;
+    - the CLI's arguments and refusals;
+    - track collection from files and folders, and what it skips;
+    - `directTrack` end to end with FFmpeg: a failed stem separation becomes a note, and the project
+      opens with no issues, at the preset's shape, with its seed, layers, director roll and track.
+  - `tests/shell/batch-service.test.ts`:
+    - every track queued in order;
+    - a failure marked and the batch carries on;
+    - cancel skips the rest, and one batch runs at a time;
+    - bad requests refused;
+    - the completion watcher fires once, not for history, and not while directing.
+- `npm run golden` 29/29.
+- `--smoke` **32/32**, and **33/33** with `PULSEFORGE_SMOKE_RENDER`:
+  - `batchUi`: Batch… opens the dialog, which starts empty and cannot start. A drop of a file with
+    no path on disk is answered with a toast. Escape closes it, and the queue drawer offers "Shut
+    down when done".
+  - `batchRun`: the smoke song is batched from the main process into its own folder; the project
+    opens with layers and a director roll, and its render is queued. With the smoke render it
+    renders to a verified file, and "shut down when done" requests `shutdown /s` (recorded, not run).
+- The UI tour adds `13-batch`: the dialog with two tracks.
 
 ---
 

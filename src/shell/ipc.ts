@@ -100,11 +100,31 @@ export const IPC = {
   renderRemove: 'pf:render:remove',
   renderClearFinished: 'pf:render:clear-finished',
   renderReveal: 'pf:render:reveal',
-  /** Main → renderer: the queue changed. The only channel pushed rather than asked for. */
+  /** Main → renderer: the queue changed. */
   renderChanged: 'pf:render:changed',
+  batchPickTracks: 'pf:batch:pick-tracks',
+  batchStart: 'pf:batch:start',
+  batchCancel: 'pf:batch:cancel',
+  batchStatus: 'pf:batch:status',
+  /** Main → renderer: the batch's status changed. */
+  batchChanged: 'pf:batch:changed',
+  queueSetShutdown: 'pf:queue:set-shutdown',
+  queueCancelShutdown: 'pf:queue:cancel-shutdown',
+  /** Main → renderer: every queued render and batch is finished. */
+  queueFinished: 'pf:queue:finished',
 } as const;
 
+/** Pushed when all work is finished (export-spec §12): how it went, and a shutdown if one was asked for. */
+export interface QueueFinishedEvent {
+  readonly done: number;
+  readonly failed: number;
+  /** Seconds until the computer shuts down; null when "shut down when done" was off. */
+  readonly shutdownInSeconds: number | null;
+}
+
 export type { RenderJob, JobStatus, RenderRequest, ModuleScan };
+export type { BatchRequest, BatchStatus, BatchTrackStatus } from './batch-service.ts';
+import type { BatchRequest, BatchStatus } from './batch-service.ts';
 export type { Settings as UserSettings } from './settings-store.ts';
 export type { LyricsAlignResult, LyricsAlignProgress, LyricsAlignMode } from '../ml/lyrics-align.ts';
 import type { LyricsAlignMode, LyricsAlignProgress, LyricsAlignResult } from '../ml/lyrics-align.ts';
@@ -551,6 +571,23 @@ export interface PulseforgeApi {
   revealRender(path: string): Promise<void>;
   /** Subscribes to queue changes; returns the unsubscribe function. */
   onRendersChanged(listener: (jobs: readonly RenderJob[]) => void): () => void;
+
+  // Batch mode (S13).
+  /** A multi-select open dialog for audio files; empty when cancelled. */
+  pickBatchTracks(): Promise<readonly string[]>;
+  /** The file-system path of a dropped file (Electron's webUtils); '' when it has none. */
+  pathForFile(file: File): string;
+  /** Plans and starts a batch; each track is queued for rendering as soon as it is directed. */
+  startBatch(request: BatchRequest): Promise<BatchStatus>;
+  /** Stops directing further tracks; queued renders stay in the queue. */
+  cancelBatch(): Promise<void>;
+  batchStatus(): Promise<BatchStatus | null>;
+  onBatchChanged(listener: (status: BatchStatus) => void): () => void;
+  /** "Shut down when done" (export-spec §12, ui-spec §7). */
+  setShutdownWhenDone(on: boolean): Promise<boolean>;
+  /** Aborts a shutdown that has been scheduled. */
+  cancelShutdown(): Promise<void>;
+  onQueueFinished(listener: (event: QueueFinishedEvent) => void): () => void;
 }
 
 declare global {

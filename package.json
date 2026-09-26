@@ -18,6 +18,7 @@
     "validate": "node --disable-warning=ExperimentalWarning spike/validate.ts",
     "golden": "node --disable-warning=ExperimentalWarning spike/golden.ts",
     "render": "node --disable-warning=ExperimentalWarning src/cli/render.ts",
+    "batch": "node --disable-warning=ExperimentalWarning src/cli/batch.ts",
     "dev": "node --disable-warning=ExperimentalWarning scripts/app.ts --dev",
     "build": "node --disable-warning=ExperimentalWarning scripts/app.ts",
     "modules:check": "node --disable-warning=ExperimentalWarning scripts/check-modules.ts",

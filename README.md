@@ -302,8 +302,12 @@ curve editor, in the inspector and on the timeline. Mask any layer by another's 
 brightness, inverted and feathered. Export with film-like motion blur (a tick box in the export
 dialog, or `--motion-blur` on the command line).
 
-**Still to come:** the rest of the Should-have list — Shadertoy shaders, markers,
-LUTs, a performance HUD, batch rendering and more.
+**Batch:** drop a stack of tracks onto the window (or `npm run batch -- <folder> -o <out>`), and
+each becomes its own auto-directed project and video, rendered one after another, with a
+notification when they are done and, if you ask, the computer shutting down after.
+
+**Still to come:** the rest of the Should-have list — markers, Shadertoy shaders, LUTs, a
+performance HUD and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

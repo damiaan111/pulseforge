@@ -70,6 +70,9 @@ export function TopBar(): React.JSX.Element {
       <button type="button" data-action="settings" title="Settings (Ctrl+,)" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
         ⚙
       </button>
+      <button type="button" data-action="batch" title="Auto-direct and render many tracks — or drop audio files onto the window" onClick={() => useStudio.getState().openBatch()}>
+        Batch…
+      </button>
       <button type="button" className="primary" data-action="export" title="Ctrl+E" onClick={() => setExportOpen(true)}>
         ▸ Export
       </button>
