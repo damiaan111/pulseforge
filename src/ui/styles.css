@@ -556,6 +556,7 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .key-chip.selected { color: var(--accent); }
 .key-editor { display: grid; gap: 4px; margin-top: 6px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius); }
 .key-editor input[type="number"] { width: 80px; }
+.with-unit { display: inline-flex; align-items: center; gap: 4px; }
 .curve-editor { justify-self: center; touch-action: none; }
 .curve-box { fill: none; stroke: var(--line); }
 .curve-arm { stroke: var(--text-dim); stroke-width: 1; }

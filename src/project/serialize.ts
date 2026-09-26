@@ -153,6 +153,11 @@ function layerJson(layer: Layer): Json {
     blend: layer.blend,
     opacity: layer.opacity,
     maskLayerId: layer.maskLayerId,
+    // Written only when not the defaults, so every file saved before S7 keeps its bytes.
+    ...(layer.mask.channel !== 'alpha' || layer.mask.invert || layer.mask.feather !== 0
+      ? { mask: { channel: layer.mask.channel, invert: layer.mask.invert, feather: layer.mask.feather } }
+      : {}),
+    ...(layer.maskSourceVisible ? { maskSourceVisible: true } : {}),
   };
   const tail: Json = {
     effects: layer.effects.map(effectJson),

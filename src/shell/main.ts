@@ -2136,6 +2136,30 @@ app.whenReady().then(async () => {
         if (!keyframeUi) console.error('[smoke] keyframeUi steps ' + JSON.stringify(steps));
       }
 
+      // Masking (S7): an Orb masked by a Bars layer — the mask options appear, the source's
+      // inspector says it masks the orb and offers to show it, and the frame renders without warnings.
+      let maskUi = false;
+      {
+        const add = (name) => [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === name)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        add('Bars');
+        await new Promise((done) => setTimeout(done, 150));
+        const barsId = document.querySelector('#app .layer-list .layer-row.selected')?.getAttribute('data-layer');
+        add('Orb');
+        await new Promise((done) => setTimeout(done, 150));
+        const source = document.querySelector('#app [data-action="mask-source"]');
+        if (source !== null && barsId) {
+          Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(source, barsId);
+          source.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const options = await waitFor(() => document.querySelector('#app [data-action="mask-channel"]'), 40);
+        const undoText = document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '';
+        [...document.querySelectorAll('#app .layer-list .layer-row')].find((r) => r.getAttribute('data-layer') === barsId)?.querySelector('.layer-name')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const offered = await waitFor(() => document.querySelector('#app [data-action="mask-source-visible"]'), 40);
+        const steps = { barsId: Boolean(barsId), options: options !== null && options !== false, undo: undoText.includes('Set mask'), offered: offered !== null && offered !== false };
+        maskUi = Object.values(steps).every(Boolean);
+        if (!maskUi) console.error('[smoke] maskUi steps ' + JSON.stringify(steps));
+      }
+
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2193,6 +2217,7 @@ app.whenReady().then(async () => {
         diagnosticsUi,
         extrasUi,
         keyframeUi,
+        maskUi,
         ...(stemsUi === undefined ? {} : { stemsUi }),
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
@@ -2385,17 +2410,35 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(click('#app header button[data-action="auto-drawer"]'));
     await js(`${click('#app [data-action="auto-generate"]')}; await new Promise((d) => setTimeout(d, 1500))`);
     await snap(`${label}-10a-auto-generated`);
-    // Keyframes (S1): the Bars layer from the smoke's keyframe check is animated; select it, so the
-    // inspector's Keyframes section and the timeline's keyframe row are both in view.
-    await js(`[...document.querySelectorAll('#app .layer-list .layer-row')].find((r) => (r.textContent ?? '').includes('Bars'))?.querySelector('.layer-name')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
-    await js(`document.querySelector('#app [data-testid="keyframes-section"]')?.scrollIntoView(); ${click('#app [data-testid="keyframes-section"] .key-chip')}`);
-    await snap(`${label}-12-keyframes`);
     await js(`${click('#app [data-action="auto-surprise"]')}; await new Promise((d) => setTimeout(d, 800))`);
     await js(`${click('#app [data-action="auto-surprise"]')}; await new Promise((d) => setTimeout(d, 1500))`);
     await snap(`${label}-10b-auto-rolls`);
     await js(`document.querySelector('#app [data-testid="auto-log"]')?.scrollIntoView()`);
     await snap(`${label}-10c-auto-log`);
     await js(click('#app header button[data-action="auto-drawer"]'));
+    // Keyframes (S1): the recovery check replaced the project, so the tour animates a layer of its
+    // own — a Bars layer keyed at 5 s and 20 s — and shows the Keyframes section, the key editor
+    // and the timeline's keyframe row.
+    await js(`[...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); await new Promise((d) => setTimeout(d, 200))`);
+    const seekTo = (seconds: number) => `
+      const timeline = document.querySelector('#app [data-testid="timeline"]');
+      const box = timeline.getBoundingClientRect();
+      const at = { clientX: box.left + 8 + (${seconds} / 60) * (box.width - 16), clientY: box.top + 10, pointerId: 9, bubbles: true };
+      timeline.dispatchEvent(new PointerEvent('pointerdown', at));
+      timeline.dispatchEvent(new PointerEvent('pointerup', at));
+      await new Promise((d) => setTimeout(d, 200))`;
+    await js(seekTo(5));
+    await js(click('#app .inspector .param-group [data-action="keyframe"]'));
+    await js(seekTo(20));
+    await js(`
+      const range = document.querySelector('#app .inspector .param-group input[type="range"]');
+      if (range) { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(range, range.max); range.dispatchEvent(new Event('input', { bubbles: true })); range.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); }`);
+    await js(`document.querySelector('#app [data-testid="keyframes-section"]')?.scrollIntoView(); ${click('#app [data-testid="keyframes-section"] .key-chip')}`);
+    await js(`
+      const easing = document.querySelector('#app [data-action="key-easing"]');
+      if (easing) { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(easing, 'easeInOut'); easing.dispatchEvent(new Event('change', { bubbles: true })); }
+      document.querySelector('#app [data-testid="key-editor"]')?.scrollIntoView()`);
+    await snap(`${label}-12-keyframes`);
     // Settings (M36), then the whole studio in the light theme, then back to dark.
     const theme = (value: string) => `
       const select = document.querySelector('#app [data-setting="theme"]');

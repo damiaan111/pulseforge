@@ -11,7 +11,7 @@ import {
   type AnalysisSettings, type AudioSettings, type CanvasSettings, type EffectSpec,
   type GroupLayer, type ModulationBinding, type ModuleLayer, type Palette,
   type ProjectDocument,
-} from './document.ts';
+ DEFAULT_MASK } from './document.ts';
 import { newId } from './ids.ts';
 import { rational } from '../engine/core/time.ts';
 import { STANDARD_BANDS } from '../analysis/spectrum.ts';
@@ -120,6 +120,8 @@ export function createModuleLayer(module: string, options: CreateLayerOptions = 
     blend: options.blend ?? 'normal',
     opacity: options.opacity ?? 1,
     maskLayerId: null,
+    mask: DEFAULT_MASK,
+    maskSourceVisible: false,
     params: options.params ?? {},
     paramsSchemaVersion: options.paramsSchemaVersion ?? 1,
     effects: [],
@@ -146,6 +148,8 @@ export function createGroupLayer(
     blend: options.blend ?? 'normal',
     opacity: options.opacity ?? 1,
     maskLayerId: null,
+    mask: DEFAULT_MASK,
+    maskSourceVisible: false,
     children,
     effects: [],
     modulations: [],

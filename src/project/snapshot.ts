@@ -153,17 +153,23 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
   const containsSolo = (layer: Layer): boolean =>
     layer.soloed || (layer.kind === 'group' && layer.children.some(containsSolo));
 
+  // Masks (S7): which layers are some layer's mask source, and which ids exist to point at.
+  const layerIds = new Set([...walkLayers(document.layers)].map(({ layer }) => layer.id));
+  const maskSources = new Set([...walkLayers(document.layers)].flatMap(({ layer }) => (layer.maskLayerId !== null && layerIds.has(layer.maskLayerId) ? [layer.maskLayerId] : [])));
+
   let index = 0;
   const convert = (layer: Layer, soloedAbove: boolean): LayerSpec | GroupLayerSpec => {
     const path = `layers[${index}]`;
     index += 1;
     const override = layer.aspectOverrides[aspect];
     const soloed = soloedAbove || layer.soloed;
-    const enabled = layer.enabled && (!anySoloed || soloed || containsSolo(layer));
+    const shownBySolo = !anySoloed || soloed || containsSolo(layer);
+    // A mask source is hidden from the picture unless it is also meant to be seen (compositor-spec
+    // §5), and solo hides it from the picture but not from the layers it masks (§ solo rule).
+    const isMaskSource = maskSources.has(layer.id);
+    const enabled = layer.enabled && (shownBySolo || isMaskSource);
+    const maskOnly = isMaskSource && (!layer.maskSourceVisible || !shownBySolo);
 
-    if (layer.maskLayerId !== null) {
-      notes.push({ path, detail: 'masking (S7) is not implemented; the layer renders unmasked' });
-    }
     let blend: BlendMode = 'normal';
     if (ENGINE_BLEND_MODES.includes(layer.blend)) {
       blend = layer.blend as BlendMode;
@@ -179,7 +185,14 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
       timeRange: { inTicks: layer.timeRange.inTicks, outTicks: layer.timeRange.outTicks },
       transform: resolveTransform(layer, override),
       effects: layer.effects.map((effect) => toEngineEffect(effect, document.palette, `${path}.effects.${effect.id}`, notes)),
+      ...(maskOnly ? { maskOnly: true } : {}),
+      ...(layer.maskLayerId !== null && layerIds.has(layer.maskLayerId)
+        ? { mask: { sourceId: layer.maskLayerId, channel: layer.mask.channel, invert: layer.mask.invert, feather: layer.mask.feather } }
+        : {}),
     };
+    if (layer.maskLayerId !== null && !layerIds.has(layer.maskLayerId)) {
+      notes.push({ path, detail: `its mask layer "${layer.maskLayerId}" is not in the project; the layer renders unmasked` });
+    }
 
     if (layer.kind === 'group') {
       return { ...common, kind: 'group', children: layer.children.map((child) => convert(child, soloed)) };

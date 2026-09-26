@@ -444,94 +444,137 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
        * Depth is bounded: a document is loaded from disk and could nest arbitrarily, and each
        * level costs a render target.
        */
+      // Every layer by id, at any depth: a mask's source can live anywhere in the project.
+      const specsById = new Map<string, AnyLayerSpec>();
+      const index = (specs: readonly AnyLayerSpec[]): void => {
+        for (const spec of specs) {
+          specsById.set(spec.id, spec);
+          if (isGroupSpec(spec)) index(spec.children);
+        }
+      };
+      index(project.layers);
+      /** Layers whose mask is being built right now: a chain that comes back to one is a cycle. */
+      const masking = new Set<string>();
+
+      /**
+       * Masking (S7, compositor-spec §5): the source is built like any layer (module, effects,
+       * transform, opacity) and handed to the compositor with the target. A source that is off
+       * leaves the target unmasked; one that is not on screen at this moment is an empty mask.
+       */
+      const withMask = (layer: AnyLayerSpec, depth: number, built: CompositeLayer): CompositeLayer => {
+        const mask = layer.mask;
+        if (mask === undefined) return built;
+        const source = specsById.get(mask.sourceId);
+        if (source === undefined) {
+          warnings.push(`layer ${layer.id}: its mask layer "${mask.sourceId}" is not in the project; it renders unmasked`);
+          return built;
+        }
+        if (!source.enabled) return built;
+        if (masking.has(source.id) || source.id === layer.id) {
+          warnings.push(`layer ${layer.id}: masks form a cycle through "${source.id}"; this mask is ignored`);
+          return built;
+        }
+        masking.add(layer.id);
+        const sourceLayer = buildOne(source, depth);
+        masking.delete(layer.id);
+        return { ...built, mask: { layer: sourceLayer, channel: mask.channel, invert: mask.invert, feather: Math.max(0, mask.feather) } };
+      };
+
+      /** One layer as the compositor draws it, or null when there is nothing to draw now. */
+      const buildOne = (layer: AnyLayerSpec, depth: number): CompositeLayer | null => {
+        if (!layer.enabled) return null;
+        if (!layerIsLive(layer.timeRange, tick)) return null;
+
+        const baseTransform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
+        const tp = `layers.${layer.id}.transform.`;
+        const transform = automation.size === 0 ? baseTransform : {
+          ...baseTransform,
+          x: automatedNumber(`${tp}x`, baseTransform.x),
+          y: automatedNumber(`${tp}y`, baseTransform.y),
+          scaleX: automatedNumber(`${tp}scaleX`, baseTransform.scaleX),
+          scaleY: automatedNumber(`${tp}scaleY`, baseTransform.scaleY),
+          rotationDeg: automatedNumber(`${tp}rotationDeg`, baseTransform.rotationDeg),
+        };
+        const canvas = canvasFor(transform.scaleReference);
+        const layerTime = layerSeconds(layer.timeRange);
+        let inverseTransform: Mat3 | undefined;
+        if (!isIdentityTransform(transform)) {
+          const inverse = layerMatrix(transform, width, height).inverse;
+          if (inverse === null) {
+            // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
+            // out loud, because an invisible layer with no explanation is a long afternoon.
+            warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
+            return null;
+          }
+          inverseTransform = inverse;
+        }
+        // Opacity is a modulation target too (`layers.<id>.opacity`): the auto-director's section
+        // presence curves fade optional layers in and out on section boundaries this way.
+        const opacityTarget = `layers.${layer.id}.opacity`;
+        const baseOpacity = automatedNumber(opacityTarget, layer.opacity);
+        const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, baseOpacity, t) : baseOpacity));
+        if (program.targets.has(opacityTarget)) modulatedValues.set(opacityTarget, opacity);
+        // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
+        if (opacity <= 0) return null;
+        const common = {
+          opacity,
+          blend: layer.blend,
+          ...(inverseTransform === undefined ? {} : { inverseTransform }),
+        };
+
+        if (isGroupSpec(layer)) {
+          if (depth >= MAX_GROUP_DEPTH) {
+            warnings.push(`group ${layer.id}: groups are nested more than ${MAX_GROUP_DEPTH} deep; this one and its children are not rendered`);
+            return null;
+          }
+          const children = buildLayers(layer.children, depth + 1);
+          return withMask(layer, depth, {
+            ...common,
+            draw: (target) => compositor.drawInto(target, children),
+            effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `group ${layer.id}`, canvas, layerTime),
+          });
+        }
+
+        const definition = registry.get(layer.module);
+        if (definition === undefined) {
+          // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).
+          warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
+          return null;
+        }
+        // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
+        // evaluator; everything else resolves exactly as it did before modulation existed.
+        // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
+        // on 'min' and a full-bleed background on 'max' each get the number they need.
+        const layerModulation = modulationFor(`layers.${layer.id}.params.`);
+        const resolved = resolveParams(definition.manifest.params, automated(`layers.${layer.id}.params.`, definition.manifest.params, layer.params), layerModulation);
+        recordModulated(`layers.${layer.id}.params.`, layerModulation, resolved.values);
+        if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
+        const instance = instanceFor(layer.id, definition);
+        if (instance === undefined) {
+          warnings.push(`layer ${layer.id}: module "${layer.module}" is broken and is not rendered — ${broken.get(layer.module) ?? 'it could not be created'}`);
+          return null;
+        }
+
+        return withMask(layer, depth, {
+          ...common,
+          draw: (target) => {
+            instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, depth: null, outputTarget: target }, resolved.values);
+            return instance.depth?.() ?? null;
+          },
+          effects: buildEffects(
+            layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime,
+            definition.manifest.kind === 'scene3d',
+          ),
+        });
+      };
+
       const buildLayers = (specs: readonly AnyLayerSpec[], depth: number): CompositeLayer[] => {
         const built: CompositeLayer[] = [];
         for (const layer of specs) {
-          if (!layer.enabled) continue;
-          if (!layerIsLive(layer.timeRange, tick)) continue;
-
-          const baseTransform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
-          const tp = `layers.${layer.id}.transform.`;
-          const transform = automation.size === 0 ? baseTransform : {
-            ...baseTransform,
-            x: automatedNumber(`${tp}x`, baseTransform.x),
-            y: automatedNumber(`${tp}y`, baseTransform.y),
-            scaleX: automatedNumber(`${tp}scaleX`, baseTransform.scaleX),
-            scaleY: automatedNumber(`${tp}scaleY`, baseTransform.scaleY),
-            rotationDeg: automatedNumber(`${tp}rotationDeg`, baseTransform.rotationDeg),
-          };
-          const canvas = canvasFor(transform.scaleReference);
-          const layerTime = layerSeconds(layer.timeRange);
-          let inverseTransform: Mat3 | undefined;
-          if (!isIdentityTransform(transform)) {
-            const inverse = layerMatrix(transform, width, height).inverse;
-            if (inverse === null) {
-              // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
-              // out loud, because an invisible layer with no explanation is a long afternoon.
-              warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
-              continue;
-            }
-            inverseTransform = inverse;
-          }
-          // Opacity is a modulation target too (`layers.<id>.opacity`): the auto-director's section
-          // presence curves fade optional layers in and out on section boundaries this way.
-          const opacityTarget = `layers.${layer.id}.opacity`;
-          const baseOpacity = automatedNumber(opacityTarget, layer.opacity);
-          const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, baseOpacity, t) : baseOpacity));
-          if (program.targets.has(opacityTarget)) modulatedValues.set(opacityTarget, opacity);
-          // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
-          if (opacity <= 0) continue;
-          const common = {
-            opacity,
-            blend: layer.blend,
-            ...(inverseTransform === undefined ? {} : { inverseTransform }),
-          };
-
-          if (isGroupSpec(layer)) {
-            if (depth >= MAX_GROUP_DEPTH) {
-              warnings.push(`group ${layer.id}: groups are nested more than ${MAX_GROUP_DEPTH} deep; this one and its children are not rendered`);
-              continue;
-            }
-            const children = buildLayers(layer.children, depth + 1);
-            built.push({
-              ...common,
-              draw: (target) => compositor.drawInto(target, children),
-              effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `group ${layer.id}`, canvas, layerTime),
-            });
-            continue;
-          }
-
-          const definition = registry.get(layer.module);
-          if (definition === undefined) {
-            // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).
-            warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
-            continue;
-          }
-          // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
-          // evaluator; everything else resolves exactly as it did before modulation existed.
-          // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
-          // on 'min' and a full-bleed background on 'max' each get the number they need.
-          const layerModulation = modulationFor(`layers.${layer.id}.params.`);
-          const resolved = resolveParams(definition.manifest.params, automated(`layers.${layer.id}.params.`, definition.manifest.params, layer.params), layerModulation);
-          recordModulated(`layers.${layer.id}.params.`, layerModulation, resolved.values);
-          if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
-          const instance = instanceFor(layer.id, definition);
-          if (instance === undefined) {
-            warnings.push(`layer ${layer.id}: module "${layer.module}" is broken and is not rendered — ${broken.get(layer.module) ?? 'it could not be created'}`);
-            continue;
-          }
-
-          built.push({
-            ...common,
-            draw: (target) => {
-              instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, depth: null, outputTarget: target }, resolved.values);
-              return instance.depth?.() ?? null;
-            },
-            effects: buildEffects(
-              layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime,
-              definition.manifest.kind === 'scene3d',
-            ),
-          });
+          // A mask source is drawn only as its target's mask, unless it is also meant to be seen.
+          if (layer.maskOnly === true) continue;
+          const one = buildOne(layer, depth);
+          if (one !== null) built.push(one);
         }
         return built;
       };

@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1104 tests, `npm run golden` 29/29 identical,
-> `--smoke` 29/29, `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1109 tests, `npm run golden` 29/29 identical,
+> `--smoke` 30/30, `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -50,8 +50,11 @@
 > in the studio — diamonds and auto-key in the inspector, a key editor with easing presets and a
 > Bézier curve editor, and keyframe rows in the timeline (drag, snap, Alt-copy, Delete).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): masking (S7), motion blur (S10),
-> the 6-stem model (S6) and the rest of P8.
+> Masking (S7) is done too (§4.65): any layer masks another by shape or brightness, inverted and
+> feathered, and a mask source is hidden unless shown.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): motion blur (S10), the 6-stem
+> model (S6) and the rest of P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -131,6 +134,7 @@
 | | **P8 — Should-haves** |
 | 4.63 | Keyframes: spec, model, commands, engine (P8 step 1) — S1 |
 | 4.64 | Keyframes in the studio: inspector, key editor, timeline rows (P8 step 2) — S1 complete |
+| 4.65 | Masking (P8 step 3) — S7 |
 
 ---
 
@@ -3343,7 +3347,69 @@ the timeline's automation lanes.
   - the section lists two chips, a picked chip opens the key editor, and Ease in and out shows the
     curve editor;
   - Delete removes the selected key.
-- The UI tour adds `12-keyframes`, but the shot is taken with the Auto drawer still open, so the keyframe section and rows are not in view yet. **Open item:** close the drawer and scroll the timeline before that shot, then look at the rows by eye.
+- The UI tour adds `12-keyframes`. It first had the Auto drawer covering the inspector, and the recovery check had already replaced the animated project. The tour now closes the drawer and animates a Bars layer of its own (keys at 5 s and 20 s, ease in and out). The shot shows the Keyframes section, the key editor with its curve, and the timeline row with both diamonds (§4.65).
+
+### 4.65 Masking (P8 step 3) — S7, compositor-spec §5
+
+**What it does.**
+- Any layer can mask another. The masked layer shows only where its mask layer is (**alpha**), or
+  as much as the mask layer is bright there (**luma**, read from its premultiplied colour, so it is
+  already weighted by coverage).
+- **Invert** flips it. **Feather** softens the edge, as a blur radius of 0 to 25% of the frame's short side.
+- **The mask is in canvas space.** The source is drawn into a frame-sized target exactly as it would
+  be drawn in the picture (its module, effects, transform and opacity), and the target layer is
+  multiplied by it where it is composited. So a shape masks what is under it on screen, after both
+  layers' transforms (proposed; ROADMAP §4).
+- **A mask source is hidden from the picture** unless **Also show it** is on: using a shape as a
+  mask would otherwise also draw it.
+- **Solo** hides a mask source from the picture but not from the layers it masks.
+- A group can be masked, and can be a mask.
+
+**Rules, reported rather than guessed (CLAUDE.md #4):**
+- A **cycle** (A masks B masks … A) is refused when the mask is set (`setLayerMask` walks the chain),
+  and if one arrives in a file, the engine ignores that mask with a warning.
+- A mask pointing at a layer that is not there is noted in the snapshot and in the load issues; the
+  layer renders unmasked.
+- A mask source that is **off** leaves its target unmasked. One that is **not on screen at this
+  moment** (outside its time range, or faded to 0) is an empty mask: the target is hidden, or fully
+  shown when inverted.
+
+**How.**
+- `LayerMaskSpec` and `maskOnly` go in the render project.
+- The engine builds a mask's source through the ordinary layer path: `buildLayers` was split into
+  `buildOne`, which a mask calls. A cycle guard sits along the chain.
+- The compositor has `renderMask`: it draws the source into a transparent frame-sized target and
+  applies the feather as two separable 17-tap Gaussian passes. The fixed taps keep it deterministic
+  and constant in cost.
+- `maskValue()` is in both layer shaders (the plain and the separable-blend one), so every blend
+  mode masks.
+- In the document, the existing `maskLayerId` is joined by `mask: {channel, invert, feather}` and
+  `maskSourceVisible`. Both are saved only when not at their defaults, so every earlier file keeps
+  its bytes; a feather out of range is clamped with an issue.
+- **Inspector → Mask:**
+  - "Masked by" (any other layer);
+  - Use: its shape or its brightness;
+  - Invert;
+  - Feather;
+  - on a source, which layers it masks, and **Also show it**.
+
+**Not done (compositor-spec §5's optional `maskMode`):** `stencil-in` and `stencil-out` are exactly
+alpha and inverted alpha here, so no separate mode was added.
+
+**Verified here:**
+- `npm run check` **1109 tests**:
+  - `tests/project/mask.test.ts`: setting, self and cycle refusal, the options with the feather
+    clamp, the source visibility, the round-trip, and pre-S7 bytes unchanged;
+  - the snapshot test: the mask carried, the source mask-only unless shown, a missing source noted.
+- GPU (`tests/golden/mask-gpu.test.ts`), red masked by a half-frame box:
+  - alpha shows only the left half, and the box itself is not drawn;
+  - invert shows the right half;
+  - luma of a dark (#202020) box lets through a little red;
+  - a 0.25 feather is soft at the edge and full in the middle;
+  - a shown source is drawn too.
+- `npm run golden` 29/29: the new shader branch is off for unmasked layers.
+- `--smoke` **30/30**. New `maskUi`: an Orb masked by a Bars layer is one undo step ("Set mask"),
+  the options appear, and the Bars layer's inspector offers "Also show it".
 
 ---
 

@@ -50,6 +50,18 @@ export interface CompositeLayer {
    * passed here as null.
    */
   readonly inverseTransform?: Mat3;
+  /**
+   * Masking (S7, compositor-spec §5): `layer` is drawn into a frame-sized target (its own module,
+   * effects, transform and opacity) and multiplies this layer where it is composited. A null
+   * layer is an empty mask — the source is not on screen at this moment.
+   */
+  readonly mask?: {
+    readonly layer: CompositeLayer | null;
+    readonly channel: 'alpha' | 'luma';
+    readonly invert: boolean;
+    /** Blur radius as a fraction of the frame's short side. */
+    readonly feather: number;
+  };
 }
 
 const LAYER_FRAG = /* glsl */ `#version 300 es
@@ -59,6 +71,19 @@ uniform float u_opacity;
 uniform bool u_transformed;
 uniform mat3 u_inverse;   // canvas pixels -> layer pixels
 out vec4 outColor;
+uniform bool u_masked;
+uniform sampler2D u_mask;
+uniform int u_maskChannel;   // 0 alpha, 1 luma
+uniform bool u_maskInvert;
+// Canvas-space mask (compositor-spec §5): the source layer as drawn into the frame, so a shape
+// masks what is under it on screen, after both layers' transforms. Luma reads the premultiplied
+// colour, which is already weighted by the source's alpha.
+float maskValue() {
+  if (!u_masked) return 1.0;
+  vec4 m = texelFetch(u_mask, ivec2(gl_FragCoord.xy), 0);
+  float v = u_maskChannel == 1 ? clamp(dot(m.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0) : clamp(m.a, 0.0, 1.0);
+  return u_maskInvert ? 1.0 - v : v;
+}
 void main() {
   vec4 src;
   if (u_transformed) {
@@ -73,8 +98,8 @@ void main() {
   } else {
     src = texelFetch(u_layer, ivec2(gl_FragCoord.xy), 0);
   }
-  // Premultiplied: opacity scales colour and alpha together.
-  outColor = src * u_opacity;
+  // Premultiplied: opacity and the mask scale colour and alpha together.
+  outColor = src * (u_opacity * maskValue());
 }
 `;
 
@@ -100,6 +125,19 @@ uniform bool u_transformed;
 uniform mat3 u_inverse;
 uniform int u_mode;
 out vec4 outColor;
+uniform bool u_masked;
+uniform sampler2D u_mask;
+uniform int u_maskChannel;   // 0 alpha, 1 luma
+uniform bool u_maskInvert;
+// Canvas-space mask (compositor-spec §5): the source layer as drawn into the frame, so a shape
+// masks what is under it on screen, after both layers' transforms. Luma reads the premultiplied
+// colour, which is already weighted by the source's alpha.
+float maskValue() {
+  if (!u_masked) return 1.0;
+  vec4 m = texelFetch(u_mask, ivec2(gl_FragCoord.xy), 0);
+  float v = u_maskChannel == 1 ? clamp(dot(m.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0) : clamp(m.a, 0.0, 1.0);
+  return u_maskInvert ? 1.0 - v : v;
+}
 
 vec3 softLight(vec3 s, vec3 b) {
   vec3 d = mix(sqrt(b), ((16.0 * b - 12.0) * b + 4.0) * b, step(b, vec3(0.25)));
@@ -141,12 +179,35 @@ void main() {
   } else {
     src = texelFetch(u_layer, ivec2(gl_FragCoord.xy), 0);
   }
-  src *= u_opacity;
+  src *= u_opacity * maskValue();
   vec4 dst = texelFetch(u_backdrop, ivec2(gl_FragCoord.xy), 0);
   vec3 cs = src.a > 0.0 ? src.rgb / src.a : vec3(0.0);
   vec3 cb = dst.a > 0.0 ? dst.rgb / dst.a : vec3(0.0);
   vec3 rgb = (1.0 - dst.a) * src.rgb + (1.0 - src.a) * dst.rgb + src.a * dst.a * blendMode(cs, cb);
   outColor = vec4(rgb, src.a + dst.a - src.a * dst.a);
+}
+`;
+
+/**
+ * The mask's feather (compositor-spec §5): a separable Gaussian, 17 taps per pass, the step scaled
+ * to the radius. Fixed taps, so it costs the same at every radius and is deterministic.
+ */
+const FEATHER_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D u_src;
+uniform vec2 u_step;   // pixels between taps, along one axis
+out vec4 outColor;
+void main() {
+  vec2 size = vec2(textureSize(u_src, 0));
+  vec2 uv = gl_FragCoord.xy / size;
+  vec4 acc = vec4(0.0);
+  float total = 0.0;
+  for (int i = -8; i <= 8; i++) {
+    float w = exp(-float(i * i) / 32.0);
+    acc += texture(u_src, uv + u_step * float(i) / size) * w;
+    total += w;
+  }
+  outColor = acc / total;
 }
 `;
 
@@ -198,6 +259,10 @@ export class Compositor {
     opacity: WebGLUniformLocation;
     transformed: WebGLUniformLocation;
     inverse: WebGLUniformLocation;
+    masked: WebGLUniformLocation;
+    mask: WebGLUniformLocation;
+    maskChannel: WebGLUniformLocation;
+    maskInvert: WebGLUniformLocation;
   };
   private readonly blendProgram: WebGLProgram;
   private readonly blendUniforms: {
@@ -207,7 +272,13 @@ export class Compositor {
     transformed: WebGLUniformLocation;
     inverse: WebGLUniformLocation;
     mode: WebGLUniformLocation;
+    masked: WebGLUniformLocation;
+    mask: WebGLUniformLocation;
+    maskChannel: WebGLUniformLocation;
+    maskInvert: WebGLUniformLocation;
   };
+  private readonly featherProgram: WebGLProgram;
+  private readonly featherUniforms: { src: WebGLUniformLocation; step: WebGLUniformLocation };
   private readonly outputProgram: WebGLProgram;
   private readonly outputUniforms: {
     composite: WebGLUniformLocation;
@@ -229,6 +300,10 @@ export class Compositor {
       opacity: uniformLocation(gl, this.layerProgram, 'u_opacity'),
       transformed: uniformLocation(gl, this.layerProgram, 'u_transformed'),
       inverse: uniformLocation(gl, this.layerProgram, 'u_inverse'),
+      masked: uniformLocation(gl, this.layerProgram, 'u_masked'),
+      mask: uniformLocation(gl, this.layerProgram, 'u_mask'),
+      maskChannel: uniformLocation(gl, this.layerProgram, 'u_maskChannel'),
+      maskInvert: uniformLocation(gl, this.layerProgram, 'u_maskInvert'),
     };
     this.blendProgram = createProgram(gl, 'compositor.blend', FULLSCREEN_VERT, BLEND_FRAG);
     this.blendUniforms = {
@@ -238,6 +313,15 @@ export class Compositor {
       transformed: uniformLocation(gl, this.blendProgram, 'u_transformed'),
       inverse: uniformLocation(gl, this.blendProgram, 'u_inverse'),
       mode: uniformLocation(gl, this.blendProgram, 'u_mode'),
+      masked: uniformLocation(gl, this.blendProgram, 'u_masked'),
+      mask: uniformLocation(gl, this.blendProgram, 'u_mask'),
+      maskChannel: uniformLocation(gl, this.blendProgram, 'u_maskChannel'),
+      maskInvert: uniformLocation(gl, this.blendProgram, 'u_maskInvert'),
+    };
+    this.featherProgram = createProgram(gl, 'compositor.feather', FULLSCREEN_VERT, FEATHER_FRAG);
+    this.featherUniforms = {
+      src: uniformLocation(gl, this.featherProgram, 'u_src'),
+      step: uniformLocation(gl, this.featherProgram, 'u_step'),
     };
     this.outputProgram = createProgram(gl, 'compositor.output', FULLSCREEN_VERT, OUTPUT_FRAG);
     this.outputUniforms = {
@@ -323,6 +407,9 @@ export class Compositor {
         target = runEffectChain(gl, this.pool, target, layer.effects, depth);
       }
 
+      // The mask: its source drawn into a frame-sized target, feathered, bound on unit 2.
+      const maskTarget = layer.mask === undefined ? null : this.renderMask(layer.mask, width, height);
+
       const transformed = layer.inverseTransform !== undefined;
       const shaderMode = SHADER_BLENDS.indexOf(layer.blend);
       // A shader-blended mode reads the backdrop, and a pass may not read the target it writes
@@ -361,7 +448,27 @@ export class Compositor {
         gl.uniform1i(this.blendUniforms.backdrop, 1);
         gl.uniform1i(this.blendUniforms.mode, shaderMode);
       }
+      gl.uniform1i(u.masked, maskTarget === null ? 0 : 1);
+      if (maskTarget !== null && layer.mask !== undefined) {
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, maskTarget.texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.uniform1i(u.mask, 2);
+        gl.uniform1i(u.maskChannel, layer.mask.channel === 'luma' ? 1 : 0);
+        gl.uniform1i(u.maskInvert, layer.mask.invert ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE0);
+      } else {
+        // Sampled only when masked, but a sampler must still name a unit that has no conflict.
+        gl.uniform1i(u.mask, 2);
+      }
       drawFullscreenTriangle(gl, this.vao);
+      if (maskTarget !== null) {
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        gl.activeTexture(gl.TEXTURE0);
+        this.pool.release(maskTarget);
+      }
       if (backdrop !== null) {
         gl.bindTexture(gl.TEXTURE_2D, null);
         gl.activeTexture(gl.TEXTURE0);
@@ -372,7 +479,40 @@ export class Compositor {
     }
   }
 
+  /** Draws a mask's source into a transparent frame-sized target and feathers it. */
+  private renderMask(mask: NonNullable<CompositeLayer['mask']>, width: number, height: number): RenderTarget {
+    const gl = this.gl;
+    let target = this.pool.acquire(width, height, 'rgba16f');
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    resetState(gl, width, height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (mask.layer !== null) this.drawInto(target, [mask.layer]);
+    const radius = Math.max(0, mask.feather) * Math.min(width, height);
+    if (radius >= 0.5) {
+      // Sigma is 4 taps; taps are radius/8 apart, so the blur reaches about the radius.
+      for (const [dx, dy] of [[radius / 8, 0], [0, radius / 8]] as const) {
+        const next = this.pool.acquire(width, height, 'rgba16f');
+        gl.bindFramebuffer(gl.FRAMEBUFFER, next.framebuffer);
+        resetState(gl, width, height);
+        gl.useProgram(this.featherProgram);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, target.texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.uniform1i(this.featherUniforms.src, 0);
+        gl.uniform2f(this.featherUniforms.step, dx, dy);
+        drawFullscreenTriangle(gl, this.vao);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        this.pool.release(target);
+        target = next;
+      }
+    }
+    return target;
+  }
+
   dispose(): void {
+    this.gl.deleteProgram(this.featherProgram);
     this.gl.deleteProgram(this.layerProgram);
     this.gl.deleteProgram(this.blendProgram);
     this.gl.deleteProgram(this.outputProgram);

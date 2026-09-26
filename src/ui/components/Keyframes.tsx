@@ -205,6 +205,7 @@ function KeyEditor(props: { keyframe: Keyframe; track: AutomationTrack }): React
     <div className="key-editor" data-testid="key-editor">
       <label className="field">
         <span>Time</span>
+        <span className="with-unit">
         <input
           type="number"
           step={0.01}
@@ -217,6 +218,7 @@ function KeyEditor(props: { keyframe: Keyframe; track: AutomationTrack }): React
           }}
         />
         <span className="dim">s</span>
+        </span>
       </label>
       <div className="field"><span>Value</span><span>{String(keyframe.value)}</span></div>
       <label className="field">

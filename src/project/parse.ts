@@ -19,7 +19,7 @@ import {
   DECISION_STEPS, DIRECTOR_LOCKS, MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
-  NAMED_EASINGS, type AutomationTrack, type Keyframe, type KeyframeEasing,
+  MASK_CHANNELS, NAMED_EASINGS, type MaskSettings, type AutomationTrack, type Keyframe, type KeyframeEasing,
   type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
   type ScaleReference, type SourceSpec, type TimeRange, type Transform,
@@ -499,6 +499,8 @@ function parseLayer(node: Node, issues: DocumentIssue[]): Layer {
     blend: node.oneOf<DocumentBlendMode>('blend', BLEND_MODES, 'normal'),
     opacity: node.num('opacity', 1, { min: 0, max: 1 }),
     maskLayerId: node.nullableStr('maskLayerId'),
+    mask: parseMask(node.child('mask')),
+    maskSourceVisible: node.bool('maskSourceVisible', false),
     effects: node.children('effects').map(parseEffect),
     modulations: node.children('modulations').map((n) => parseBinding(n, issues)),
     aspectOverrides: parseAspectOverrides(node, issues),
@@ -619,6 +621,15 @@ function parseAsset(node: Node, issues: DocumentIssue[]): AssetRef {
  * start is reported and its end moved to the start, never swapped — swapping would invent a timing
  * nobody set. Line breaks inside a line are joined: a line is one line, wrapping is the layer's job.
  */
+/** Mask settings (S7); absent means the defaults, which is how every file before S7 reads. */
+function parseMask(node: Node): MaskSettings {
+  return {
+    channel: node.oneOf('channel', MASK_CHANNELS, 'alpha'),
+    invert: node.bool('invert', false),
+    feather: node.num('feather', 0, { min: 0, max: 0.25 }),
+  };
+}
+
 /**
  * A keyframe track (S1). Keys are sorted and a duplicate tick is reported and dropped to one — two
  * keys on one tick would make the value there ambiguous. A malformed easing falls back to linear.

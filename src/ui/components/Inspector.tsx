@@ -12,14 +12,14 @@
 
 import type { ParamSpec } from '../../engine/core/params.ts';
 import {
-  GLOBAL_OWNER, addAsset, addEffect, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
+  GLOBAL_OWNER, addAsset, addEffect, setLayerMask, setMaskSettings, setMaskSourceVisible, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
   sequence, setEffectEnabled, setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTimeRange, setLayerTransform,
 } from '../../project/commands.ts';
 import { secondsToTicks, ticksToSeconds } from '../../engine/core/time.ts';
 import type { Command } from '../../project/history.ts';
 import { createEffect } from '../../project/create.ts';
 import { PALETTE_ROLES, linkedRole, resolveRole, roleLink, type PaletteRole } from '../../project/palette.ts';
-import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, type AspectBucket, type EffectSpec, type TimeRange } from '../../project/document.ts';
+import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, walkLayers, type AspectBucket, type EffectSpec, type Layer, type TimeRange } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { useModules } from '../modules.ts';
@@ -119,6 +119,8 @@ export function Inspector(): React.JSX.Element {
         onChange={(v) => run(setLayerOpacity(layer.id, v), { seal: false })}
         onCommit={() => run(setLayerOpacity(layer.id, layer.opacity))}
       />
+
+      <MaskSection layerId={layer.id} />
 
       <h2>Transform{editTarget === 'base' ? '' : ` · ${editTarget}`}</h2>
       {(['x', 'y'] as const).map((axis) => (
@@ -655,6 +657,66 @@ function Badge(props: { onReset?: (() => void) | undefined }): React.JSX.Element
     <button type="button" className="override-badge" title="Overridden for this aspect — click to reset to base" onClick={props.onReset}>
       override
     </button>
+  );
+}
+
+/**
+ * Masking (S7, compositor-spec §5): which layer masks this one, and how it is read; and, on a
+ * layer that masks others, whether it is also drawn itself (hidden by default — using a shape as a
+ * mask should not also draw the shape).
+ */
+function MaskSection(props: { layerId: string }): React.JSX.Element {
+  const document = useStudio((s) => s.document);
+  const run = useStudio((s) => s.run);
+  const layer = findLayer(document, props.layerId);
+  if (layer === undefined) return <></>;
+  const all = [...walkLayers(document.layers)].map(({ layer: l }) => l);
+  const name = (l: Layer) => (l.name !== '' ? l.name : l.kind === 'group' ? 'group' : l.module);
+  const masks = all.filter((l) => l.maskLayerId === layer.id);
+  return (
+    <>
+      <h2>Mask</h2>
+      <label className="field">
+        <span>Masked by</span>
+        <select value={layer.maskLayerId ?? ''} data-action="mask-source" onChange={(e) => run(setLayerMask(layer.id, e.target.value === '' ? null : e.target.value))}>
+          <option value="">No mask</option>
+          {all.filter((l) => l.id !== layer.id).map((l) => <option key={l.id} value={l.id}>{name(l)}</option>)}
+        </select>
+      </label>
+      {layer.maskLayerId !== null && (
+        <>
+          <label className="field">
+            <span>Use</span>
+            <select value={layer.mask.channel} data-action="mask-channel" onChange={(e) => run(setMaskSettings(layer.id, { channel: e.target.value as 'alpha' | 'luma' }))}>
+              <option value="alpha">Its shape (alpha)</option>
+              <option value="luma">Its brightness (luma)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Invert</span>
+            <input type="checkbox" checked={layer.mask.invert} data-action="mask-invert" onChange={(e) => run(setMaskSettings(layer.id, { invert: e.target.checked }))} />
+          </label>
+          <Slider
+            label="Feather"
+            value={layer.mask.feather}
+            min={0}
+            max={0.25}
+            step={0.005}
+            onChange={(v) => run(setMaskSettings(layer.id, { feather: v }), { seal: false })}
+            onCommit={() => run(setMaskSettings(layer.id, { feather: layer.mask.feather }))}
+          />
+        </>
+      )}
+      {masks.length > 0 && (
+        <>
+          <p className="dim note">Masks {masks.map(name).join(', ')}. As a mask it is not drawn itself unless you show it.</p>
+          <label className="field">
+            <span>Also show it</span>
+            <input type="checkbox" checked={layer.maskSourceVisible} data-action="mask-source-visible" onChange={(e) => run(setMaskSourceVisible(layer.id, e.target.checked))} />
+          </label>
+        </>
+      )}
+    </>
   );
 }
 

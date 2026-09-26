@@ -21,6 +21,7 @@
 // names them. Presets stay small and a background used by twenty presets is stored once.
 
 import {
+  DEFAULT_MASK,
   type AspectBucket,
   type DocumentBlendMode,
   type EffectSpec,
@@ -482,6 +483,8 @@ function blankLayerFor(preset: LayerPreset, id: string): ModuleLayer {
     blend: preset.blend,
     opacity: preset.opacity,
     maskLayerId: null,
+    mask: DEFAULT_MASK,
+    maskSourceVisible: false,
     effects: [],
     modulations: [],
     aspectOverrides: {},

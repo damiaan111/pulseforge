@@ -59,6 +59,18 @@ export interface LayerSpec {
   readonly modulations?: readonly ModulationBinding[];
   /** Post-process chain on this layer alone, bottom of the list first. */
   readonly effects?: readonly EffectSpec[];
+  /** Masked by another layer (S7, compositor-spec §5), found by id anywhere in the project. */
+  readonly mask?: LayerMaskSpec;
+  /** Used as a mask and not drawn itself (compositor-spec §5: mask sources are hidden by default). */
+  readonly maskOnly?: boolean;
+}
+
+export interface LayerMaskSpec {
+  readonly sourceId: string;
+  readonly channel: 'alpha' | 'luma';
+  readonly invert: boolean;
+  /** Blur radius, a fraction of the frame's short side. */
+  readonly feather: number;
 }
 
 /**
@@ -76,6 +88,10 @@ export interface GroupSpec {
   readonly timeRange?: LayerTimeRange;
   readonly transform?: LayerTransform;
   readonly effects?: readonly EffectSpec[];
+  /** Masked by another layer (S7, compositor-spec §5), found by id anywhere in the project. */
+  readonly mask?: LayerMaskSpec;
+  /** Used as a mask and not drawn itself (compositor-spec §5: mask sources are hidden by default). */
+  readonly maskOnly?: boolean;
   /** Bottom → top, like the project's own list. */
   readonly children: readonly AnyLayerSpec[];
 }

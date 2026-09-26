@@ -17,7 +17,7 @@
 import {
   IDENTITY_TRANSFORM, walkLayers,
   type AspectBucket, type AspectOverride, type AssetRef, type EffectSpec, type GroupLayer, type Layer,
-  type ModulationBinding, type ModuleLayer, type ProjectDocument, type Transform,
+  type MaskSettings, type ModulationBinding, type ModuleLayer, type ProjectDocument, type Transform,
 } from './document.ts';
 import type { Command } from './history.ts';
 
@@ -277,9 +277,38 @@ export function setLayerMask(layerId: string, maskLayerId: string | null): Comma
       if (maskLayerId !== null) {
         requireLayer(document, maskLayerId);
         if (maskLayerId === layerId) throw new CommandError('A layer cannot mask itself');
+        // compositor-spec §5: cycles are rejected when the mask is set. Follow the chain from the
+        // new source; reaching this layer again means A masks B masks … A.
+        const seen = new Set<string>([layerId]);
+        let next: string | null = maskLayerId;
+        while (next !== null) {
+          if (seen.has(next)) throw new CommandError('That would make masks go round in a circle (a layer ends up masking itself)');
+          seen.add(next);
+          next = findLayer(document, next)?.maskLayerId ?? null;
+        }
       }
       return withLayer(document, layerId, (layer) => ({ ...layer, maskLayerId }));
     },
+  };
+}
+
+/** How a layer's mask is read: channel, invert, feather (S7). A feather drag is one undo step. */
+export function setMaskSettings(layerId: string, patch: Partial<MaskSettings>): Command {
+  return {
+    label: 'Set mask options',
+    mergeKey: `mask:${layerId}:${Object.keys(patch).sort().join(',')}`,
+    apply: (document) => withLayer(document, layerId, (layer) => ({
+      ...layer,
+      mask: { ...layer.mask, ...patch, feather: Math.min(0.25, Math.max(0, patch.feather ?? layer.mask.feather)) },
+    })),
+  };
+}
+
+/** Whether a mask source is also drawn in the picture (S7). */
+export function setMaskSourceVisible(layerId: string, visible: boolean): Command {
+  return {
+    label: visible ? 'Show mask layer' : 'Hide mask layer',
+    apply: (document) => withLayer(document, layerId, (layer) => ({ ...layer, maskSourceVisible: visible })),
   };
 }
 

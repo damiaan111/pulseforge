@@ -98,14 +98,22 @@ describe('toRenderProject', () => {
     }]);
   });
 
-  it('notes what the engine still cannot render, instead of dropping it', () => {
+  it('carries masks (S7): the target gets its mask, the source is hidden unless shown, a missing source is noted', () => {
     const document = fixtureDocument();
+    const [first, ...rest] = document.layers;
+    const source = rest[0]!;
     const masked = {
       ...document,
-      layers: [{ ...document.layers[0]!, maskLayerId: '0000000000K000000000000002' }, ...document.layers.slice(1)],
+      layers: [{ ...first!, maskLayerId: source.id, mask: { channel: 'luma' as const, invert: true, feather: 0.1 } }, ...rest],
     };
-    const text = toRenderProject(masked).notes.map((n) => n.detail).join('\n');
-    expect(text).toContain('masking (S7) is not implemented');
+    const { project } = toRenderProject(masked);
+    const target = project.layers.find((l) => l.id === first!.id)!;
+    expect(target.mask).toEqual({ sourceId: source.id, channel: 'luma', invert: true, feather: 0.1 });
+    expect(project.layers.find((l) => l.id === source.id)?.maskOnly).toBe(true);
+    const shown = { ...masked, layers: masked.layers.map((l) => (l.id === source.id ? { ...l, maskSourceVisible: true } : l)) };
+    expect(toRenderProject(shown).project.layers.find((l) => l.id === source.id)?.maskOnly).toBeUndefined();
+    const dangling = { ...document, layers: [{ ...first!, maskLayerId: '0000000000K00000000000000Z' }, ...rest] };
+    expect(toRenderProject(dangling).notes.map((n) => n.detail).join('\n')).toContain('is not in the project');
   });
 
   it('carries modulation bindings and the timeline duration into the snapshot', () => {

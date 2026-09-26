@@ -198,6 +198,18 @@ export interface AspectOverride {
   readonly extra: Extra;
 }
 
+export const MASK_CHANNELS = ['alpha', 'luma'] as const;
+
+export interface MaskSettings {
+  /** alpha: where the mask layer is; luma: how bright it is there. */
+  readonly channel: (typeof MASK_CHANNELS)[number];
+  readonly invert: boolean;
+  /** Edge softness: blur radius as a fraction of the frame's short side (0..0.25). */
+  readonly feather: number;
+}
+
+export const DEFAULT_MASK: MaskSettings = { channel: 'alpha', invert: false, feather: 0 };
+
 export interface BaseLayer {
   readonly id: string;
   readonly name: string;
@@ -210,6 +222,13 @@ export interface BaseLayer {
   readonly opacity: number;
   /** Another layer used as this one's mask (S7); null when unmasked. */
   readonly maskLayerId: string | null;
+  /** How the mask is read (S7, compositor-spec §5); meaningful when `maskLayerId` is set. */
+  readonly mask: MaskSettings;
+  /**
+   * As a mask source, also drawn in the picture. Off by default: using a shape as a mask would
+   * otherwise also draw the shape, which is never what's wanted (compositor-spec §5).
+   */
+  readonly maskSourceVisible: boolean;
   readonly effects: readonly EffectSpec[];
   readonly modulations: readonly ModulationBinding[];
   readonly aspectOverrides: Readonly<Partial<Record<AspectBucket, AspectOverride>>>;
