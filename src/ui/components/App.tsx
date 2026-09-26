@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { useStudio } from '../store.ts';
 import { CanvasPane } from './CanvasPane.tsx';
 import { BatchDialog } from './BatchDialog.tsx';
+import { ShadertoyDialog } from './ShadertoyDialog.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
 import { isBatchAudio } from '../../batch/plan.ts';
 import { SavePresetDialog } from './SavePresetDialog.tsx';
@@ -165,6 +166,7 @@ export function App(): React.JSX.Element {
         else if (state.presetDialog !== null) state.setPresetDialog(null);
         else if (state.exportOpen) state.setExportOpen(false);
         else if (state.batchOpen) state.setBatchOpen(false);
+        else if (state.shadertoyOpen) state.setShadertoyOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.matrixOpen) state.setMatrixOpen(false);
         else if (state.lyricsOpen) state.setLyricsOpen(false);
@@ -222,6 +224,7 @@ export function App(): React.JSX.Element {
       <AutoDrawer />
       <ExportDialog />
       <BatchDialog />
+      <ShadertoyDialog />
       <SettingsDialog />
       <SavePresetDialog />
       <RecoveryDialog />

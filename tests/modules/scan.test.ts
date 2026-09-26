@@ -135,3 +135,51 @@ describe('shaderPrelude', () => {
     expect(shaderPrelude('effect', [])).toContain('uniform sampler2D u_input;');
   });
 });
+
+describe('Shadertoy dialect (S2)', () => {
+  const ST = 'void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(fragCoord.x / iResolution.x); }\n';
+
+  it('loads a bare .glsl file as a Shadertoy source named after the file', async () => {
+    await writeFile(join(root, 'Plasma Tunnel.glsl'), ST);
+    await writeFile(join(root, '_draft.glsl'), ST);
+    const scan = await scanModules(root, BUILTINS);
+    expect(scan.problems).toEqual([]);
+    expect(scan.modules.map((m) => m.manifest)).toEqual([expect.objectContaining({
+      id: 'user.shadertoy.plasma-tunnel', name: 'Plasma Tunnel', kind: 'source', dialect: 'shadertoy',
+    })]);
+  });
+
+  it('a module.json may ask for the dialect, channels and alpha', async () => {
+    await module('fx', { ...good('me.effect.warp'), kind: 'effect', params: [], dialect: 'shadertoy', channels: ['input', 'audio'], alpha: 'straight' }, ST);
+    const scan = await scanModules(root, BUILTINS);
+    expect(scan.problems).toEqual([]);
+    expect(scan.modules[0]!.manifest).toMatchObject({ dialect: 'shadertoy', channels: ['input', 'audio'], alpha: 'straight' });
+  });
+
+  it('says what is wrong: no mainImage, a main() of its own, bad channels', async () => {
+    await writeFile(join(root, 'nomain.glsl'), 'void main() { }\n');
+    await module('input-on-source', { ...good('me.source.x'), kind: 'source', params: [], dialect: 'shadertoy', channels: ['input'] }, ST);
+    const scan = await scanModules(root, BUILTINS);
+    const text = JSON.stringify(scan.problems);
+    expect(text).toContain('needs \\"void mainImage');
+    expect(text).toContain('must not define main()');
+    expect(text).toContain('only an effect has an input');
+    expect(scan.modules).toEqual([]);
+  });
+});
+
+describe('Shadertoy audio row', () => {
+  it('puts a loud bin at the right place on the linear axis, and silence stays dark', async () => {
+    const { shadertoySpectrumRow } = await import('../../src/engine/modules/shadertoy-audio.ts');
+    const bins = new Float32Array(64);
+    // Bin 34 of 64 log bins from 30 Hz to 16 kHz is centred near 1 kHz.
+    bins[34] = 1;
+    const row = shadertoySpectrumRow(bins);
+    const peak = row.indexOf(Math.max(...row));
+    const hz = ((peak + 0.5) / 512) * 11_025;
+    expect(hz).toBeGreaterThan(850);
+    expect(hz).toBeLessThan(1250);
+    expect(row[400]).toBe(0);
+    expect(shadertoySpectrumRow(new Float32Array(0)).every((v) => v === 0)).toBe(true);
+  });
+});

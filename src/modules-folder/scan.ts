@@ -15,7 +15,7 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { validateShaderModule, type ShaderModuleSource } from '../engine/modules/shader-module.ts';
+import { shadertoyFileSource, validateShaderModule, type ShaderModuleSource } from '../engine/modules/shader-module.ts';
 
 export interface ModuleFolderProblem {
   readonly folder: string;
@@ -47,6 +47,34 @@ export async function scanModules(root: string, builtinIds: ReadonlySet<string>)
     .filter((e) => e.isDirectory() && !e.name.startsWith('_') && !e.name.startsWith('.'))
     .map((e) => e.name)
     .sort();
+
+  // Bare Shadertoy files (S2): `Plasma.glsl` straight in the folder, no module.json needed.
+  const files = entries
+    .filter((e) => e.isFile() && /\.(glsl|frag)$/i.test(e.name) && !e.name.startsWith('_') && !e.name.startsWith('.'))
+    .map((e) => e.name)
+    .sort();
+  for (const file of files) {
+    const report = (list: string[]) => problems.push({ folder: file, problems: list });
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(join(root, file));
+    } catch (error) {
+      report([`could not be read: ${(error as Error).message}`]);
+      continue;
+    }
+    if (bytes.length > MAX_SHADER_BYTES) {
+      report([`${file} is ${bytes.length} bytes; a shader over ${MAX_SHADER_BYTES} is refused`]);
+      continue;
+    }
+    const source = shadertoyFileSource(file, bytes.toString('utf8'));
+    const found = validateShaderModule(source, taken);
+    if (found.length > 0) {
+      report(found);
+      continue;
+    }
+    taken.add(source.manifest.id);
+    modules.push(source);
+  }
 
   for (const folder of folders) {
     const dir = join(root, folder);

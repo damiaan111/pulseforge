@@ -114,6 +114,55 @@ impossible to break, and `npm run modules:check` catches the rest.
 5. **Sample textures outside branches** that vary per pixel: implicit derivatives are undefined
    inside them in GLSL ES 3.00.
 
+## 4b. Shadertoy shaders (S2)
+
+Code from shadertoy.com runs as it is, three ways:
+
+- **Paste it** in the studio: **Modules → Paste Shadertoy…**. It checks as you type (errors on your
+  own line), and **Add as layer** saves it as `modules/<name>.glsl` and adds it as a layer.
+- **Drop a file**: `modules/Plasma Tunnel.glsl` (or `.frag`) straight in the folder, no
+  `module.json`. It loads as a *source* layer named after the file, with the id
+  `user.shadertoy.plasma-tunnel`.
+- **In a module folder**, add `"dialect": "shadertoy"` to `module.json`. That also allows any kind
+  (an **effect** reads its input as a channel), parameters as `u_<key>` uniforms, and these two
+  optional fields:
+  - `"channels": ["input", "audio", "none", "none"]`;
+  - `"alpha": "straight"` (use `fragColor.a` as coverage; the default is opaque, as on the site).
+
+Write `void mainImage(out vec4 fragColor, in vec2 fragCoord)` and no `main()`: a generated `main()`
+after your code calls it.
+
+| Shadertoy input | Here |
+|---|---|
+| `iResolution` | the layer's size in pixels (`.z` is 1) |
+| `iTime`, `iFrame` | the timeline time and frame — exact, not a clock |
+| `iTimeDelta`, `iFrameRate` | 1/fps and fps |
+| `iChannel0…3` | by default `iChannel0` is the **audio** (and an effect's `iChannel0` is its input, `iChannel1` the audio); the rest are black |
+| `iChannelResolution`, `iChannelTime` | as on the site |
+| `iMouse` | zero (a render has no mouse) |
+| `iDate` | fixed at (2000, 0, 1, *timeline seconds*) — never the wall clock, so renders repeat |
+| `iSampleRate` | 48000 |
+
+**The audio channel** is Shadertoy's 512×2 layout:
+- **Row 0**, sampled with `texture(iChannel0, vec2(x, 0.25)).x`, is the spectrum on a linear axis
+  from 0 to ~11 kHz, 0..1 (Pulseforge's analysis, resampled). The *Stem* picker does not exist for a
+  pasted shader: it reads the mix. A module folder can add a `select:stem` parameter.
+- **Row 1** (the waveform, `y = 0.75`) is **flat 0.5**. The analysis keeps no per-frame waveform,
+  and faking one would be worse than saying so.
+
+**Colour:** Shadertoy writes display colours. The wrapper decodes them to linear light, so a shader
+looks the same here as on the site.
+
+**Not supported:**
+- multi-pass shaders (Buffer A–D, Cube A);
+- image, video, keyboard and sound-file channels (they read black);
+- `iChannel` sampler types other than 2D.
+- A shader relying on one of these still compiles but draws differently; the channel list in its
+  source on the site says which it uses.
+- Everything in §4 is available too (`u_rms`, `pf_spectrum`, `pf_hash`…).
+
+Licences vary per shader on shadertoy.com (PROJECT.md §15): check before shipping a render.
+
 ## 5. When it does not work
 
 - **It is missing from Add layer.** Look at the **Modules** line in the left rail: every folder

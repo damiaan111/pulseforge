@@ -74,7 +74,7 @@ import { BatchRequestError, completionWatcher, createBatchService, type BatchReq
 import { directTrack } from '../batch/direct-track.ts';
 import { BATCH_AUDIO_EXTENSIONS } from '../batch/plan.ts';
 import { loadTemplates } from '../director/template-library.ts';
-import { shaderModuleDefinition } from '../engine/modules/shader-module.ts';
+import { shaderModuleDefinition, shadertoyFileSource, validateShaderModule } from '../engine/modules/shader-module.ts';
 import type { QueueFinishedEvent } from './ipc.ts';
 import { DEFAULT_ANALYSIS_SETTINGS, createDocument, createModuleLayer } from '../project/create.ts';
 import { stringifyDocument } from '../project/serialize.ts';
@@ -1006,6 +1006,25 @@ function registerHandlers(): void {
     await mkdir(MODULES_DIR, { recursive: true });
     await shell.openPath(MODULES_DIR);
   });
+  // "Paste a Shadertoy" (S2): the code becomes a bare .glsl file, which the folder scan loads as a
+  // Shadertoy source — the same path as dropping the file in by hand. Validated, never overwrites.
+  ipcMain.handle(IPC.modulesAddShadertoy, async (_event, request: { name?: unknown; code?: unknown }) => {
+    if (typeof request?.code !== 'string' || request.code.length > 256 * 1024) throw new Error('addShadertoy needs the shader code (at most 256 KB)');
+    const cleaned = [...(typeof request.name === 'string' ? request.name : '')]
+      .filter((ch) => ch.charCodeAt(0) >= 32 && !'<>:"/\\|?*'.includes(ch)).join('').trim().replace(/[. ]+$/, '').slice(0, 80) || 'Shadertoy';
+    await mkdir(MODULES_DIR, { recursive: true });
+    const scanned = await scanModules(MODULES_DIR, builtinIds);
+    const takenIds = new Set([...builtinIds, ...scanned.modules.map((m) => m.manifest.id)]);
+    let name = cleaned;
+    for (let n = 2; existsSync(join(MODULES_DIR, `${name}.glsl`)) || takenIds.has(shadertoyFileSource(`${name}.glsl`, '').manifest.id); n += 1) name = `${cleaned} ${n}`;
+    const fileName = `${name}.glsl`;
+    const source = shadertoyFileSource(fileName, request.code);
+    const problems = validateShaderModule(source, takenIds);
+    if (problems.length > 0) throw new Error(problems.join('; '));
+    await writeFile(join(MODULES_DIR, fileName), request.code);
+    log().write('info', 'modules', `Added a Shadertoy shader: modules/${fileName} (${source.manifest.id})`);
+    return { fileName, id: source.manifest.id };
+  });
 
   // Presets (S8). User presets live in Documents beside the asset library — they are the user's own
   // work and belong in their backups; built-ins ship in the repo; thumbnails are a cache on the
@@ -1683,6 +1702,7 @@ app.whenReady().then(async () => {
       await new Promise((done) => setTimeout(done, 50));
       const picker = document.querySelector('#app .inspector select[data-action="add-effect"]');
       const option = picker?.querySelector('option[value]:not([value=""])');
+      console.log('[smoke] step: effectChain');
       let effectChain = false;
       if (picker !== null && option !== null && option !== undefined) {
         picker.value = option.value;
@@ -1700,6 +1720,7 @@ app.whenReady().then(async () => {
       // mode must reveal the generated asset picker, and the decode bridge must answer — here
       // with a clear "not found", since the smoke has no image and must not open a dialog.
       // The first add-layer button is the Background module, so the selected layer is one.
+      console.log('[smoke] step: imageControl');
       let imageControl = false;
       const typeSelect = [...document.querySelectorAll('#app .inspector select')]
         .find((s) => s.querySelector('option[value="image"]') !== null);
@@ -1717,6 +1738,7 @@ app.whenReady().then(async () => {
 
       // Groups (M38): grouping the selected layer must give a group row that the inspector
       // recognises, and undo must put the layer back where it was.
+      console.log('[smoke] step: grouping');
       let grouping = false;
       const rowsBeforeGrouping = document.querySelectorAll('#app .layer-row').length;
       document.querySelector('#app .layer-actions [data-action="group"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1733,6 +1755,7 @@ app.whenReady().then(async () => {
       // inspector, and the preview must actually rasterise — the engine notes would otherwise say
       // "no text rasteriser" or "fonts are still loading", which is what a missing font bundle or
       // an unwired rasteriser looks like.
+      console.log('[smoke] step: textLayer');
       let textLayer = false;
       const textButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Text');
       if (textButton !== undefined) {
@@ -1753,6 +1776,7 @@ app.whenReady().then(async () => {
       // Drop-in modules (M35): the shipped example in modules/ must be scanned by the main
       // process, offered under Add layer, and compile in the preview — a broken module would
       // leave an engine note saying so.
+      console.log('[smoke] step: dropInModule');
       let dropInModule = false;
       let pulseButton;
       for (let i = 0; i < 40 && pulseButton === undefined; i += 1) {
@@ -1784,6 +1808,7 @@ app.whenReady().then(async () => {
       // Three could not build is reported as "<scene name>: …" in the engine notes, and a thrown
       // render shows as a canvas error; neither may appear. (Pixels are checked on the export path
       // by tests/golden/scene3d-gpu.)
+      console.log('[smoke] step: sceneLayer');
       let sceneLayer = false;
       const sceneButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Reactive shape');
       if (sceneButton !== undefined) {
@@ -1807,6 +1832,7 @@ app.whenReady().then(async () => {
 
       // Video (M39), the studio half: the main process extracts a clip's preview proxy and hands
       // stills back over the bridge. (The GPU half — frames on screen — is tests/golden/video-gpu.)
+      console.log('[smoke] step: videoBridge');
       let videoBridge = false;
       const smokeClip = ${JSON.stringify(process.env['PULSEFORGE_SMOKE_CLIP'] ?? null)};
       if (smokeClip !== null) {
@@ -1824,6 +1850,7 @@ app.whenReady().then(async () => {
       // it must add a background layer, record the asset, and load it (status "ok" in the Assets
       // panel means the main process decoded it through FFmpeg and the preview has the pixels).
       // Undone afterwards, which must also leave the asset list empty again.
+      console.log('[smoke] step: libraryToAsset');
       let libraryToAsset = false;
       for (let i = 0; i < 40 && document.querySelector('#app .library-item') === null; i += 1) {
         await new Promise((done) => setTimeout(done, 50));
@@ -1863,6 +1890,7 @@ app.whenReady().then(async () => {
       const presetThumbnail = (await waitFor(() => document.querySelector('#app .preset-card .strip[data-thumbnail="ready"]') !== null, 200)) === true;
       const presetBrowser = presetCards >= 14 && presetThumbnail;
 
+      console.log('[smoke] step: presetApply');
       let presetApply = false;
       const neonCard = document.querySelector('#app .preset-card[data-preset="neon-bars"] [data-action="apply-preset"]');
       if (neonCard !== null) {
@@ -1876,6 +1904,7 @@ app.whenReady().then(async () => {
         presetApply = applied && undoLabel.includes('Neon bars') && document.querySelectorAll('#app .layer-row').length === rowsBefore;
       }
 
+      console.log('[smoke] step: presetSave');
       let presetSave = false;
       document.querySelector('#app [data-action="save-preset"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const nameInput = await waitFor(() => document.querySelector('#app [data-action="preset-name"]'), 40);
@@ -1895,6 +1924,7 @@ app.whenReady().then(async () => {
 
       // Layer editing (M9): solo and lock from the list, lock disabling the inspector and Delete, and
       // a one-step move — each undoable. Run on whichever layer is selected, with at least two rows.
+      console.log('[smoke] step: layerEditing');
       let layerEditing = false;
       const order = () => [...document.querySelectorAll('#app .layer-list .layer-row')].map((row) => row.getAttribute('data-layer'));
       const selectedRow = () => document.querySelector('#app .layer-list .layer-row.selected');
@@ -1940,6 +1970,7 @@ app.whenReady().then(async () => {
       // Stems (M5), end to end, when the smoke is run with a project that has audio
       // (npm run dev -- <project> --smoke): Separate stems → Demucs on the GPU → the Audio panel
       // lists all four. Not reported without audio, where there is nothing to separate.
+      console.log('[smoke] step: stemsUi');
       let stemsUi;
       const stemsPanel = document.querySelector('#app [data-testid="stems-controls"]');
       if (stemsPanel !== null) {
@@ -1955,6 +1986,7 @@ app.whenReady().then(async () => {
       // the inspector, the preview reporting the rendered value (the slider's live marker) and the
       // binding's signal (its level meter), and the matrix listing it. "Breathing" is an LFO, so it
       // runs without audio. Undone afterwards.
+      console.log('[smoke] step: modulationUi');
       let modulationUi = false;
       const barsButton = [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars');
       if (barsButton !== undefined) {
@@ -1985,6 +2017,7 @@ app.whenReady().then(async () => {
       // lines and a marker, the checklist noticing they are untimed, the left rail adding a lyrics
       // layer, and tap-to-sync — three taps time three lines, Backspace undoes one, Esc ends it.
       // Only on a project without lyrics — it pastes its own, which would replace a project's.
+      console.log('[smoke] step: lyricsUi');
       let lyricsUi = document.querySelector('#app [data-testid="lyrics-summary"]') === null ? false : undefined;
       if (lyricsUi === false) {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2103,6 +2136,7 @@ app.whenReady().then(async () => {
       // The whole-frame chain (P7 prerequisite): "Whole frame" in the layer list shows the global
       // effect chain in the inspector; adding an effect there lands in the document's global chain
       // (the row's count says so) and is one undo step.
+      console.log('[smoke] step: globalChain');
       let globalChain = false;
       {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2126,6 +2160,7 @@ app.whenReady().then(async () => {
       // with it), open Auto once the analysis is in, see the seven templates ranked, Generate (one
       // undo step, a decision log, layers), Surprise me (a second roll in the strip, with a drawn
       // thumbnail), restore the first roll, then undo all three.
+      console.log('[smoke] step: autoUi');
       let autoUi = false;
       {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2164,7 +2199,8 @@ app.whenReady().then(async () => {
       // Settings (M36): the screen opens from the top bar; a change is saved and survives a
       // re-render; the light theme swaps the chrome's tokens; the environment names the GPU; and
       // Verify runs the real npm run setup -- --verify under the Node inside Electron and reports back.
-      recoveryTrace.push('settings:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('settings:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: settingsUi');
       let settingsUi = false;
       {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2199,7 +2235,8 @@ app.whenReady().then(async () => {
 
       // Storage (M33): the breakdown lists the smoke song's track (analysed by autoUi) as in use,
       // and Clear everything frees the rest but keeps it. The smoke has its own cache root.
-      recoveryTrace.push('storage:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('storage:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: storageUi');
       let storageUi = false;
       {
         window.confirm = () => true;
@@ -2336,7 +2373,7 @@ app.whenReady().then(async () => {
         if (!maskUi) console.error('[smoke] maskUi steps ' + JSON.stringify(steps));
       }
 
-      recoveryTrace.push('export:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('export:' + (document.querySelector('#app .recovery-dialog') !== null));
       // The export dialog opens from the top bar and lists every preset. Queueing is exercised
       // separately (PULSEFORGE_SMOKE_RENDER), because it needs an audio file and a real render.
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2359,7 +2396,7 @@ app.whenReady().then(async () => {
       await new Promise((done) => setTimeout(done, 50));
       const exportDialog = presets >= 6 && blurToggles && audioChoice && document.querySelector('#app .export-dialog') === null;
 
-      recoveryTrace.push('markers:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('markers:' + (document.querySelector('#app .recovery-dialog') !== null));
       // Markers (S9): M adds one at the playhead (one undo step), a double-click in the markers lane
       // adds another and opens its editor, typing renames it, and the export dialog then offers a
       // range between markers.
@@ -2397,7 +2434,7 @@ app.whenReady().then(async () => {
       const markerUi = Object.values(markerSteps).every(Boolean);
       if (!markerUi) console.error('[smoke] markerUi steps ' + JSON.stringify(markerSteps));
 
-      recoveryTrace.push('batch:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('batch:' + (document.querySelector('#app .recovery-dialog') !== null));
       // The performance HUD (S12): the canvas bar opens it, it fills with measured GPU times for the
       // project's layers and the output pass (or says timer queries are missing), and it closes.
       document.querySelector('#app [data-action="perf-hud"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -2410,6 +2447,42 @@ app.whenReady().then(async () => {
       const hudSteps = { measured: measured === true, rows: hudRows >= 2, estimate: /3840×2160|does not expose/.test(hudText), hudClosed };
       const perfHud = Object.values(hudSteps).every(Boolean);
       if (!perfHud) console.error('[smoke] perfHud steps ' + JSON.stringify(hudSteps) + ' ' + hudText.slice(0, 200));
+
+      // Shadertoy (S2): the paste dialog checks as you type — the example compiles, a typo is named on
+      // its own line — and Add saves it in modules/ and puts it on the project as a layer that renders.
+      console.log('[smoke] step: shadertoyUi');
+      let shadertoyUi = false;
+      {
+        const setText = (el, value, proto) => {
+          Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+        const resultText = () => document.querySelector('#app [data-testid="shadertoy-result"]')?.textContent ?? '';
+        document.querySelector('#app [data-action="shadertoy-paste"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const area = await waitFor(() => document.querySelector('#app [data-action="shadertoy-code"]'), 40);
+        const good = area ? area.value : '';
+        const compiles = (await waitFor(() => resultText() === 'Compiles.', 60)) === true;
+        let lineNamed = false;
+        if (area) {
+          // A typo as the author's line 4. No backslashes anywhere here: this whole script is a template
+          // literal, which turns a written "\\n" into a real line break inside a string and breaks it.
+          const newline = String.fromCharCode(10);
+          setText(area, good.replace('vec2 uv = fragCoord / iResolution.xy;', 'vec2 uv = fragCoord / iResolution.xy;' + newline + '    float broken = vec2(1.0);'), HTMLTextAreaElement);
+          lineNamed = (await waitFor(() => resultText().includes('0:4:'), 60)) === true;
+          if (!lineNamed) console.error('[smoke] shadertoyUi error text: ' + JSON.stringify(resultText()));
+          setText(area, good, HTMLTextAreaElement);
+          setText(document.querySelector('#app [data-action="shadertoy-name"]'), 'Smoke Shadertoy', HTMLInputElement);
+          await waitFor(() => resultText() === 'Compiles.', 60);
+        }
+        document.querySelector('#app [data-action="shadertoy-add"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const added = (await waitFor(() => [...document.querySelectorAll('#app .layer-list .layer-row')].some((row) => (row.textContent ?? '').includes('Smoke Shadertoy')), 100)) === true;
+        await new Promise((d) => setTimeout(d, 400));
+        const notes = document.querySelector('#app .canvas-notes')?.textContent ?? '';
+        const rendered = added && !/unknown module|does not compile|is broken/.test(notes);
+        const stSteps = { opened: area !== null && area !== false, compiles, lineNamed, added, rendered, closed: document.querySelector('#app .shadertoy-dialog') === null };
+        shadertoyUi = Object.values(stSteps).every(Boolean);
+        if (!shadertoyUi) console.error('[smoke] shadertoyUi steps ' + JSON.stringify(stSteps) + ' ' + resultText().slice(0, 200) + ' | ' + notes.slice(0, 200));
+      }
 
       // Batch mode (S13): the top bar opens the dialog, which starts empty and cannot start; a drop
       // of something that is not audio on disk is answered rather than ignored; the queue drawer
@@ -2434,7 +2507,7 @@ app.whenReady().then(async () => {
       // "crashed" run is offered on start with its summary, and Restore opens it — unsaved — with
       // its layer. (The main process then checks the old session was let go and this one holds a
       // fresh snapshot.) The "discard your changes?" question is answered yes: nothing here is kept.
-      recoveryTrace.push('recovery:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('recovery:' + (document.querySelector('#app .recovery-dialog') !== null));
       let recoveryDialog = ${initialProjectPath() === undefined ? 'false' : 'undefined'};
       const offered = recoveryDialog === undefined ? null : await waitFor(() => document.querySelector('#app .recovery-dialog [data-recovery="smokecrashed"]'), 60);
       if (offered !== null && offered !== false) {
@@ -2487,11 +2560,16 @@ app.whenReady().then(async () => {
         batchUi,
         markerUi,
         perfHud,
+        shadertoyUi,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;
 
     console.log('[smoke] phase: renderer checks finished');
+    // The Shadertoy check saved a shader in the real modules/ folder; it goes again (the studio's
+    // watcher unloads it). Only files the check made — named for it — are ever touched.
+    for (const name of ['Smoke Shadertoy.glsl', 'Smoke Shadertoy 2.glsl']) await rm(join(MODULES_DIR, name), { force: true });
+
     // The other half of the diagnostics check: the clipboard holds the report, and the log file has
     // the app's start, the copy itself, and lines captured from the studio's own console.
     if (checks['diagnosticsUi'] === true) {
@@ -2776,6 +2854,10 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(`${click('#app [data-action="perf-hud"]')}; await new Promise((d) => setTimeout(d, 800))`);
     await snap(`${label}-15-perf-hud`);
     await js(click('#app [data-action="perf-hud"]'));
+    // The Shadertoy paste dialog (S2) with its example, checked.
+    await js(`${click('#app [data-action="shadertoy-paste"]')}; await new Promise((d) => setTimeout(d, 800))`);
+    await snap(`${label}-16-shadertoy`);
+    await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
     // Settings (M36), then the whole studio in the light theme, then back to dark.
     const theme = (value: string) => `
       const select = document.querySelector('#app [data-setting="theme"]');

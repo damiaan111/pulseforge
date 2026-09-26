@@ -265,6 +265,11 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .timecode { font-variant-numeric: tabular-nums; color: var(--text-dim); margin-left: 6px; }
 .timeline { display: block; width: 100%; cursor: pointer; }
 .timeline-wrap { position: relative; }
+.shadertoy-dialog { width: min(760px, 94vw); }
+.shadertoy-code { display: block; width: 100%; height: 280px; margin-top: 8px; font: 12px/1.45 Consolas, "Cascadia Mono", monospace; tab-size: 4; white-space: pre; }
+.shadertoy-result { max-height: 110px; overflow: auto; margin: 8px 0 0; padding: 6px 8px; border-radius: 4px; background: var(--bg); font: 12px/1.4 Consolas, monospace; white-space: pre-wrap; }
+.shadertoy-result.ok { color: var(--ok); }
+.shadertoy-result.bad { color: var(--bad); }
 /* The performance HUD (S12): over the preview's top-left corner. */
 .perf-hud { position: absolute; top: 8px; left: 8px; z-index: 5; min-width: 260px; max-width: 360px; padding: 8px 10px; background: color-mix(in srgb, var(--panel-raised) 88%, transparent); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
 .perf-hud-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 6px; }

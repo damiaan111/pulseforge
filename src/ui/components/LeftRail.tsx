@@ -344,6 +344,7 @@ function ModulesPanel(): React.JSX.Element {
           {userModules.length === 0 ? 'No drop-in modules' : `${userModules.length} drop-in module${userModules.length === 1 ? '' : 's'}`}
         </span>
         <span className="spacer" />
+        <button type="button" title="Paste a shader from shadertoy.com; it becomes a layer" data-action="shadertoy-paste" onClick={() => useStudio.getState().setShadertoyOpen(true)}>Paste Shadertoy…</button>
         <button type="button" title="Read modules/ again" data-action="modules-reload" onClick={() => void loadModules()}>Reload</button>
         <button type="button" title="Open the modules folder" onClick={() => void window.pulseforge.revealModules()}>Folder</button>
       </div>

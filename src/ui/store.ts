@@ -262,6 +262,9 @@ export interface StudioState {
   reportModulation(live: LiveModulation): void;
   /** The performance HUD (S12): open, and the latest GPU times the preview measured. */
   hudOpen: boolean;
+  /** The "Paste a Shadertoy" dialog (S2). */
+  shadertoyOpen: boolean;
+  setShadertoyOpen(open: boolean): void;
   setHudOpen(open: boolean): void;
   gpuTimings: GpuFrameTimings | null;
   /** Null until the preview has said whether timer queries exist here. */
@@ -1055,6 +1058,10 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 
   hudOpen: false,
+  shadertoyOpen: false,
+  setShadertoyOpen(open) {
+    set({ shadertoyOpen: open });
+  },
   setHudOpen(open) {
     set(open ? { hudOpen: true } : { hudOpen: false, gpuTimings: null });
   },

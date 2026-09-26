@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-26, P8 in progress (S1, S6, S7, S9, S10, S12, S13 and S15 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-27, P8 in progress (S1, S2, S6, S7, S9, S10, S12, S13 and S15 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -111,7 +111,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S7 Masking | ✅ | 4.65 — alpha and luma, invert, feather; stencil modes are alpha and inverted alpha |
 | S6 6-stem model | ✅ | 4.67 — `htdemucs_6s` as an optional model, guitar and piano stems, 1.27× the time of `htdemucs` |
 | S10 Motion blur | ✅ | 4.66 — export dialog and CLI, 2–32 samples, 1–360° shutter, in the render report; spatial SSAA (export-spec §9) is not built |
-| S2 Custom GLSL layer | 🔶 | drop-in shader modules (M35) cover "a shader with audio uniforms and live compile errors"; Shadertoy compatibility (`iTime`, `iResolution`, `mainImage`) is not there |
+| S2 Custom GLSL layer | ✅ | 4.42 drop-in shader modules; 4.72 Shadertoy dialect: paste with a live check, bare `.glsl` files, `iChannel0` audio; single pass only, no image channels |
 | S8 Preset browser | ✅ | 4.44 |
 | S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; loop region and I/O keys not built |
 | S11 Colour management | 🔶 | linear-light, premultiplied compositing and correct output transfer; no LUTs |
@@ -141,9 +141,9 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 8. ✅ **P1 remainder** — done (STATUS 4.62).
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
    6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
-   4.70), ✅ the performance HUD (S12, 4.71); next S2 Shadertoy compatibility, S11 LUTs, S18 draft
-   mode, S16 librosa, S17 Unicode fonts, and the free-space precheck before a render (export-spec
-   §14).
+   4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72); next S11 LUTs, S18
+   draft mode, S16 librosa, S17 Unicode fonts, and the free-space precheck before a render
+   (export-spec §14).
 
 ---
 

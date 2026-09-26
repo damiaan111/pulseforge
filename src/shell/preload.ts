@@ -82,6 +82,7 @@ const api: PulseforgeApi = {
   },
   listModules: () => ipcRenderer.invoke(IPC.modulesList) as ReturnType<PulseforgeApi['listModules']>,
   revealModules: () => ipcRenderer.invoke(IPC.modulesReveal) as Promise<void>,
+  addShadertoy: (request) => ipcRenderer.invoke(IPC.modulesAddShadertoy, request) as ReturnType<PulseforgeApi['addShadertoy']>,
   listPresets: () => ipcRenderer.invoke(IPC.presetsList) as ReturnType<PulseforgeApi['listPresets']>,
   savePreset: (preset) => ipcRenderer.invoke(IPC.presetsSave, preset) as ReturnType<PulseforgeApi['savePreset']>,
   deletePreset: (scope, slug) => ipcRenderer.invoke(IPC.presetsDelete, scope, slug) as ReturnType<PulseforgeApi['deletePreset']>,

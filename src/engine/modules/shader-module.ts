@@ -15,6 +15,14 @@
 // The module's shader gets a fixed prelude: resolution, time, frame, the layer's reference scale,
 // the audio features and spectrum of a chosen stem, a seeded hash, the input (for effects), and
 // one uniform per declared parameter — `u_<key>`. The author writes `main()`.
+//
+// **Shadertoy dialect** (S2): with `"dialect": "shadertoy"` in module.json — or a bare `.glsl` file
+// dropped in the folder — the author writes Shadertoy's `mainImage(out vec4 fragColor, in vec2
+// fragCoord)` and reads `iResolution`, `iTime`, `iFrame`, `iChannel0…3` and the rest. The prelude
+// declares them (on top of everything above), a generated `main()` after the author's code calls
+// `mainImage`, and turns its display-referred colour into the linear, premultiplied light the
+// compositor works in. Clock-based inputs become timeline-based: `iDate` is fixed but for `.w`
+// (timeline seconds) and `iMouse` is zero, so a Shadertoy shader is as deterministic as any module.
 
 import type { ModuleDefinition, ModuleInstance, ModuleKind, ModuleManifest, RenderContext } from '../core/module.ts';
 import { parseHexColor, srgbToLinear } from '../core/color.ts';
@@ -22,6 +30,7 @@ import { STEMS, type ParamSpec, type ParamValues, type Stem } from '../core/para
 import { HASH_GLSL, hash32 } from '../core/prng.ts';
 import { FULLSCREEN_VERT, ShaderCompileError, createProgram, drawFullscreenTriangle } from '../render/gl.ts';
 import { AnalysisTexture, SPECTRUM_GLSL } from './analysis-texture.ts';
+import { SHADERTOY_AUDIO_WIDTH, ShadertoyAudioTexture } from './shadertoy-audio.ts';
 
 /** What a drop-in module is, as data. JSON-serialisable, so it crosses IPC and config files. */
 export interface ShaderModuleSource {
@@ -41,7 +50,21 @@ export interface ShaderModuleManifest {
   readonly category?: string;
   readonly tags?: readonly string[];
   readonly params?: readonly ParamSpec[];
+  /** 'pulseforge' (default): the author writes `main()`. 'shadertoy': the author writes `mainImage()`. */
+  readonly dialect?: ShaderDialect;
+  /**
+   * Shadertoy only: what `iChannel0…3` read — the audio texture, the layer's input (effects), or
+   * nothing (black). Default: audio for visualizers and sources; input then audio for effects.
+   */
+  readonly channels?: readonly ShadertoyChannel[];
+  /** Shadertoy only: 'opaque' (default, as on the site) or 'straight' (fragColor.a is coverage). */
+  readonly alpha?: 'opaque' | 'straight';
 }
+
+export const SHADER_DIALECTS = ['pulseforge', 'shadertoy'] as const;
+export type ShaderDialect = (typeof SHADER_DIALECTS)[number];
+export const SHADERTOY_CHANNELS = ['audio', 'input', 'none'] as const;
+export type ShadertoyChannel = (typeof SHADERTOY_CHANNELS)[number];
 
 export const SHADER_MODULE_KINDS = ['visualizer', 'source', 'effect'] as const;
 export type ShaderModuleKind = (typeof SHADER_MODULE_KINDS)[number];
@@ -76,11 +99,28 @@ export function validateShaderModule(source: ShaderModuleSource, takenIds: Reado
   if (!(SHADER_MODULE_KINDS as readonly string[]).includes(String(m.kind))) {
     problems.push(`kind "${String(m.kind)}" must be one of ${SHADER_MODULE_KINDS.join(', ')}`);
   }
-  if (typeof source.shader !== 'string' || !/void\s+main\s*\(/.test(source.shader)) {
+  const dialect = m.dialect ?? 'pulseforge';
+  if (!(SHADER_DIALECTS as readonly string[]).includes(String(dialect))) {
+    problems.push(`dialect "${String(dialect)}" must be one of ${SHADER_DIALECTS.join(', ')}`);
+  } else if (typeof source.shader !== 'string') {
+    problems.push('the shader is missing');
+  } else if (dialect === 'shadertoy') {
+    if (!/void\s+mainImage\s*\(/.test(source.shader)) problems.push('a Shadertoy shader needs "void mainImage(out vec4 fragColor, in vec2 fragCoord)"');
+    if (/void\s+main\s*\(\s*(void)?\s*\)/.test(source.shader)) problems.push('a Shadertoy shader must not define main() — the wrapper does');
+  } else if (!/void\s+main\s*\(/.test(source.shader)) {
     problems.push('the shader has no "void main()"');
-  } else if (/^\s*#version/m.test(source.shader)) {
+  }
+  if (typeof source.shader === 'string' && /^\s*#version/m.test(source.shader)) {
     problems.push('the shader must not declare #version — the prelude does');
   }
+  if (m.channels !== undefined) {
+    if (!Array.isArray(m.channels) || m.channels.length > 4 || !m.channels.every((c) => (SHADERTOY_CHANNELS as readonly string[]).includes(String(c)))) {
+      problems.push(`channels must be up to four of ${SHADERTOY_CHANNELS.join(', ')}`);
+    } else if (m.channels.includes('input') && m.kind !== 'effect') {
+      problems.push('only an effect has an input for a channel to read');
+    }
+  }
+  if (m.alpha !== undefined && m.alpha !== 'opaque' && m.alpha !== 'straight') problems.push('alpha must be "opaque" or "straight"');
 
   const keys = new Set<string>();
   for (const [index, spec] of (m.params ?? []).entries()) {
@@ -180,15 +220,66 @@ out vec4 outColor;
 `;
 }
 
+/** Shadertoy's inputs, declared after the Pulseforge prelude (whose uniforms stay available too). */
+const SHADERTOY_UNIFORMS = `
+uniform vec3 iResolution;
+uniform float iTime;
+uniform float iTimeDelta;
+uniform float iFrameRate;
+uniform int iFrame;
+uniform vec4 iMouse;
+uniform vec4 iDate;
+uniform float iSampleRate;
+uniform vec3 iChannelResolution[4];
+uniform float iChannelTime[4];
+uniform sampler2D iChannel0;
+uniform sampler2D iChannel1;
+uniform sampler2D iChannel2;
+uniform sampler2D iChannel3;
+`;
+
+/**
+ * After the author's `mainImage`: call it at this pixel (Shadertoy's origin is bottom-left, as
+ * gl_FragCoord's is here) and turn its display-referred colour into linear, premultiplied light.
+ */
+function shadertoyMain(alpha: 'opaque' | 'straight'): string {
+  return `
+vec3 pf_st_decode(vec3 c) {
+  vec3 lo = c / 12.92;
+  vec3 hi = pow((c + 0.055) / 1.055, vec3(2.4));
+  return mix(hi, lo, vec3(lessThanEqual(c, vec3(0.04045))));
+}
+void main() {
+  vec4 c = vec4(0.0, 0.0, 0.0, 1.0);
+  mainImage(c, gl_FragCoord.xy);
+  float a = ${alpha === 'straight' ? 'clamp(c.a, 0.0, 1.0)' : '1.0'};
+  outColor = vec4(pf_st_decode(clamp(c.rgb, 0.0, 1.0)) * a, a);
+}
+`;
+}
+
+/** The whole program around the author's code: what goes before it, and what goes after. */
+export function shaderWrapping(manifest: ShaderModuleManifest): { readonly prelude: string; readonly suffix: string } {
+  const base = shaderPrelude(manifest.kind, manifest.params ?? []);
+  if ((manifest.dialect ?? 'pulseforge') !== 'shadertoy') return { prelude: base, suffix: '' };
+  return { prelude: base + SHADERTOY_UNIFORMS, suffix: shadertoyMain(manifest.alpha ?? 'opaque') };
+}
+
+/** What `iChannel0…3` read, with the defaults filled in. */
+export function shadertoyChannels(manifest: ShaderModuleManifest): readonly ShadertoyChannel[] {
+  const declared = manifest.channels ?? (manifest.kind === 'effect' ? ['input', 'audio'] : ['audio']);
+  return [0, 1, 2, 3].map((i) => declared[i] ?? 'none');
+}
+
 /**
  * Compiles, reporting the author's own line numbers: a GLSL error log counts lines from the top of
  * the whole source, prelude included, which would point every error at the wrong line of their file.
  */
 function compile(gl: WebGL2RenderingContext, source: ShaderModuleSource): WebGLProgram {
-  const prelude = shaderPrelude(source.manifest.kind, source.manifest.params ?? []);
+  const { prelude, suffix } = shaderWrapping(source.manifest);
   const offset = prelude.split('\n').length - 1;
   try {
-    return createProgram(gl, source.manifest.id, FULLSCREEN_VERT, prelude + source.shader);
+    return createProgram(gl, source.manifest.id, FULLSCREEN_VERT, prelude + source.shader + suffix);
   } catch (error) {
     if (!(error instanceof ShaderCompileError)) throw error;
     const authorLines = source.shader.split('\n');
@@ -217,6 +308,22 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
   const stemParam = params.find((p) => p.type === 'select:stem');
   const vao = gl.createVertexArray();
   const analysis = new AnalysisTexture(gl);
+  // Shadertoy dialect: the audio texture, a black texture for empty channels, and the channel map.
+  const shadertoy = (source.manifest.dialect ?? 'pulseforge') === 'shadertoy';
+  const channels = shadertoy ? shadertoyChannels(source.manifest) : [];
+  const stAudio = shadertoy && channels.includes('audio') ? new ShadertoyAudioTexture(gl) : null;
+  const black = shadertoy ? gl.createTexture() : null;
+  if (black !== null) {
+    gl.bindTexture(gl.TEXTURE_2D, black);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+    gl.bindTexture(gl.TEXTURE_2D, null);
+  }
+  const st = shadertoy ? {
+    resolution: loc('iResolution'), time: loc('iTime'), delta: loc('iTimeDelta'), rate: loc('iFrameRate'), frame: loc('iFrame'),
+    mouse: loc('iMouse'), date: loc('iDate'), sampleRate: loc('iSampleRate'),
+    channelResolution: loc('iChannelResolution'), channelTime: loc('iChannelTime'),
+    channels: [0, 1, 2, 3].map((i) => loc(`iChannel${i}`)),
+  } : null;
 
   return {
     resize() {},
@@ -270,7 +377,41 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
         }
       }
 
+      if (st !== null) {
+        const { width, height } = ctx.canvas;
+        const fps = ctx.time.fps.num / ctx.time.fps.den;
+        gl.uniform3f(st.resolution, width, height, 1);
+        gl.uniform1f(st.time, ctx.time.t);
+        gl.uniform1f(st.delta, 1 / fps);
+        gl.uniform1f(st.rate, fps);
+        gl.uniform1i(st.frame, ctx.time.frameIndex);
+        gl.uniform4f(st.mouse, 0, 0, 0, 0);
+        // Never the wall clock (CLAUDE.md #1): a fixed date, with the timeline's seconds in .w.
+        gl.uniform4f(st.date, 2000, 0, 1, ctx.time.t);
+        gl.uniform1f(st.sampleRate, 48_000);
+        stAudio?.update(ctx, (STEMS as readonly string[]).includes(stem) ? stem : 'mix');
+        const resolutions: number[] = [];
+        channels.forEach((channel, i) => {
+          // Units 2–5: 0 is the spectrum, 1 the Pulseforge input.
+          gl.activeTexture(gl.TEXTURE2 + i);
+          const texture = channel === 'audio' ? stAudio?.texture ?? black : channel === 'input' ? ctx.input?.texture ?? black : black;
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.uniform1i(st.channels[i] ?? null, 2 + i);
+          if (channel === 'audio') resolutions.push(SHADERTOY_AUDIO_WIDTH, 2, 1);
+          else if (channel === 'input' && ctx.input !== null) resolutions.push(ctx.input.width, ctx.input.height, 1);
+          else resolutions.push(1, 1, 1);
+        });
+        gl.uniform3fv(st.channelResolution, resolutions);
+        gl.uniform1fv(st.channelTime, [ctx.time.t, ctx.time.t, ctx.time.t, ctx.time.t]);
+      }
+
       drawFullscreenTriangle(gl, vao);
+      if (st !== null) {
+        for (let i = 0; i < 4; i += 1) {
+          gl.activeTexture(gl.TEXTURE2 + i);
+          gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+      }
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, null);
       gl.activeTexture(gl.TEXTURE0);
@@ -280,9 +421,39 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
 
     dispose() {
       analysis.dispose();
+      stAudio?.dispose();
+      if (black !== null) gl.deleteTexture(black);
       gl.deleteProgram(program);
       gl.deleteVertexArray(vao);
     },
+  };
+}
+
+/**
+ * Compiles a module's shader on `gl` and throws it away: null when it compiles, else the error with
+ * the author's own line numbers. For the studio's "Paste a Shadertoy" dialog, which checks as you type.
+ */
+export function checkShaderModule(gl: WebGL2RenderingContext, source: ShaderModuleSource): string | null {
+  try {
+    gl.deleteProgram(compile(gl, source));
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/**
+ * A bare Shadertoy file dropped in the modules folder (`Plasma Tunnel.glsl`) as a module: a source
+ * layer named after the file, with an id made from it. Pure, so the studio's paste dialog and the
+ * folder scan agree on both.
+ */
+export function shadertoyFileSource(fileName: string, shader: string): ShaderModuleSource {
+  const name = fileName.replace(/\.(glsl|frag)$/i, '').trim() || 'Shadertoy';
+  const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'shader';
+  return {
+    manifest: { id: `user.shadertoy.${slug}`, version: '1', kind: 'source', name, category: 'shadertoy', tags: ['shadertoy'], dialect: 'shadertoy' },
+    shader,
+    origin: fileName,
   };
 }
 

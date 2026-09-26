@@ -70,6 +70,7 @@ export const IPC = {
   stemsProgress: 'pf:stems:progress',
   modulesList: 'pf:modules:list',
   modulesReveal: 'pf:modules:reveal',
+  modulesAddShadertoy: 'pf:modules:add-shadertoy',
   /** Main → renderer: something in modules/ changed on disk; list again. */
   modulesChanged: 'pf:modules:changed',
   presetsList: 'pf:presets:list',
@@ -517,6 +518,11 @@ export interface PulseforgeApi {
   listModules(): Promise<ModuleScan>;
   /** Opens the modules folder in the file manager, creating it if needed. */
   revealModules(): Promise<void>;
+  /**
+   * Saves pasted Shadertoy code as `modules/<name>.glsl` (S2), never overwriting: a taken name gets
+   * " 2", " 3"…. Resolves with the file name and the module id it will load under.
+   */
+  addShadertoy(request: { readonly name: string; readonly code: string }): Promise<{ readonly fileName: string; readonly id: string }>;
   /** Called when files in modules/ change, so the studio can reload without a restart. */
   onModulesChanged(listener: () => void): () => void;
   /** Built-in and user presets, favourites marked (S8). */

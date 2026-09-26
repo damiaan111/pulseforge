@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1155 tests, `npm run golden` 29/29 identical,
-> `--smoke` 34/34 (35/35 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1162 tests, `npm run golden` 29/29 identical,
+> `--smoke` 35/35 (36/36 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -61,10 +61,12 @@
 > render between, and bindings can react to as scene changes. And karaoke export (S15, §4.70):
 > render with the instrumental, the track's stems but the vocals, as the soundtrack. And the
 > performance HUD (S12, §4.71): measured GPU time per layer in the preview, projected to the export
-> size and to 4K, with per-layer cost in every render report.
+> size and to 4K, with per-layer cost in every render report. And Shadertoy shaders (S2, §4.72):
+> paste one (it checks as you type) or drop a `.glsl` file in `modules/`, and it runs as on the
+> site, with the music as `iChannel0`.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — Shadertoy
-> compatibility (S2), LUTs (S11), librosa (S16), Unicode fonts (S17) and draft mode (S18).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — LUTs (S11), draft
+> mode (S18), librosa (S16) and Unicode fonts (S17).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -151,6 +153,7 @@
 | 4.69 | Markers (P8 step 7) — S9 |
 | 4.70 | Karaoke export (P8 step 8) — S15; the smoke check made independent of the screen |
 | 4.71 | The performance HUD (P8 step 9) — S12 |
+| 4.72 | Shadertoy shaders (P8 step 10) — S2 |
 
 ---
 
@@ -3899,6 +3902,90 @@ stalled run should be let time out rather than killed if it can be.
   measured spans including the output, shows the 4K estimate (or says timer queries are missing),
   and closes.
 - The UI tour adds `15-perf-hud`.
+
+### 4.72 Shadertoy shaders (P8 step 10) — S2
+
+**What it does.** Code from shadertoy.com runs as it is (the full contract is in
+`docs/module-authoring.md` §4b). There are three ways in:
+- **Paste Shadertoy…** in the Modules line of the left rail opens a dialog: a name, the code
+  (prefilled with a music-reactive example), and a live check about 0.3 s after typing stops.
+  "Compiles." or the compile error with the author's own line number. **Add as layer** saves
+  `modules/<name>.glsl` (never overwriting: a taken name gets " 2") and adds the layer.
+- **Drop a `.glsl` / `.frag` file** straight in `modules/`. The folder scan loads it as a source
+  layer named after the file (`user.shadertoy.<slug>`); no `module.json` is needed.
+- **`"dialect": "shadertoy"`** in a module folder's `module.json`: any kind, parameters as
+  uniforms, and optional `channels` (audio, input, none) and `alpha` (opaque or straight).
+
+**How it works** (`src/engine/modules/shader-module.ts`):
+- **The Shadertoy dialect is a wrapping, not a translation.**
+  - The Pulseforge prelude (all its uniforms and helpers stay available) is followed by
+    Shadertoy's (`iResolution`, `iTime`, `iTimeDelta`, `iFrameRate`, `iFrame`, `iMouse`, `iDate`,
+    `iSampleRate`, `iChannelResolution`, `iChannelTime`, `iChannel0…3`).
+  - Then comes the author's code untouched, then a generated `main()`. It calls
+    `mainImage(fragColor, gl_FragCoord.xy)`, where Shadertoy's origin is bottom-left as
+    gl_FragCoord's is here. It decodes the display-referred colour to linear light and
+    premultiplies it.
+- Compile errors keep the author's line numbers: only the prelude shifts them, and the existing
+  remapping corrects for it.
+- **Determinism:** `iDate` is (2000, 0, 1, timeline seconds), `iMouse` is zero, and `iTime` and
+  `iFrame` come from the frame index.
+- **The audio channel** (`shadertoy-audio.ts`) is Shadertoy's 512×2 R8 texture with linear
+  filtering.
+  - Row 0 is the analysis spectrum (64 log bins, 30 Hz–16 kHz, fixed) resampled onto the site's
+    linear 0–11 kHz axis. That is pure arithmetic on constants, so it is the same everywhere.
+  - Row 1 is flat 0.5, because the analysis keeps no per-frame waveform. This is documented, not
+    faked.
+  - Channels are bound on units 2–5; empty ones read a 1×1 black texture.
+- `validateShaderModule` checks the dialect:
+  - `mainImage` must be present, and `main()` must not;
+  - the channel list must be valid;
+  - an input channel is allowed on effects only;
+  - `alpha` must be opaque or straight.
+- `checkShaderModule` compiles and discards: the dialog's live check, on a small WebGL2 context
+  of its own, with exactly the prelude and wrapper a render uses.
+
+**Not supported** (said in the guide and in the dialog):
+- multi-pass shaders (Buffer A–D);
+- image, video, keyboard and sound-file channels (black);
+- a per-frame waveform.
+
+**Found on the way — the smoke's injected script is a template literal.**
+- A `\n` written inside it becomes a real line break inside a JavaScript string. That is a
+  SyntaxError, and the whole renderer check dies at start. The same goes for `\b` in a regex,
+  which becomes a backspace. The Shadertoy check now builds its newline with
+  `String.fromCharCode(10)` and uses no backslashes.
+- **Worse, `out/smoke-result.json` survives a run that dies**, so a stale file read as a pass. Twice
+  this step I reported a "35/35" that was the previous run's. Every run is now started by deleting
+  the result file, and it counts only if a fresh one appears.
+- The renderer checks also print `[smoke] step: <check>` as they go (19 steps plus the
+  checkpoints), like the main side's phases. One run stalled right after the offline check and did
+  not recur in three runs since. If it does, the output now names the step.
+
+**Verified here:**
+- `npm run check` **1162 tests**.
+  - `tests/golden/shadertoy-gpu.test.ts`, on the GPU:
+    - a gradient comes out upright;
+    - Shadertoy's 0.5 lands as display 128 (±3);
+    - `iTime` at frame 5 of 10 fps reads 0.5;
+    - the render repeats byte for byte;
+    - with a 1 kHz sine, `iChannel0` at 1 kHz reads bright and at 8 kHz dark, and the wave row is
+      0.5;
+    - a typo on line 3 is reported as `:3`, and the other layer still draws.
+  - `tests/modules/scan.test.ts`:
+    - a bare `.glsl` file loads as a Shadertoy source (a `_draft.glsl` does not);
+    - a module.json dialect with channels and alpha loads;
+    - the three refusals;
+    - the audio row puts a ~1 kHz bin at ~1 kHz on the linear axis.
+- `npm run golden` 29/29.
+- `--smoke` **35/35** (a fresh result file each time, three runs in a row with the UI tour). New
+  `shadertoyUi`:
+  - the dialog's example compiles;
+  - a planted typo is named on the author's line 4;
+  - Add saves the file and the layer appears and renders with no "unknown module" or compile
+    note;
+  - the dialog closes;
+  - the main side then deletes the file it created. `modules/` is left as it was.
+- The UI tour adds `16-shadertoy`.
 
 ---
 
