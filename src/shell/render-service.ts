@@ -7,6 +7,7 @@
 // Plain Node: no Electron import, so it is exercised end to end by a Node script as well as by
 // the app. The main process wires its `onChange` to the renderer.
 
+import type { MotionBlur } from '../engine/core/time.ts';
 import { join } from 'node:path';
 
 import { findExportPreset } from '../export/export-presets.ts';
@@ -43,6 +44,8 @@ export interface RenderRequest {
   readonly projectPath: string | null;
   readonly presetId: string;
   readonly outputPath: string;
+  /** Motion blur (S10); absent or null is off. */
+  readonly motionBlur?: MotionBlur | null;
 }
 
 export interface RenderService {
@@ -88,6 +91,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           projectPath: job.projectPath,
           size: preset.size ?? undefined,
           codec: preset.codec,
+          motionBlur: job.motionBlur ?? undefined,
           outputPath: job.outputPath,
           workDir: join(options.workRoot, job.id),
           cacheRoot: typeof options.cacheRoot === 'function' ? options.cacheRoot() : options.cacheRoot,
@@ -143,8 +147,9 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         projectPath: request.projectPath,
         aspect: aspectBucket(size.width, size.height),
         presetName: preset.id,
+        motionBlur: request.motionBlur ?? null,
         outputPath: request.outputPath,
-        label: `${document.name} — ${preset.label}`,
+        label: `${document.name} — ${preset.label}${request.motionBlur == null ? '' : ' · motion blur'}`,
       });
       kick();
       return job;

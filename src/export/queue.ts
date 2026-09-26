@@ -15,6 +15,7 @@
 // that owns *how*. That split is what makes the whole thing testable without a renderer, and it
 // is also why the queue can be driven from the CLI and the app alike.
 
+import type { MotionBlur } from '../engine/core/time.ts';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { renameIntoPlace, tempPathFor } from '../node/rename-into-place.ts';
@@ -53,6 +54,8 @@ export interface RenderJob {
   readonly presetName: string;
   /** Null renders the whole timeline. */
   readonly range: JobRange | null;
+  /** Motion blur (S10, export-spec §9). Absent or null is off — every job queued before it existed. */
+  readonly motionBlur?: MotionBlur | null;
   readonly outputPath: string;
   readonly status: JobStatus;
   readonly progress: ProgressSnapshot | null;
@@ -70,6 +73,7 @@ export interface EnqueueRequest {
   readonly aspect: string;
   readonly presetName: string;
   readonly range?: JobRange | null;
+  readonly motionBlur?: MotionBlur | null;
   readonly outputPath: string;
 }
 
@@ -196,6 +200,7 @@ export class RenderQueue {
       aspect: request.aspect,
       presetName: request.presetName,
       range: request.range ?? null,
+      motionBlur: request.motionBlur ?? null,
       outputPath: request.outputPath,
       status: 'queued',
       progress: null,

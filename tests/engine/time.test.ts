@@ -4,8 +4,10 @@ import {
   frameCount,
   frameStartTick,
   frameTimeSeconds,
+  motionBlurProblems,
   rational,
   secondsToTicks,
+  subframeTimes,
   timelineToSourceSeconds,
 } from '../../src/engine/core/time.ts';
 
@@ -46,5 +48,29 @@ describe('time', () => {
     expect(timelineToSourceSeconds(0, placement)).toBe(28);
     expect(timelineToSourceSeconds(2, placement)).toBe(30);
     expect(timelineToSourceSeconds(1, { leadInTicks: secondsToTicks(3), clipInTicks: 0 })).toBe(-2);
+  });
+});
+
+describe('motion-blur subframes (S10, export-spec §9)', () => {
+  it('spreads the samples evenly across t ± (shutter/2)/fps, weighted equally', () => {
+    // 10 fps, 180°: open for 0.05 s around t = 0.5 s; four samples at the middle of each quarter.
+    const subs = subframeTimes(5, rational(10), { samples: 4, shutterDegrees: 180 });
+    expect(subs.map((s) => s.t)).toEqual([0.48125, 0.49375, 0.50625, 0.51875].map((x) => expect.closeTo(x, 12)));
+    expect(subs.map((s) => s.tick)).toEqual([23_100, 23_700, 24_300, 24_900]);
+    expect(subs.reduce((sum, s) => sum + s.weight, 0)).toBe(1);
+  });
+
+  it('holds a time before the timeline at 0, and is the same for the same frame every time', () => {
+    const first = subframeTimes(0, rational(30), { samples: 8, shutterDegrees: 360 });
+    expect(first.slice(0, 4).every((s) => s.t === 0 && s.tick === 0)).toBe(true);
+    expect(first[7]!.t).toBeGreaterThan(0);
+    expect(subframeTimes(1234, rational(60000, 1001), { samples: 8, shutterDegrees: 180 }))
+      .toEqual(subframeTimes(1234, rational(60000, 1001), { samples: 8, shutterDegrees: 180 }));
+  });
+
+  it('reports a setting out of range', () => {
+    expect(motionBlurProblems({ samples: 8, shutterDegrees: 180 })).toEqual([]);
+    expect(motionBlurProblems({ samples: 1, shutterDegrees: 180 })).toHaveLength(1);
+    expect(motionBlurProblems({ samples: 2.5, shutterDegrees: 0 })).toHaveLength(2);
   });
 });

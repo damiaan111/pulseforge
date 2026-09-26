@@ -5,12 +5,12 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-09-25.** P0, **P1**, P2, P3, P4, **P6 (lyrics), P7 (the auto-director) and operability are complete** (P1: core,
+> **Last updated: 2026-09-26.** P0, **P1**, P2, P3, P4, **P6 (lyrics), P7 (the auto-director) and operability are complete** (P1: core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1109 tests, `npm run golden` 29/29 identical,
-> `--smoke` 30/30, `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1116 tests, `npm run golden` 29/29 identical,
+> `--smoke` 30/30 (31/31 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -51,10 +51,11 @@
 > Bézier curve editor, and keyframe rows in the timeline (drag, snap, Alt-copy, Delete).
 >
 > Masking (S7) is done too (§4.65): any layer masks another by shape or brightness, inverted and
-> feathered, and a mask source is hidden unless shown.
+> feathered, and a mask source is hidden unless shown. So is motion blur (S10, §4.66): an export
+> option that averages 4–16 subframes across a 90–360° shutter, in the export dialog and the CLI.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): motion blur (S10), the 6-stem
-> model (S6) and the rest of P8.
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the 6-stem model (S6) and the
+> rest of P8.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -135,6 +136,7 @@
 | 4.63 | Keyframes: spec, model, commands, engine (P8 step 1) — S1 |
 | 4.64 | Keyframes in the studio: inspector, key editor, timeline rows (P8 step 2) — S1 complete |
 | 4.65 | Masking (P8 step 3) — S7 |
+| 4.66 | Motion blur (P8 step 4) — S10 |
 
 ---
 
@@ -246,7 +248,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 | `npm run dev` | bundle and launch the app; extra args open a project (`-- song.pvproj`) | ~15 s |
 | `npm run build` | bundle the app to `dist/app/` without launching | ~1 s |
 | `npm run dev -- --smoke` | launch, self-check the security posture and core UI flows, screenshot to `out/smoke.png`, verdict in `out/smoke-result.json`, exit. Env: `PULSEFORGE_SMOKE_RENDER=<audio>` adds a real queued render; `PULSEFORGE_UI_TOUR=1` adds screenshots of dialogs, drawer, override mode and toast at two window sizes to `out/ui-tour/` | ~5–30 s |
-| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet` | seconds |
+| `npm run render` | `-- <project.pvproj> -o <out.mp4>`; `--aspect`, `--size`, `--codec`, `--audio`, `--seconds`, `--quiet`, `--motion-blur`, `--blur-samples N`, `--shutter DEG` | seconds |
 | `npm run golden` | re-render the golden set (`tests/golden/goldens.json`: neon-bars, layered, scene3d, lyrics) and compare with the committed references; `--update`, `--only <name>` (an `--only` update keeps the other entries' references) | ~40 s |
 | `npm run presets:builtin` | regenerate `presets/builtin/` from `scripts/make-builtin-presets.ts` (refuses unknown modules/keys); commit the diff | ~2 s |
 | `npm run modules:check` | conformance test for drop-in modules in `modules/` (params, compile, determinism, reflow) → `out/modules-check.json`; `-- <dir>` for another folder | ~15 s |
@@ -3410,6 +3412,79 @@ alpha and inverted alpha here, so no separate mode was added.
 - `npm run golden` 29/29: the new shader branch is off for unmasked layers.
 - `--smoke` **30/30**. New `maskUi`: an Orb masked by a Bars layer is one undo step ("Set mask"),
   the options appear, and the Bars layer's inspector offers "Also show it".
+
+### 4.66 Motion blur (P8 step 4) — S10, export-spec §9
+
+**What it does.** An export option. Each frame becomes the average of `k` subframes spread across
+the shutter, so fast motion smears the way a film camera's does. 8 samples at a 180° shutter is the
+default (the film-like one in export-spec §9). The preview never blurs.
+
+- **Export dialog:** a **Motion blur** tick box, then 4, 8 or 16 samples and a 90°, 180°, 270° or
+  360° shutter, with a note that the render takes about `k` times as long. A queued job's label
+  ends in "· motion blur".
+- **CLI:** `--motion-blur` (8 at 180°), `--blur-samples N` (2–32) and `--shutter DEG` (1–360); either
+  of the last two turns it on. Out-of-range values are refused with the fix.
+- **The render report** records `motionBlur: {samples, shutterDegrees}`, or `null` when off
+  (export-spec §9: "reported in the render report").
+
+**How.**
+- **Timing** (`subframeTimes` in `core/time.ts`): subframe `j` of `k` sits at
+  `t + ((j + ½)/k − ½) · (shutter/360) / fps`, the middle of its slice of the open shutter, centred
+  on the frame's own time as the spec's `t ± (shutter/2)/fps` says. It is derived from the frame
+  index, and its tick is the frame's start tick plus the rounded offset. Nothing accumulates between
+  frames.
+- **Engine:** the body of `renderFrame` became `buildScene(t, tick)`, which returns the frame's
+  layers and global chain at any time. The engine option `motionBlur` either builds one scene (as
+  before), or hands `k` lazy builds to the compositor. Warnings and parameter issues repeated by
+  subframes are listed once.
+- **Compositor:** `composite` was split into `linear` (layers and global chain into RGBA16F) and
+  `writeOutput` (tone map, transfer, dither, row order). `compositeAccumulated` composites each
+  subframe in linear light and adds it, times its weight, into an **RGBA32F** running sum. The sum
+  ping-pongs between two targets through a one-line shader: float32 blending is an extension, and a
+  half-float sum would round on every step. The sum then goes through the one output pass, so the
+  tone curve and dither apply once, to the blurred picture.
+- **Plumbing:** `EngineOptions.motionBlur` ← `ExportRequest` ← the spike `ExportConfig` and
+  `FramesConfig` ← `runExportSpike` / `renderFrames` ← `renderDocument` ← the queued job
+  (`RenderJob.motionBlur`, optional, so older queue files load as "off") ← `RenderRequest`, validated
+  in the main process.
+
+**Decisions (ROADMAP §4):**
+- **A subframe before the timeline starts is held at 0**, so frame 0 is only blurred forwards.
+- **Subframes keep the frame's index.** `ctx.time.frameIndex` is the same for all of them, and only
+  `t` moves. So a video layer shows its one decoded frame (the footage has its own motion blur), and
+  grain and dither patterns keyed on the frame stay put.
+- **Weights are equal** (a box shutter). With 4, 8 or 16 samples the weights are powers of two and
+  sum exactly, so **a picture that does not move is byte-identical** to the unblurred render.
+
+**Not done:** spatial supersampling (2× SSAA, the other half of export-spec §9) is a separate item;
+S10 asks only for motion blur.
+
+**Measured here** (`out/scene3d/shapes.pvproj`, the 3D shapes scene plus bloom, 1080p60, 6 s,
+H.264): **167.4 fps** sharp, **86.8 fps** with 8 samples. So 8× the scene work costs 1.9× the wall
+time on a light scene, because readback and encode are a large share of a sharp frame. A heavy scene
+approaches `k`×, which is why the dialog says "about".
+
+**Verified here:**
+- `npm run check` **1116 tests**:
+  - `tests/engine/time.test.ts`: subframe times and ticks for 4 samples at 180°; the clamp at 0;
+    repeatability at 59.94; the range checks;
+  - `tests/export/queue.test.ts`: a job's motion blur survives a restart, and one without is off;
+  - `tests/cli/render-args.test.ts`: off by default, `--motion-blur`, samples and shutter, refusals.
+- GPU (`tests/golden/motion-blur-gpu.test.ts`), an 8 px box moving 128 px/s at 10 fps:
+  - sharp, it covers only its own pixels;
+  - blurred, the pixels 5 px ahead and behind are partly covered and match within 2 codes (centred
+    shutter), and nothing lies beyond the shutter's reach;
+  - the blurred frame is identical run to run;
+  - a still project renders byte-identical with and without blur.
+- `npm run golden` 29/29: the unblurred path's output did not change.
+- A real render (`npm run render -- … --motion-blur`), which passed verification with the setting in
+  its report.
+- `--smoke` **30/30**, and **31/31** with `PULSEFORGE_SMOKE_RENDER`:
+  - `exportDialog` now ticks Motion blur and sees the sample and shutter choices come alive;
+  - `queuedRender` queues its render with 4-sample blur and checks the job's report records it.
+  - One of three smoke runs this step missed `recoveryDialog` (the dialog was not offered in time).
+    This is the known timing flake from §4.61, and the two runs after it passed. **Open item:** if it
+    recurs, move the check earlier or widen its wait again.
 
 ---
 

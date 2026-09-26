@@ -2,6 +2,7 @@
 
 import type { AudioPlacement } from '../../src/export/audio.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
+import type { MotionBlur } from '../../src/engine/core/time.ts';
 import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
 import type { RenderReport } from '../../src/export/report.ts';
@@ -76,6 +77,8 @@ export interface ExportConfig {
   /** Drop-in modules (M35), as data: compiled here exactly as the studio compiles them. */
   modules?: ShaderModuleSource[];
   dither: boolean;
+  /** Motion blur (S10); absent is off. */
+  motionBlur?: MotionBlur;
   outputPath: string;
   scratchDir: string;
   settings: EncodeSettings;
@@ -106,6 +109,8 @@ export interface FramesConfig {
   modules?: ShaderModuleSource[];
   frames: number[];
   dither: boolean;
+  /** Motion blur (S10); absent is off. */
+  motionBlur?: MotionBlur;
 }
 
 export interface SpikeFramesResult {

@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-25, after P7 (the auto-director) is complete.** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-26, P8 in progress (S1, S7 and S10 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -109,6 +109,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 |---|---|---|
 | S1 Keyframe automation | ✅ | 4.63, 4.64 — the auto-director still writes arrangement as `curve` bindings (ROADMAP §4); converting it to keyframes is a follow-up |
 | S7 Masking | ✅ | 4.65 — alpha and luma, invert, feather; stencil modes are alpha and inverted alpha |
+| S10 Motion blur | ✅ | 4.66 — export dialog and CLI, 2–32 samples, 1–360° shutter, in the render report; spatial SSAA (export-spec §9) is not built |
 | S2 Custom GLSL layer | 🔶 | drop-in shader modules (M35) cover "a shader with audio uniforms and live compile errors"; Shadertoy compatibility (`iTime`, `iResolution`, `mainImage`) is not there |
 | S8 Preset browser | ✅ | 4.44 |
 | S9 Sections/markers | 🔶 | automatic section detection (4.21); no markers or snapping UI |
@@ -117,7 +118,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S18 Draft/proxy mode | 🔶 | preview resolution scale and video proxies; no effect approximations |
 | S19 Collect files | ✅ | 4.37 |
 
-S6, S10, S12, S13, S15, S16 and S17 are not started. Could-haves (C1–C15) are untouched.
+S6, S12, S13, S15, S16 and S17 are not started. Could-haves (C1–C15) are untouched.
 
 ---
 
@@ -134,8 +135,8 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 6. ✅ **Auto-director (P7: M21, M22)** — done (STATUS 4.56–4.58).
 7. ✅ **Operability (M33, M34, M36)** — done (STATUS 4.59–4.61).
 8. ✅ **P1 remainder** — done (STATUS 4.62).
-9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65); next motion blur (S10), the 6-stem
-   model (S6), and the rest of the Should-haves.
+9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66); next
+   the 6-stem model (S6), and the rest of the Should-haves.
 
 ---
 
@@ -158,6 +159,7 @@ it was made; they are collected here so none is a surprise.
 | **Layer opacity is a modulation target** (`layers.<id>.opacity`) | modulation-spec §4 targets module parameters | the director's section presence has to fade a layer in and out; one opacity binding does it for every module, and is editable in the matrix | STATUS 4.57 |
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
+| Motion-blur subframes **keep the frame's index** (only `t` moves), and one **before the timeline is held at 0** | export-spec §9 gives the shutter interval only | a video layer has one decoded frame per frame and its own motion blur; grain keyed on the frame should not smear; frame 0 has nothing before it | STATUS 4.66 |
 | Masks are applied **in canvas space** (the source as drawn in the frame, after both layers' transforms); a source that is **off leaves the target unmasked** | compositor-spec §5 places the mask step before the target's transform and does not say what an off source means | "a shape masks what is under it on screen" is what people expect; switching a mask's eye off to compare is a common gesture | STATUS 4.65 |
 | **The VoxPopuli alignment models (fr, de, es, it) are CC BY-NC 4.0** — non-commercial | PROJECT.md §3 wants open licences | they are what WhisperX uses for these languages; they are optional extras, the licence is shown where they are installed, and English (MIT) is unaffected. **The owner should decide** whether to keep offering them | STATUS 4.62 |
 | The offline rebuild check is **a command and a Settings button, not a CI job** | P1 exit: "passes a networking-disabled end-to-end run in CI" | the repo has no CI; the check runs the same rebuild locally with the network made unusable | STATUS 4.62 |

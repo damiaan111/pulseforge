@@ -47,7 +47,8 @@ P4 are complete (2026-09-18), and so are the modulation UI (M13), the layer/clip
 (M7, M9, M29), stems end to end (M5, M27, M28), autosave with crash recovery (M1) and **P6, lyrics**
 (M18–M20, M26; 2026-09-25), **P7, the auto-director** (M21, M22) and **operability** (M33, M34,
 M36) and **the P1 remainder** (extras tier, offline rebuild check; 2026-09-25) — every must-have is
-done; the next item is P8, the Should-haves (ROADMAP §3 item 9). `START-HERE.md` describes P0, which
+done. P8, the Should-haves, is under way (ROADMAP §3 item 9): keyframes (S1), masking (S7) and
+motion blur (S10) are done; the 6-stem model (S6) is next. `START-HERE.md` describes P0, which
 is done.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept

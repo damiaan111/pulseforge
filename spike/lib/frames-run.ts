@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { analyzeMix } from '../../src/analysis/analyze.ts';
+import type { MotionBlur } from '../../src/engine/core/time.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import type { BeatGrid, SourceAnalysis } from '../../src/engine/core/analysis.ts';
 import type { ContextInfo } from '../../src/engine/render/gl.ts';
@@ -36,6 +37,8 @@ export interface FramesOptions {
   readonly analysis?: { readonly mix: SourceAnalysis; readonly beatGrid: BeatGrid | undefined };
   /** Off by default: dither noise is exactly what a pixel-position check does not want. */
   readonly dither?: boolean;
+  /** Motion blur (S10); absent is off. */
+  readonly motionBlur?: MotionBlur;
   /** Decoded images by content hash, for layers that reference assets. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
   /** Font files by content hash, beyond the bundled default (which is always registered when present). */
@@ -112,6 +115,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
     frames: [...options.frames],
     dither: options.dither ?? false,
+    ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
   };
   const { result, log } = await runElectron<SpikeFramesResult>(config);
   if (!result.ok) throw new FramesRunError(`Frame render failed: ${result.error ?? 'unknown error'}`, log);

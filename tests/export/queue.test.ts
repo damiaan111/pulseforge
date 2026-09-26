@@ -297,6 +297,16 @@ describe('RenderQueue persistence', () => {
     expect(reloaded.pending).toHaveLength(2);
   });
 
+  it('keeps a job’s motion blur across a restart; a job without one is off (S10)', async () => {
+    const first = makeQueue(async () => ({}));
+    await first.enqueue(request({ motionBlur: { samples: 8, shutterDegrees: 180 } }));
+    await first.enqueue(request());
+
+    const reloaded = makeQueue(async () => ({}));
+    await reloaded.load();
+    expect(reloaded.list().map((job) => job.motionBlur)).toEqual([{ samples: 8, shutterDegrees: 180 }, null]);
+  });
+
   it('a job that was running when the process died is interrupted, not silently restarted', async () => {
     const queue = makeQueue(async () => ({}));
     const job = await queue.enqueue(request());

@@ -57,6 +57,7 @@ import {
 } from '../assets/video-cache.ts';
 import { loadDocument } from '../project/load.ts';
 import { scanModules, type ModuleScan } from '../modules-folder/scan.ts';
+import { motionBlurProblems } from '../engine/core/time.ts';
 import { BUILTIN_MODULES, ENGINE_VERSION } from '../engine/engine.ts';
 import { SidecarSupervisor, spawnPythonSidecar } from '../ml/supervisor.ts';
 import { StemsCancelledError, separateStems } from '../ml/stems.ts';
@@ -1251,6 +1252,10 @@ function registerRenderHandlers(renders: RenderService): void {
       || (request.projectPath !== null && typeof request.projectPath !== 'string')) {
       throw new Error('enqueueRender needs text, presetId, outputPath and projectPath');
     }
+    const blur = request.motionBlur;
+    if (blur != null && (typeof blur !== 'object' || motionBlurProblems(blur).length > 0)) {
+      throw new Error(`enqueueRender: ${typeof blur === 'object' ? motionBlurProblems(blur).join('; ') : 'motionBlur must be an object'}`);
+    }
     try {
       return await renders.enqueue(request);
     } catch (error) {
@@ -2165,9 +2170,17 @@ app.whenReady().then(async () => {
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
       const presets = document.querySelectorAll('#app .export-dialog input[data-action="export-preset"]').length;
+      // Motion blur (S10): off, its choices disabled, until ticked.
+      const blurSamples = () => document.querySelector('#app .export-dialog [data-action="export-blur-samples"]');
+      const blurWasOff = blurSamples()?.disabled === true;
+      document.querySelector('#app .export-dialog [data-action="export-motion-blur"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
+      const blurToggles = blurWasOff && blurSamples()?.disabled === false
+        && (document.querySelector('#app .export-blur')?.textContent ?? '').includes('render time');
+      if (!blurToggles) console.error('[smoke] exportDialog: the motion-blur toggle did not enable its choices');
       document.querySelector('#app .modal-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
-      const exportDialog = presets >= 6 && document.querySelector('#app .export-dialog') === null;
+      const exportDialog = presets >= 6 && blurToggles && document.querySelector('#app .export-dialog') === null;
 
       // Crash recovery (M1), last because it replaces the project: the seeded autosave of a
       // "crashed" run is offered on start with its summary, and Restore opens it — unsaved — with
@@ -2266,11 +2279,15 @@ app.whenReady().then(async () => {
       const project = createDocument({ name: 'Smoke render', canvas: { width: 640, height: 360 } });
       const withLayer = { ...project, layers: [createModuleLayer('core.visualizer.bars', { name: 'bars' })], audio: { ...project.audio, path: smokeAudio } };
       const output = join(ROOT, 'out', 'smoke-render.mp4');
-      const job = await renders.enqueue({ text: stringifyDocument(withLayer), projectPath: null, presetId: 'project-h264', outputPath: output });
+      const job = await renders.enqueue({ text: stringifyDocument(withLayer), projectPath: null, presetId: 'project-h264', outputPath: output, motionBlur: { samples: 4, shutterDegrees: 180 } });
       await Promise.race([renders.idle(), new Promise((done) => setTimeout(done, 120_000))]);
       const finished = renders.list().find((entry) => entry.id === job.id);
       if (finished?.error) console.error(`[smoke] render error: ${finished.error}`);
-      checks['queuedRender'] = finished?.status === 'done' && existsSync(output) && finished.progress?.fraction === 1;
+      // Queued with motion blur (S10), which the job carries through to the render and its report.
+      const blurred = finished?.reportPath != null && existsSync(finished.reportPath)
+        && (JSON.parse(readFileSync(finished.reportPath, 'utf8')) as { motionBlur?: { samples: number } | null }).motionBlur?.samples === 4;
+      if (!blurred) console.error('[smoke] queuedRender: the report does not record the motion blur');
+      checks['queuedRender'] = finished?.status === 'done' && existsSync(output) && finished.progress?.fraction === 1 && blurred;
     }
 
     const failed = [...(settled ? [] : ["settled"]), ...Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name)];

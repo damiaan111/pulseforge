@@ -13,7 +13,7 @@ import type { DecodedImage } from '../engine/core/image.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
 import type { ModuleDefinition } from '../engine/core/module.ts';
 import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
-import { frameCount } from '../engine/core/time.ts';
+import { frameCount, type MotionBlur } from '../engine/core/time.ts';
 import { ENGINE_VERSION, createEngine, type Engine } from '../engine/engine.ts';
 import { prepareExportAudio, samplesForFrames, type AudioPlacement, type AudioSource, type PreparedAudio } from './audio.ts';
 import { startEncoder, type EncoderProcess } from './encoder.ts';
@@ -58,6 +58,8 @@ export interface ExportRequest {
   readonly keepPartial: boolean;
   /** Output dither; always on for real exports. Off only for exact colour measurement. */
   readonly dither?: boolean;
+  /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
+  readonly motionBlur?: MotionBlur;
   readonly now: () => number;
   readonly yieldToEventLoop: () => Promise<void>;
   readonly onProgress?: (progress: { readonly collected: number; readonly encoded: number; readonly total: number }) => void;
@@ -126,6 +128,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     packing: settings.conversion === 'gpu-nv12' ? 'nv12' : 'rgba',
     ...(request.text === undefined ? {} : { text: request.text }),
     ...(request.modules === undefined ? {} : { modules: request.modules }),
+    ...(request.motionBlur === undefined ? {} : { motionBlur: request.motionBlur }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
   request.onEngine?.(engine);
@@ -190,6 +193,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
         count: frames,
         combinedSha256: request.hashFrames ? createHash('sha256').update(frameHashes.join('\n')).digest('hex') : undefined,
       },
+      motionBlur: request.motionBlur ?? null,
       encode: {
         settings,
         commandLine: formatCommandLine(request.ffmpegExe, args),

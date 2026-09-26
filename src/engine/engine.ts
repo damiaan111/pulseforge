@@ -20,7 +20,9 @@ import {
   isGroupSpec, layerIsLive, walkRenderModules, type AnyLayerSpec, type EffectSpec, type RenderProject,
 } from './core/project.ts';
 import type { EffectPass } from './render/effects.ts';
-import { frameStartTick, frameTimeSeconds, ticksToSeconds, timelineToSourceSeconds } from './core/time.ts';
+import {
+  frameStartTick, frameTimeSeconds, motionBlurProblems, subframeTimes, ticksToSeconds, timelineToSourceSeconds, type MotionBlur,
+} from './core/time.ts';
 import { Compositor, type CompositeLayer, type OutputOptions } from './render/compositor.ts';
 import { RenderSetupError, requireContextFeatures, type ContextInfo } from './render/gl.ts';
 import { AsyncReadback, bytesPerFrame, readSync } from './render/readback.ts';
@@ -94,6 +96,11 @@ export interface EngineOptions {
   readonly modules?: readonly ModuleDefinition[];
   /** Glyph rasterisation for text layers (core/text.ts). Without it, text layers report and draw nothing. */
   readonly text?: TextRasterizer;
+  /**
+   * Motion blur (S10, export-spec §9): every frame is the average of `samples` subframes across the
+   * shutter. Export only — the preview never sets it. Absent: one sample at the frame's time.
+   */
+  readonly motionBlur?: MotionBlur;
 }
 
 export interface FrameReport {
@@ -200,8 +207,21 @@ function requireTenBitReadback(gl: WebGL2RenderingContext, pool: TargetPool): vo
   }
 }
 
+/** Issues repeated across motion-blur subframes, each listed once. */
+function uniqueIssues<T extends { readonly layerId: string; readonly issues: readonly ParamIssue[] }>(all: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return all.filter((entry) => {
+    const key = `${entry.layerId} ${JSON.stringify(entry.issues)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions): Engine {
   const context = requireContextFeatures(gl);
+  const blurProblems = options.motionBlur === undefined ? [] : motionBlurProblems(options.motionBlur);
+  if (blurProblems.length > 0) throw new RenderSetupError(blurProblems.join('; '));
   const registry = new Map((options.modules ?? BUILTIN_MODULES).map((m) => [m.manifest.id, m]));
   const pool = new TargetPool(gl);
   const images = new ImageStore(gl);
@@ -314,289 +334,304 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           if (value !== undefined) modulatedValues.set(prefix + key, value);
         }
       };
-      const frameContext = {
-        time: { t, frameIndex, fps },
-        analysis,
-        audioSeconds: timelineToSourceSeconds(t, project.audio),
-        prng: createPrng(project.seed),
-        gl,
-        quality: options.quality,
-        warn: (message: string) => warnings.push(message),
-        image: (assetId: string) => {
-          const ref = project.assets?.[assetId];
-          return ref === undefined || ref.kind !== 'image' ? undefined : images.texture(ref.hash);
-        },
-        video: (assetId: string) => {
-          const ref = project.assets?.[assetId];
-          return ref === undefined || ref.kind !== 'video' ? undefined : videos.get(ref.hash);
-        },
-        text: options.text,
-        lyrics: project.lyrics,
-        font: (assetId: string) => {
-          if (assetId === '') return { hash: null, name: 'default' };
-          const ref = project.assets?.[assetId];
-          if (ref === undefined || ref.kind !== 'font') {
-            return { hash: null, name: 'default', missing: `font asset "${assetId}" is not in the project` };
-          }
-          if (options.text === undefined || !options.text.hasFont(ref.hash)) {
-            return { hash: null, name: ref.name, missing: `font "${ref.name}" is not available (missing file?)` };
-          }
-          return { hash: ref.hash, name: ref.name };
-        },
-      };
-      const layerSeconds = (range: { inTicks: number; outTicks: number | null } | undefined) => ({
-        inSeconds: range === undefined ? 0 : ticksToSeconds(range.inTicks),
-        outSeconds: range?.outTicks == null ? null : ticksToSeconds(range.outTicks),
-      });
-      const wholeTimeline = layerSeconds(undefined);
-
       const program = programFor(project, analysis);
-      const tick = frameStartTick(frameIndex, fps);
+      /**
+       * Everything a frame draws, at timeline time `t` (tick `tick`): the frame's own time, or one
+       * of its motion-blur subframes. The draw closures run when the compositor calls them.
+       */
+      const buildScene = (t: number, tick: number) => {
+        const frameContext = {
+          time: { t, frameIndex, fps },
+          analysis,
+          audioSeconds: timelineToSourceSeconds(t, project.audio),
+          prng: createPrng(project.seed),
+          gl,
+          quality: options.quality,
+          warn: (message: string) => warnings.push(message),
+          image: (assetId: string) => {
+            const ref = project.assets?.[assetId];
+            return ref === undefined || ref.kind !== 'image' ? undefined : images.texture(ref.hash);
+          },
+          video: (assetId: string) => {
+            const ref = project.assets?.[assetId];
+            return ref === undefined || ref.kind !== 'video' ? undefined : videos.get(ref.hash);
+          },
+          text: options.text,
+          lyrics: project.lyrics,
+          font: (assetId: string) => {
+            if (assetId === '') return { hash: null, name: 'default' };
+            const ref = project.assets?.[assetId];
+            if (ref === undefined || ref.kind !== 'font') {
+              return { hash: null, name: 'default', missing: `font asset "${assetId}" is not in the project` };
+            }
+            if (options.text === undefined || !options.text.hasFont(ref.hash)) {
+              return { hash: null, name: ref.name, missing: `font "${ref.name}" is not available (missing file?)` };
+            }
+            return { hash: ref.hash, name: ref.name };
+          },
+        };
+        const layerSeconds = (range: { inTicks: number; outTicks: number | null } | undefined) => ({
+          inSeconds: range === undefined ? 0 : ticksToSeconds(range.inTicks),
+          outSeconds: range?.outTicks == null ? null : ticksToSeconds(range.outTicks),
+        });
+        const wholeTimeline = layerSeconds(undefined);
 
-      // Keyframes (S1): step 3 of module-spec §5. A keyed value REPLACES the base (the snapshot has
-      // already applied aspect overrides) and modulation then rides on top of it.
-      const automation = automationFor(project);
-      const automated = (prefix: string, schema: readonly ParamSpec[], stored: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
-        if (automation.size === 0) return stored;
-        let out: Record<string, unknown> | null = null;
-        for (const spec of schema) {
-          const track = automation.get(prefix + spec.key);
-          if (track === undefined) continue;
-          const kind = spec.type === 'float' || spec.type === 'int' ? 'number' : spec.type === 'color' ? 'color' : 'discrete';
-          const value = sampleTrack(track.keyframes, t, kind);
-          if (value === undefined) continue;
-          out ??= { ...stored };
-          out[spec.key] = value;
-        }
-        return out ?? stored;
-      };
-      const automatedNumber = (target: string, base: number): number => {
-        const track = automation.get(target);
-        const value = track === undefined ? undefined : sampleTrack(track.keyframes, t, 'number');
-        return typeof value === 'number' && Number.isFinite(value) ? value : base;
-      };
 
-      /** Parameter keys under `prefix` that actually carry a binding (module-spec §4). */
-      const modulationFor = (prefix: string): ResolveOptions => {
-        const keys = new Set<string>();
-        for (const target of program.targets.keys()) {
-          if (target.startsWith(prefix)) keys.add(target.slice(prefix.length));
-        }
-        if (keys.size === 0) return {};
-        return { modulated: keys, modulate: (key, base) => modulateValue(program, prefix + key, base, t) };
-      };
+        // Keyframes (S1): step 3 of module-spec §5. A keyed value REPLACES the base (the snapshot has
+        // already applied aspect overrides) and modulation then rides on top of it.
+        const automation = automationFor(project);
+        const automated = (prefix: string, schema: readonly ParamSpec[], stored: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
+          if (automation.size === 0) return stored;
+          let out: Record<string, unknown> | null = null;
+          for (const spec of schema) {
+            const track = automation.get(prefix + spec.key);
+            if (track === undefined) continue;
+            const kind = spec.type === 'float' || spec.type === 'int' ? 'number' : spec.type === 'color' ? 'color' : 'discrete';
+            const value = sampleTrack(track.keyframes, t, kind);
+            if (value === undefined) continue;
+            out ??= { ...stored };
+            out[spec.key] = value;
+          }
+          return out ?? stored;
+        };
+        const automatedNumber = (target: string, base: number): number => {
+          const track = automation.get(target);
+          const value = track === undefined ? undefined : sampleTrack(track.keyframes, t, 'number');
+          return typeof value === 'number' && Number.isFinite(value) ? value : base;
+        };
 
-      const canvasFor = (reference: ScaleReference) => ({
-        width,
-        height,
-        aspect: width / height,
-        referenceScale: referenceLength(width, height, reference),
-      });
+        /** Parameter keys under `prefix` that actually carry a binding (module-spec §4). */
+        const modulationFor = (prefix: string): ResolveOptions => {
+          const keys = new Set<string>();
+          for (const target of program.targets.keys()) {
+            if (target.startsWith(prefix)) keys.add(target.slice(prefix.length));
+          }
+          if (keys.size === 0) return {};
+          return { modulated: keys, modulate: (key, base) => modulateValue(program, prefix + key, base, t) };
+        };
 
-      /** Builds the effect passes for one chain, reporting anything it cannot run. */
-      const buildEffects = (
-        specs: readonly EffectSpec[],
-        pathPrefix: string,
-        owner: string,
-        canvas: ReturnType<typeof canvasFor>,
-        layerTime: { inSeconds: number; outSeconds: number | null },
-        hasDepth = false,
-      ): EffectPass[] => {
-        const passes: EffectPass[] = [];
-        for (const spec of specs) {
-          if (!spec.enabled) continue;
-          const definition = registry.get(spec.module);
+        const canvasFor = (reference: ScaleReference) => ({
+          width,
+          height,
+          aspect: width / height,
+          referenceScale: referenceLength(width, height, reference),
+        });
+
+        /** Builds the effect passes for one chain, reporting anything it cannot run. */
+        const buildEffects = (
+          specs: readonly EffectSpec[],
+          pathPrefix: string,
+          owner: string,
+          canvas: ReturnType<typeof canvasFor>,
+          layerTime: { inSeconds: number; outSeconds: number | null },
+          hasDepth = false,
+        ): EffectPass[] => {
+          const passes: EffectPass[] = [];
+          for (const spec of specs) {
+            if (!spec.enabled) continue;
+            const definition = registry.get(spec.module);
+            if (definition === undefined) {
+              warnings.push(`${owner}: unknown effect module "${spec.module}" is not applied`);
+              continue;
+            }
+            if (definition.manifest.kind !== 'effect') {
+              warnings.push(`${owner}: module "${spec.module}" is a ${definition.manifest.kind}, not an effect; it is not applied`);
+              continue;
+            }
+            if (definition.manifest.capabilities.needsDepth === true && !hasDepth) {
+              // Depth exists only on 3D scene layers (D18). Refused and said, never run on nothing.
+              warnings.push(`${owner}: effect "${definition.manifest.name}" needs depth, which only 3D scene layers have; it is not applied`);
+              continue;
+            }
+            const effectModulation = modulationFor(`${pathPrefix}${spec.id}.params.`);
+            const resolved = resolveParams(definition.manifest.params, automated(`${pathPrefix}${spec.id}.params.`, definition.manifest.params, spec.params), effectModulation);
+            recordModulated(`${pathPrefix}${spec.id}.params.`, effectModulation, resolved.values);
+            if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
+            const instance = instanceFor(spec.id, definition);
+            if (instance === undefined) {
+              warnings.push(`${owner}: effect "${spec.module}" is broken and is not applied — ${broken.get(spec.module) ?? 'it could not be created'}`);
+              continue;
+            }
+            passes.push({
+              id: spec.id,
+              draw: (input, target, depth) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input, depth, outputTarget: target }, resolved.values),
+            });
+          }
+          return passes;
+        };
+
+        /**
+         * One level of the layer tree (M38). A group's children composite into the group's own
+         * target, so the group's transform, opacity, blend and effects apply to the result rather
+         * than to each child — the difference between fading a scene and fading three layers.
+         *
+         * Depth is bounded: a document is loaded from disk and could nest arbitrarily, and each
+         * level costs a render target.
+         */
+        // Every layer by id, at any depth: a mask's source can live anywhere in the project.
+        const specsById = new Map<string, AnyLayerSpec>();
+        const index = (specs: readonly AnyLayerSpec[]): void => {
+          for (const spec of specs) {
+            specsById.set(spec.id, spec);
+            if (isGroupSpec(spec)) index(spec.children);
+          }
+        };
+        index(project.layers);
+        /** Layers whose mask is being built right now: a chain that comes back to one is a cycle. */
+        const masking = new Set<string>();
+
+        /**
+         * Masking (S7, compositor-spec §5): the source is built like any layer (module, effects,
+         * transform, opacity) and handed to the compositor with the target. A source that is off
+         * leaves the target unmasked; one that is not on screen at this moment is an empty mask.
+         */
+        const withMask = (layer: AnyLayerSpec, depth: number, built: CompositeLayer): CompositeLayer => {
+          const mask = layer.mask;
+          if (mask === undefined) return built;
+          const source = specsById.get(mask.sourceId);
+          if (source === undefined) {
+            warnings.push(`layer ${layer.id}: its mask layer "${mask.sourceId}" is not in the project; it renders unmasked`);
+            return built;
+          }
+          if (!source.enabled) return built;
+          if (masking.has(source.id) || source.id === layer.id) {
+            warnings.push(`layer ${layer.id}: masks form a cycle through "${source.id}"; this mask is ignored`);
+            return built;
+          }
+          masking.add(layer.id);
+          const sourceLayer = buildOne(source, depth);
+          masking.delete(layer.id);
+          return { ...built, mask: { layer: sourceLayer, channel: mask.channel, invert: mask.invert, feather: Math.max(0, mask.feather) } };
+        };
+
+        /** One layer as the compositor draws it, or null when there is nothing to draw now. */
+        const buildOne = (layer: AnyLayerSpec, depth: number): CompositeLayer | null => {
+          if (!layer.enabled) return null;
+          if (!layerIsLive(layer.timeRange, tick)) return null;
+
+          const baseTransform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
+          const tp = `layers.${layer.id}.transform.`;
+          const transform = automation.size === 0 ? baseTransform : {
+            ...baseTransform,
+            x: automatedNumber(`${tp}x`, baseTransform.x),
+            y: automatedNumber(`${tp}y`, baseTransform.y),
+            scaleX: automatedNumber(`${tp}scaleX`, baseTransform.scaleX),
+            scaleY: automatedNumber(`${tp}scaleY`, baseTransform.scaleY),
+            rotationDeg: automatedNumber(`${tp}rotationDeg`, baseTransform.rotationDeg),
+          };
+          const canvas = canvasFor(transform.scaleReference);
+          const layerTime = layerSeconds(layer.timeRange);
+          let inverseTransform: Mat3 | undefined;
+          if (!isIdentityTransform(transform)) {
+            const inverse = layerMatrix(transform, width, height).inverse;
+            if (inverse === null) {
+              // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
+              // out loud, because an invisible layer with no explanation is a long afternoon.
+              warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
+              return null;
+            }
+            inverseTransform = inverse;
+          }
+          // Opacity is a modulation target too (`layers.<id>.opacity`): the auto-director's section
+          // presence curves fade optional layers in and out on section boundaries this way.
+          const opacityTarget = `layers.${layer.id}.opacity`;
+          const baseOpacity = automatedNumber(opacityTarget, layer.opacity);
+          const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, baseOpacity, t) : baseOpacity));
+          if (program.targets.has(opacityTarget)) modulatedValues.set(opacityTarget, opacity);
+          // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
+          if (opacity <= 0) return null;
+          const common = {
+            opacity,
+            blend: layer.blend,
+            ...(inverseTransform === undefined ? {} : { inverseTransform }),
+          };
+
+          if (isGroupSpec(layer)) {
+            if (depth >= MAX_GROUP_DEPTH) {
+              warnings.push(`group ${layer.id}: groups are nested more than ${MAX_GROUP_DEPTH} deep; this one and its children are not rendered`);
+              return null;
+            }
+            const children = buildLayers(layer.children, depth + 1);
+            return withMask(layer, depth, {
+              ...common,
+              draw: (target) => compositor.drawInto(target, children),
+              effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `group ${layer.id}`, canvas, layerTime),
+            });
+          }
+
+          const definition = registry.get(layer.module);
           if (definition === undefined) {
-            warnings.push(`${owner}: unknown effect module "${spec.module}" is not applied`);
-            continue;
+            // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).
+            warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
+            return null;
           }
-          if (definition.manifest.kind !== 'effect') {
-            warnings.push(`${owner}: module "${spec.module}" is a ${definition.manifest.kind}, not an effect; it is not applied`);
-            continue;
-          }
-          if (definition.manifest.capabilities.needsDepth === true && !hasDepth) {
-            // Depth exists only on 3D scene layers (D18). Refused and said, never run on nothing.
-            warnings.push(`${owner}: effect "${definition.manifest.name}" needs depth, which only 3D scene layers have; it is not applied`);
-            continue;
-          }
-          const effectModulation = modulationFor(`${pathPrefix}${spec.id}.params.`);
-          const resolved = resolveParams(definition.manifest.params, automated(`${pathPrefix}${spec.id}.params.`, definition.manifest.params, spec.params), effectModulation);
-          recordModulated(`${pathPrefix}${spec.id}.params.`, effectModulation, resolved.values);
-          if (resolved.issues.length > 0) paramIssues.push({ layerId: `${owner}/${spec.id}`, issues: resolved.issues });
-          const instance = instanceFor(spec.id, definition);
+          // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
+          // evaluator; everything else resolves exactly as it did before modulation existed.
+          // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
+          // on 'min' and a full-bleed background on 'max' each get the number they need.
+          const layerModulation = modulationFor(`layers.${layer.id}.params.`);
+          const resolved = resolveParams(definition.manifest.params, automated(`layers.${layer.id}.params.`, definition.manifest.params, layer.params), layerModulation);
+          recordModulated(`layers.${layer.id}.params.`, layerModulation, resolved.values);
+          if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
+          const instance = instanceFor(layer.id, definition);
           if (instance === undefined) {
-            warnings.push(`${owner}: effect "${spec.module}" is broken and is not applied — ${broken.get(spec.module) ?? 'it could not be created'}`);
-            continue;
-          }
-          passes.push({
-            id: spec.id,
-            draw: (input, target, depth) => instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input, depth, outputTarget: target }, resolved.values),
-          });
-        }
-        return passes;
-      };
-
-      /**
-       * One level of the layer tree (M38). A group's children composite into the group's own
-       * target, so the group's transform, opacity, blend and effects apply to the result rather
-       * than to each child — the difference between fading a scene and fading three layers.
-       *
-       * Depth is bounded: a document is loaded from disk and could nest arbitrarily, and each
-       * level costs a render target.
-       */
-      // Every layer by id, at any depth: a mask's source can live anywhere in the project.
-      const specsById = new Map<string, AnyLayerSpec>();
-      const index = (specs: readonly AnyLayerSpec[]): void => {
-        for (const spec of specs) {
-          specsById.set(spec.id, spec);
-          if (isGroupSpec(spec)) index(spec.children);
-        }
-      };
-      index(project.layers);
-      /** Layers whose mask is being built right now: a chain that comes back to one is a cycle. */
-      const masking = new Set<string>();
-
-      /**
-       * Masking (S7, compositor-spec §5): the source is built like any layer (module, effects,
-       * transform, opacity) and handed to the compositor with the target. A source that is off
-       * leaves the target unmasked; one that is not on screen at this moment is an empty mask.
-       */
-      const withMask = (layer: AnyLayerSpec, depth: number, built: CompositeLayer): CompositeLayer => {
-        const mask = layer.mask;
-        if (mask === undefined) return built;
-        const source = specsById.get(mask.sourceId);
-        if (source === undefined) {
-          warnings.push(`layer ${layer.id}: its mask layer "${mask.sourceId}" is not in the project; it renders unmasked`);
-          return built;
-        }
-        if (!source.enabled) return built;
-        if (masking.has(source.id) || source.id === layer.id) {
-          warnings.push(`layer ${layer.id}: masks form a cycle through "${source.id}"; this mask is ignored`);
-          return built;
-        }
-        masking.add(layer.id);
-        const sourceLayer = buildOne(source, depth);
-        masking.delete(layer.id);
-        return { ...built, mask: { layer: sourceLayer, channel: mask.channel, invert: mask.invert, feather: Math.max(0, mask.feather) } };
-      };
-
-      /** One layer as the compositor draws it, or null when there is nothing to draw now. */
-      const buildOne = (layer: AnyLayerSpec, depth: number): CompositeLayer | null => {
-        if (!layer.enabled) return null;
-        if (!layerIsLive(layer.timeRange, tick)) return null;
-
-        const baseTransform = layer.transform ?? IDENTITY_LAYER_TRANSFORM;
-        const tp = `layers.${layer.id}.transform.`;
-        const transform = automation.size === 0 ? baseTransform : {
-          ...baseTransform,
-          x: automatedNumber(`${tp}x`, baseTransform.x),
-          y: automatedNumber(`${tp}y`, baseTransform.y),
-          scaleX: automatedNumber(`${tp}scaleX`, baseTransform.scaleX),
-          scaleY: automatedNumber(`${tp}scaleY`, baseTransform.scaleY),
-          rotationDeg: automatedNumber(`${tp}rotationDeg`, baseTransform.rotationDeg),
-        };
-        const canvas = canvasFor(transform.scaleReference);
-        const layerTime = layerSeconds(layer.timeRange);
-        let inverseTransform: Mat3 | undefined;
-        if (!isIdentityTransform(transform)) {
-          const inverse = layerMatrix(transform, width, height).inverse;
-          if (inverse === null) {
-            // A zero or collapsed scale: the layer has no area, so it cannot be drawn. Said
-            // out loud, because an invisible layer with no explanation is a long afternoon.
-            warnings.push(`layer ${layer.id}: transform collapses the layer to zero area (scale ${transform.scaleX}×${transform.scaleY}); nothing is drawn`);
+            warnings.push(`layer ${layer.id}: module "${layer.module}" is broken and is not rendered — ${broken.get(layer.module) ?? 'it could not be created'}`);
             return null;
           }
-          inverseTransform = inverse;
-        }
-        // Opacity is a modulation target too (`layers.<id>.opacity`): the auto-director's section
-        // presence curves fade optional layers in and out on section boundaries this way.
-        const opacityTarget = `layers.${layer.id}.opacity`;
-        const baseOpacity = automatedNumber(opacityTarget, layer.opacity);
-        const opacity = Math.min(1, Math.max(0, program.targets.has(opacityTarget) ? modulateValue(program, opacityTarget, baseOpacity, t) : baseOpacity));
-        if (program.targets.has(opacityTarget)) modulatedValues.set(opacityTarget, opacity);
-        // Fully faded out: nothing to draw, and nothing worth rendering to find that out.
-        if (opacity <= 0) return null;
-        const common = {
-          opacity,
-          blend: layer.blend,
-          ...(inverseTransform === undefined ? {} : { inverseTransform }),
-        };
 
-        if (isGroupSpec(layer)) {
-          if (depth >= MAX_GROUP_DEPTH) {
-            warnings.push(`group ${layer.id}: groups are nested more than ${MAX_GROUP_DEPTH} deep; this one and its children are not rendered`);
-            return null;
-          }
-          const children = buildLayers(layer.children, depth + 1);
           return withMask(layer, depth, {
             ...common,
-            draw: (target) => compositor.drawInto(target, children),
-            effects: buildEffects(layer.effects ?? [], `layers.${layer.id}.effects.`, `group ${layer.id}`, canvas, layerTime),
+            draw: (target) => {
+              instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, depth: null, outputTarget: target }, resolved.values);
+              return instance.depth?.() ?? null;
+            },
+            effects: buildEffects(
+              layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime,
+              definition.manifest.kind === 'scene3d',
+            ),
           });
-        }
+        };
 
-        const definition = registry.get(layer.module);
-        if (definition === undefined) {
-          // Preserved in the project, reported, never silently dropped (CLAUDE.md #4).
-          warnings.push(`layer ${layer.id}: unknown module "${layer.module}" is not rendered`);
-          return null;
-        }
-        // Step 4 of module-spec §5. Only keys that actually carry a binding go through the
-        // evaluator; everything else resolves exactly as it did before modulation existed.
-        // `referenceScale` is per layer: it follows the layer's own scaleReference, so a logo
-        // on 'min' and a full-bleed background on 'max' each get the number they need.
-        const layerModulation = modulationFor(`layers.${layer.id}.params.`);
-        const resolved = resolveParams(definition.manifest.params, automated(`layers.${layer.id}.params.`, definition.manifest.params, layer.params), layerModulation);
-        recordModulated(`layers.${layer.id}.params.`, layerModulation, resolved.values);
-        if (resolved.issues.length > 0) paramIssues.push({ layerId: layer.id, issues: resolved.issues });
-        const instance = instanceFor(layer.id, definition);
-        if (instance === undefined) {
-          warnings.push(`layer ${layer.id}: module "${layer.module}" is broken and is not rendered — ${broken.get(layer.module) ?? 'it could not be created'}`);
-          return null;
-        }
+        const buildLayers = (specs: readonly AnyLayerSpec[], depth: number): CompositeLayer[] => {
+          const built: CompositeLayer[] = [];
+          for (const layer of specs) {
+            // A mask source is drawn only as its target's mask, unless it is also meant to be seen.
+            if (layer.maskOnly === true) continue;
+            const one = buildOne(layer, depth);
+            if (one !== null) built.push(one);
+          }
+          return built;
+        };
 
-        return withMask(layer, depth, {
-          ...common,
-          draw: (target) => {
-            instance.render({ ...frameContext, canvas, layer: layerTime, targets: pool, input: null, depth: null, outputTarget: target }, resolved.values);
-            return instance.depth?.() ?? null;
-          },
-          effects: buildEffects(
-            layer.effects ?? [], `layers.${layer.id}.effects.`, `layer ${layer.id}`, canvas, layerTime,
-            definition.manifest.kind === 'scene3d',
-          ),
-        });
+        const layers = buildLayers(project.layers, 0);
+
+        // The global chain has no layer of its own, so its sizes follow the smaller canvas
+        // dimension — the reference that behaves the same in landscape and vertical.
+        const globalEffects = buildEffects(project.globalEffects ?? [], 'global.effects.', 'global effects', canvasFor('min'), wholeTimeline);
+        return { layers, globalEffects };
       };
-
-      const buildLayers = (specs: readonly AnyLayerSpec[], depth: number): CompositeLayer[] => {
-        const built: CompositeLayer[] = [];
-        for (const layer of specs) {
-          // A mask source is drawn only as its target's mask, unless it is also meant to be seen.
-          if (layer.maskOnly === true) continue;
-          const one = buildOne(layer, depth);
-          if (one !== null) built.push(one);
-        }
-        return built;
-      };
-
-      const layers = buildLayers(project.layers, 0);
 
       const background = toLinearPremultiplied(parseHexColor(project.canvas.background) ?? { r: 0, g: 0, b: 0, a: 1 });
       if (parseHexColor(project.canvas.background) === undefined) {
         warnings.push(`canvas background "${project.canvas.background}" is not a valid colour; using black`);
       }
-      // The global chain has no layer of its own, so its sizes follow the smaller canvas
-      // dimension — the reference that behaves the same in landscape and vertical.
-      const globalEffects = buildEffects(project.globalEffects ?? [], 'global.effects.', 'global effects', canvasFor('min'), wholeTimeline);
 
-      compositor.composite(output, { ...background, a: 1 }, layers, options.output, {
-        frameIndex,
-        noiseSeed: hash32(project.seed, 'output-dither'),
-      }, globalEffects);
+      const opaque = { ...background, a: 1 };
+      const frame = { frameIndex, noiseSeed: hash32(project.seed, 'output-dither') };
+      if (options.motionBlur === undefined) {
+        const scene = buildScene(t, frameStartTick(frameIndex, fps));
+        compositor.composite(output, opaque, scene.layers, options.output, frame, scene.globalEffects);
+      } else {
+        const subframes = subframeTimes(frameIndex, fps, options.motionBlur)
+          .map((sub) => ({ weight: sub.weight, build: () => buildScene(sub.t, sub.tick) }));
+        compositor.compositeAccumulated(output, opaque, subframes, options.output, frame);
+      }
       nv12?.convert(output);
 
       return {
-        frameIndex, t, warnings, paramIssues, modulationIssues: program.issues,
+        // Subframes repeat the same warnings and issues; a report lists each once. The modulated
+        // values are the last subframe's, for a display the preview (never blurred) drives.
+        frameIndex, t, warnings: [...new Set(warnings)], paramIssues: uniqueIssues(paramIssues), modulationIssues: program.issues,
         modulatedValues, bindingLevels: bindingLevels(program, t),
       };
     },

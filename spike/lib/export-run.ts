@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeAnalysis } from '../../src/analysis/container.ts';
+import type { MotionBlur } from '../../src/engine/core/time.ts';
 import { analyzeMix } from '../../src/analysis/analyze.ts';
 import type { AnalysisSet, BeatGrid } from '../../src/engine/core/analysis.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
@@ -48,6 +49,8 @@ export interface ExportRunOptions {
   readonly readbackDepth: number;
   readonly hashFrames: boolean;
   readonly dither: boolean;
+  /** Motion blur (S10); absent is off. */
+  readonly motionBlur?: MotionBlur | undefined;
   readonly runs: number;
   /** Where the (single-run) output goes. Defaults into `workDir`, which is what the spikes want. */
   readonly outputPath?: string;
@@ -120,6 +123,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
       ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
       ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
       dither: options.dither,
+      ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
       outputPath,
       scratchDir: join(options.workDir, `${options.name}-scratch-${run}`),
       settings: options.settings,

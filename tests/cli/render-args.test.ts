@@ -37,6 +37,14 @@ describe('parseArgs', () => {
     expect(options.noCache).toBe(true);
   });
 
+  it('motion blur: off by default, the film-like default with --motion-blur, and checked (S10)', () => {
+    expect(parseArgs(base).motionBlur).toBeUndefined();
+    expect(parseArgs([...base, '--motion-blur']).motionBlur).toEqual({ samples: 8, shutterDegrees: 180 });
+    expect(parseArgs([...base, '--blur-samples', '16', '--shutter', '270']).motionBlur).toEqual({ samples: 16, shutterDegrees: 270 });
+    expect(() => parseArgs([...base, '--blur-samples', '64'])).toThrow(/2–32/);
+    expect(() => parseArgs([...base, '--shutter', '0'])).toThrow(/shutter/);
+  });
+
   it('says what to do when the project or output is missing', () => {
     expect(() => parseArgs([])).toThrow(/No project file given/);
     expect(() => parseArgs(['p.pvproj'])).toThrow(/No output file given/);

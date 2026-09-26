@@ -6,9 +6,14 @@
 
 import { useEffect, useState } from 'react';
 
+import { MOTION_BLUR_DEFAULT } from '../../engine/core/time.ts';
 import { EXPORT_PRESETS, findExportPreset, presetCanvas, suggestedOutputName } from '../../export/export-presets.ts';
 import { stringifyDocument } from '../../project/serialize.ts';
 import { history, useStudio } from '../store.ts';
+
+/** Subframes per frame; 8 at 180° is the film-like default (export-spec §9). */
+const BLUR_SAMPLES = [4, 8, 16] as const;
+const SHUTTER_ANGLES = [90, 180, 270, 360] as const;
 
 export function ExportDialog(): React.JSX.Element | null {
   const open = useStudio((s) => s.exportOpen);
@@ -24,6 +29,10 @@ export function ExportDialog(): React.JSX.Element | null {
   const [presetId, setPresetId] = useState(opening);
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Motion blur (S10, export-spec §9): off by default, since it multiplies the render time.
+  const [blurOn, setBlurOn] = useState(false);
+  const [samples, setSamples] = useState(MOTION_BLUR_DEFAULT.samples);
+  const [shutter, setShutter] = useState(MOTION_BLUR_DEFAULT.shutterDegrees);
   // The dialog stays mounted while closed, so each opening starts from the setting again.
   useEffect(() => {
     if (open) setPresetId(opening);
@@ -49,6 +58,7 @@ export function ExportDialog(): React.JSX.Element | null {
         projectPath: path,
         presetId: preset.id,
         outputPath,
+        motionBlur: blurOn ? { samples, shutterDegrees: shutter } : null,
       });
       notify({ text: `Queued: ${document.name} — ${preset.label}`, kind: 'ok' });
       setOpen(false);
@@ -91,6 +101,20 @@ export function ExportDialog(): React.JSX.Element | null {
             {' '}Per-aspect overrides for this shape are applied.
           </p>
         )}
+
+        <fieldset className="export-blur">
+          <label>
+            <input type="checkbox" data-action="export-motion-blur" checked={blurOn} onChange={(event) => setBlurOn(event.target.checked)} />
+            {' '}Motion blur
+          </label>
+          <select aria-label="Motion-blur samples" data-action="export-blur-samples" disabled={!blurOn} value={samples} onChange={(event) => setSamples(Number(event.target.value))}>
+            {BLUR_SAMPLES.map((n) => <option key={n} value={n}>{n} samples</option>)}
+          </select>
+          <select aria-label="Shutter angle" data-action="export-blur-shutter" disabled={!blurOn} value={shutter} onChange={(event) => setShutter(Number(event.target.value))}>
+            {SHUTTER_ANGLES.map((deg) => <option key={deg} value={deg}>{deg}° shutter</option>)}
+          </select>
+          {blurOn ? <span className="dim-text">Each frame is rendered {samples} times: about {samples}× the render time.</span> : null}
+        </fieldset>
 
         <div className="output-row">
           <span className="output-path" title={outputPath ?? ''}>{outputPath ?? 'No output file chosen'}</span>

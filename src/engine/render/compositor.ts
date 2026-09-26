@@ -211,6 +211,29 @@ void main() {
 }
 `;
 
+/**
+ * One step of the motion-blur sum (export-spec §9): the running total plus this subframe times its
+ * weight. Ping-ponged between two RGBA32F targets rather than blended, because float32 blending is
+ * an extension and a half-float running sum rounds on every step.
+ */
+const ACCUMULATE_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D u_sum;
+uniform sampler2D u_src;
+uniform float u_weight;
+out vec4 outColor;
+void main() {
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  outColor = texelFetch(u_sum, px, 0) + texelFetch(u_src, px, 0) * u_weight;
+}
+`;
+
+/** One subframe of a motion-blurred frame: built only when its turn comes, so its layers are current. */
+export interface Subframe {
+  readonly weight: number;
+  readonly build: () => { readonly layers: readonly CompositeLayer[]; readonly globalEffects: readonly EffectPass[] };
+}
+
 /** The shader-blended modes, in the order `BLEND_FRAG` numbers them in `u_mode`. */
 const SHADER_BLENDS: readonly BlendMode[] = [
   'multiply', 'overlay', 'soft-light', 'hard-light', 'darken', 'lighten',
@@ -279,6 +302,8 @@ export class Compositor {
   };
   private readonly featherProgram: WebGLProgram;
   private readonly featherUniforms: { src: WebGLUniformLocation; step: WebGLUniformLocation };
+  private readonly accumulateProgram: WebGLProgram;
+  private readonly accumulateUniforms: { sum: WebGLUniformLocation; src: WebGLUniformLocation; weight: WebGLUniformLocation };
   private readonly outputProgram: WebGLProgram;
   private readonly outputUniforms: {
     composite: WebGLUniformLocation;
@@ -323,6 +348,12 @@ export class Compositor {
       src: uniformLocation(gl, this.featherProgram, 'u_src'),
       step: uniformLocation(gl, this.featherProgram, 'u_step'),
     };
+    this.accumulateProgram = createProgram(gl, 'compositor.accumulate', FULLSCREEN_VERT, ACCUMULATE_FRAG);
+    this.accumulateUniforms = {
+      sum: uniformLocation(gl, this.accumulateProgram, 'u_sum'),
+      src: uniformLocation(gl, this.accumulateProgram, 'u_src'),
+      weight: uniformLocation(gl, this.accumulateProgram, 'u_weight'),
+    };
     this.outputProgram = createProgram(gl, 'compositor.output', FULLSCREEN_VERT, OUTPUT_FRAG);
     this.outputUniforms = {
       composite: uniformLocation(gl, this.outputProgram, 'u_composite'),
@@ -347,10 +378,67 @@ export class Compositor {
     frame: { readonly frameIndex: number; readonly noiseSeed: number },
     globalEffects: readonly EffectPass[] = [],
   ): void {
+    const composite = this.linear(output.width, output.height, background, layers, globalEffects);
+    this.writeOutput(composite, output, options, frame);
+    this.pool.release(composite);
+  }
+
+  /**
+   * Motion blur (S10, export-spec §9): each subframe is composited in linear light exactly as a
+   * frame is, the weighted sum is kept in RGBA32F, and the sum goes through the one output pass —
+   * so tone mapping, the transfer curve and dither apply once, to the blurred picture.
+   */
+  compositeAccumulated(
+    output: RenderTarget,
+    background: RGBA,
+    subframes: readonly Subframe[],
+    options: OutputOptions,
+    frame: { readonly frameIndex: number; readonly noiseSeed: number },
+  ): void {
     const gl = this.gl;
     const { width, height } = output;
+    let sum = this.pool.acquire(width, height, 'rgba32f');
+    let next = this.pool.acquire(width, height, 'rgba32f');
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sum.framebuffer);
     resetState(gl, width, height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    for (const subframe of subframes) {
+      const { layers, globalEffects } = subframe.build();
+      const composite = this.linear(width, height, background, layers, globalEffects);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, next.framebuffer);
+      resetState(gl, width, height);
+      gl.useProgram(this.accumulateProgram);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, sum.texture);
+      gl.uniform1i(this.accumulateUniforms.sum, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, composite.texture);
+      gl.uniform1i(this.accumulateUniforms.src, 1);
+      gl.uniform1f(this.accumulateUniforms.weight, subframe.weight);
+      drawFullscreenTriangle(gl, this.vao);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.useProgram(null);
+      this.pool.release(composite);
+      [sum, next] = [next, sum];
+    }
+    this.writeOutput(sum, output, options, frame);
+    this.pool.release(sum);
+    this.pool.release(next);
+  }
 
+  /** The frame in linear premultiplied light, over its opaque background: RGBA16F, canvas-sized. */
+  private linear(
+    width: number,
+    height: number,
+    background: RGBA,
+    layers: readonly CompositeLayer[],
+    globalEffects: readonly EffectPass[],
+  ): RenderTarget {
+    const gl = this.gl;
+    resetState(gl, width, height);
     let composite = this.pool.acquire(width, height, 'rgba16f');
     gl.bindFramebuffer(gl.FRAMEBUFFER, composite.framebuffer);
     gl.clearColor(background.r, background.g, background.b, 1);
@@ -361,7 +449,18 @@ export class Compositor {
     if (globalEffects.length > 0) {
       composite = runEffectChain(gl, this.pool, composite, globalEffects);
     }
+    return composite;
+  }
 
+  /** Tone map, transfer curve, dither and row order: linear light → the output target's bytes. */
+  private writeOutput(
+    composite: RenderTarget,
+    output: RenderTarget,
+    options: OutputOptions,
+    frame: { readonly frameIndex: number; readonly noiseSeed: number },
+  ): void {
+    const gl = this.gl;
+    const { width, height } = output;
     gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
     resetState(gl, width, height);
     gl.useProgram(this.outputProgram);
@@ -378,7 +477,6 @@ export class Compositor {
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.useProgram(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.pool.release(composite);
   }
 
   /**
@@ -515,6 +613,7 @@ export class Compositor {
     this.gl.deleteProgram(this.featherProgram);
     this.gl.deleteProgram(this.layerProgram);
     this.gl.deleteProgram(this.blendProgram);
+    this.gl.deleteProgram(this.accumulateProgram);
     this.gl.deleteProgram(this.outputProgram);
     this.gl.deleteVertexArray(this.vao);
   }

@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ipcRenderer } from 'electron';
+import type { MotionBlur } from '../../src/engine/core/time.ts';
 import { createEngine, type Engine } from '../../src/engine/engine.ts';
 import { hash32 } from '../../src/engine/core/prng.ts';
 import type { AnalysisSet } from '../../src/engine/core/analysis.ts';
@@ -99,13 +100,14 @@ function moduleSet(sources: readonly ShaderModuleSource[] | undefined) {
     : [...BUILTIN_MODULES, ...sources.map(shaderModuleDefinition)];
 }
 
-function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[]): Engine {
+function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[], motionBlur?: MotionBlur): Engine {
   const modules = moduleSet(sources);
   return createEngine(createContext(), {
     quality: 'final',
     output: { transfer: 'srgb', dither, flipY: true, bitDepth: 8 }, // D49
     ...(text === undefined ? {} : { text }),
     ...(modules === undefined ? {} : { modules }),
+    ...(motionBlur === undefined ? {} : { motionBlur }),
   });
 }
 
@@ -204,7 +206,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
   try {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
-    const engine = newEngine(config.dither, await loadText(config.text), config.modules);
+    const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur);
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     const feeder = videoFeeder(engine, config.videos);
     const pixels = new Uint8Array(width * height * 4);
@@ -268,6 +270,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       project: config.project,
       analysis,
       dither: config.dither,
+      ...(config.motionBlur === undefined ? {} : { motionBlur: config.motionBlur }),
       audio: {
         source: { kind: 'file', path: config.audioPath, ffmpegExe: config.ffmpegExe },
         placement: config.audioPlacement,

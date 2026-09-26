@@ -73,3 +73,52 @@ export function timelineToSourceSeconds(timelineSeconds: number, placement: Audi
 export function sourceToTimelineSeconds(sourceSeconds: number, placement: AudioPlacement): number {
   return sourceSeconds + ticksToSeconds(placement.leadInTicks) - ticksToSeconds(placement.clipInTicks);
 }
+
+/** Motion blur (S10, export-spec §9): `samples` subframes across a shutter of `shutterDegrees`. */
+export interface MotionBlur {
+  readonly samples: number;
+  readonly shutterDegrees: number;
+}
+
+export const MOTION_BLUR_DEFAULT: MotionBlur = { samples: 8, shutterDegrees: 180 };
+export const MOTION_BLUR_MAX_SAMPLES = 32;
+
+export interface SubframeTime {
+  readonly t: number;
+  readonly tick: number;
+  readonly weight: number;
+}
+
+/**
+ * Where frame n's subframes sit (export-spec §9): `samples` evenly spaced times across
+ * `t ± (shutter/2)/fps`, each at the middle of its slice of the open shutter, weighted equally.
+ * Derived from the frame index like every other time; nothing accumulates between frames. A time
+ * before the timeline starts is held at 0, so frame 0 is only blurred forwards.
+ */
+export function subframeTimes(frameIndex: number, fps: Rational, blur: MotionBlur): SubframeTime[] {
+  const t = frameTimeSeconds(frameIndex, fps);
+  const start = frameStartTick(frameIndex, fps);
+  const open = ((blur.shutterDegrees / 360) * fps.den) / fps.num;
+  const out: SubframeTime[] = [];
+  for (let j = 0; j < blur.samples; j++) {
+    const offset = ((j + 0.5) / blur.samples - 0.5) * open;
+    out.push({
+      t: Math.max(0, t + offset),
+      tick: Math.max(0, start + Math.round(offset * TICKS_PER_SECOND)),
+      weight: 1 / blur.samples,
+    });
+  }
+  return out;
+}
+
+/** A motion-blur setting's problems, or none: whole samples 2–32, a shutter of 1–360°. */
+export function motionBlurProblems(blur: MotionBlur): string[] {
+  const problems: string[] = [];
+  if (!Number.isInteger(blur.samples) || blur.samples < 2 || blur.samples > MOTION_BLUR_MAX_SAMPLES) {
+    problems.push(`motion blur needs 2–${MOTION_BLUR_MAX_SAMPLES} whole samples, got ${blur.samples}`);
+  }
+  if (!Number.isFinite(blur.shutterDegrees) || blur.shutterDegrees < 1 || blur.shutterDegrees > 360) {
+    problems.push(`the motion-blur shutter must be 1–360°, got ${blur.shutterDegrees}`);
+  }
+  return problems;
+}

@@ -1,6 +1,7 @@
 // The render report written beside every export (PROJECT.md M34, export-spec §15).
 // Versioned data, not log text, so two renders can be diffed.
 
+import type { MotionBlur } from '../engine/core/time.ts';
 import type { EncoderCapability } from './encoder-probe.ts';
 import type { EncodeSettings } from './ffmpeg-args.ts';
 import type { PumpStats } from './pump.ts';
@@ -15,6 +16,8 @@ export interface RenderReport {
   project: { sha256: string; seed: number; layers: Array<{ id: string; module: string }> };
   canvas: { width: number; height: number; fps: string };
   frames: { count: number; combinedSha256: string | undefined };
+  /** Motion blur (S10, export-spec §9): null when off. Absent in reports written before it existed. */
+  motionBlur?: MotionBlur | null;
   encode: {
     settings: EncodeSettings;
     commandLine: string;

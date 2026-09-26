@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 
 import { AnalysisCache } from '../analysis/cache.ts';
+import type { MotionBlur } from '../engine/core/time.ts';
 import { loadImageAssets } from '../assets/load-images.ts';
 import { defaultFontFile, loadFontAssets } from '../assets/fonts.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -78,6 +79,8 @@ export interface RenderDocumentOptions {
   readonly size?: { readonly width: number; readonly height: number } | undefined;
   readonly seconds?: number | undefined;
   readonly codec: VideoCodec;
+  /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
+  readonly motionBlur?: MotionBlur | undefined;
   readonly outputPath: string;
   /** Scratch: the analysis blob, the encoder's temporary files, the result JSON. */
   readonly workDir: string;
@@ -276,6 +279,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     readbackDepth: 1,
     hashFrames: false,
     dither: true,
+    ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
     runs: 1,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
     onProgress: (line) => {

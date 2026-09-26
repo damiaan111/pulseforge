@@ -18,11 +18,15 @@
 //   --audio <file>               override the document's audio path
 //   --no-cache                   re-analyse instead of reading the analysis cache
 //   --seconds N                  render only the first N seconds
+//   --motion-blur                average 8 subframes across a 180° shutter (export-spec §9)
+//   --blur-samples N             subframes per frame, 2–32 (implies --motion-blur)
+//   --shutter DEG                shutter angle, 1–360 (implies --motion-blur)
 //   --quiet                      only errors and the final line
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { MOTION_BLUR_DEFAULT, motionBlurProblems, type MotionBlur } from '../engine/core/time.ts';
 import { RenderDocumentError, canvasForAspect as sharedCanvasForAspect, renderDocument } from '../export/render-document.ts';
 import { ROOT } from '../../setup/lib/paths.ts';
 
@@ -44,11 +48,12 @@ export interface Options {
   readonly audioOverride: string | undefined;
   readonly noCache: boolean;
   readonly seconds: number | undefined;
+  readonly motionBlur: MotionBlur | undefined;
   readonly quiet: boolean;
 }
 
 /** Flags that stand alone. Everything else consumes the next token as its value. */
-const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache']);
+const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache', '--motion-blur']);
 
 export function parseArgs(argv: readonly string[]): Options {
   const positional: string[] = [];
@@ -100,6 +105,18 @@ export function parseArgs(argv: readonly string[]): Options {
     throw new CliError(`--seconds must be a positive number, got "${secondsFlag}"`);
   }
 
+  let motionBlur: MotionBlur | undefined;
+  const samplesFlag = flags.get('blur-samples');
+  const shutterFlag = flags.get('shutter');
+  if (flags.has('motion-blur') || samplesFlag !== undefined || shutterFlag !== undefined) {
+    motionBlur = {
+      samples: samplesFlag === undefined ? MOTION_BLUR_DEFAULT.samples : Number(samplesFlag),
+      shutterDegrees: shutterFlag === undefined ? MOTION_BLUR_DEFAULT.shutterDegrees : Number(shutterFlag),
+    };
+    const problems = motionBlurProblems(motionBlur);
+    if (problems.length > 0) throw new CliError(problems.join('; '), ['Use --blur-samples 2–32 and --shutter 1–360']);
+  }
+
   return {
     projectPath: resolve(projectPath),
     outputPath: resolve(outputPath),
@@ -108,6 +125,7 @@ export function parseArgs(argv: readonly string[]): Options {
     codec,
     audioOverride: flags.get('audio'),
     seconds,
+    motionBlur,
     quiet: flags.has('quiet'),
     noCache: flags.has('no-cache'),
   };
@@ -149,6 +167,7 @@ export async function render(argv: readonly string[]): Promise<void> {
       size: options.size,
       seconds: options.seconds,
       codec: options.codec,
+      motionBlur: options.motionBlur,
       outputPath: options.outputPath,
       workDir: join(ROOT, 'out', 'render'),
       cacheRoot: join(ROOT, 'cache'),

@@ -3,13 +3,18 @@
 
 import { RenderSetupError } from './gl.ts';
 
-/** rgb10a2 is the 10-bit output target for the HEVC master (export-spec §4.3). */
-export type TargetFormat = 'rgba16f' | 'rgba8' | 'rgb10a2';
+/**
+ * rgb10a2 is the 10-bit output target for the HEVC master (export-spec §4.3). rgba32f holds the
+ * motion-blur accumulator (export-spec §9), where half floats would round on every subframe.
+ */
+export type TargetFormat = 'rgba16f' | 'rgba32f' | 'rgba8' | 'rgb10a2';
 
 function internalFormat(gl: WebGL2RenderingContext, format: TargetFormat): number {
   switch (format) {
     case 'rgba16f':
       return gl.RGBA16F;
+    case 'rgba32f':
+      return gl.RGBA32F;
     case 'rgba8':
       return gl.RGBA8;
     case 'rgb10a2':

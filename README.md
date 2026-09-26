@@ -297,7 +297,13 @@ German, Spanish and Italian, each installed with one click in Settings (or `npm 
 extras`). `npm run setup -- --rebuild-check` proves the whole Python side can be rebuilt with no
 internet.
 
-**Still to come:** the Should-have list — keyframes, masking, motion blur and more.
+**Animation and finish:** keyframe any parameter, opacity or transform, with easing presets and a
+curve editor, in the inspector and on the timeline. Mask any layer by another's shape or
+brightness, inverted and feathered. Export with film-like motion blur (a tick box in the export
+dialog, or `--motion-blur` on the command line).
+
+**Still to come:** the rest of the Should-have list — a 6-stem model, Shadertoy shaders, markers,
+LUTs, a performance HUD, batch rendering and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real
