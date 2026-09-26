@@ -43,7 +43,8 @@ export const SOURCE_CHOICES: readonly SourceChoice[] = [
   { type: 'wordActive', label: 'Words', hint: 'A short pulse on every sung word — karaoke-synced accents (needs timed lyrics).', audio: false },
 ];
 
-export const STEM_CHOICES = ['mix', 'drums', 'bass', 'vocals', 'other'] as const;
+/** guitar and piano need the 6-stem model (S6); on another, a binding to them reports the stem missing. */
+export const STEM_CHOICES = ['mix', 'drums', 'bass', 'vocals', 'other', 'guitar', 'piano'] as const;
 
 export const LFO_SHAPES = ['sine', 'triangle', 'saw', 'square', 'noise', 'sample-hold'] as const;
 

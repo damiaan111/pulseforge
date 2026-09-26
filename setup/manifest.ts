@@ -17,7 +17,7 @@ export const OPTIONAL_TIERS: readonly Tier[] = ['extras'];
 export const FUTURE_TIERS: Readonly<Record<string, string>> = {};
 
 /** The optional models of the extras tier, each installable on its own. */
-export const EXTRAS = ['htdemucs_ft', 'whisper-large-v3', 'align-fr', 'align-de', 'align-es', 'align-it'] as const;
+export const EXTRAS = ['htdemucs_ft', 'htdemucs_6s', 'whisper-large-v3', 'align-fr', 'align-de', 'align-es', 'align-it'] as const;
 export type ExtraId = (typeof EXTRAS)[number];
 
 interface ArtefactBase {
@@ -230,6 +230,26 @@ export const DEMUCS_HTDEMUCS_FT: readonly FileArtefact[] = [
 ];
 
 /**
+ * `htdemucs_6s` (S6): one htdemucs model with six sources — guitar and piano split out of "other".
+ * Its yaml ships in the demucs package and is copied beside it. The full SHA-256 was recorded from a
+ * download whose published prefix (34c22ccb) matched (2026-09-26).
+ */
+export const DEMUCS_HTDEMUCS_6S: FileArtefact = {
+  kind: 'file',
+  id: 'demucs-htdemucs-6s',
+  name: 'Demucs htdemucs_6s weights (5c90dfd2)',
+  version: '5c90dfd2',
+  tier: 'extras',
+  url: 'https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th',
+  fileName: '5c90dfd2-34c22ccb.th',
+  sha256: '34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd',
+  sha256Prefix: '34c22ccb',
+  sizeBytes: 54_996_327,
+  license: 'Demucs (Meta) — MIT code; check the weights\' terms before redistributing',
+  installDir: 'models/demucs',
+};
+
+/**
  * Whisper `large-v3` in CTranslate2 format (D8's quality option for transcription; 128 mel bins,
  * hence preprocessor_config.json). One pinned revision; model.bin's SHA-256 is the published LFS
  * object id, the small files' were recorded from a download whose git blob ids matched the
@@ -286,6 +306,7 @@ export const ALIGN_MODELS: Readonly<Record<'fr' | 'de' | 'es' | 'it', FileArtefa
 
 export const EXTRA_ARTEFACTS: Readonly<Record<ExtraId, readonly FileArtefact[]>> = {
   htdemucs_ft: DEMUCS_HTDEMUCS_FT,
+  htdemucs_6s: [DEMUCS_HTDEMUCS_6S],
   'whisper-large-v3': WHISPER_LARGE_V3,
   'align-fr': [ALIGN_MODELS.fr],
   'align-de': [ALIGN_MODELS.de],

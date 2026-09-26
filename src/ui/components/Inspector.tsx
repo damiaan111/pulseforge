@@ -10,7 +10,7 @@
 //    and an overridden parameter shows a badge with reset-to-base.
 //  - **Grouping and ordering come from the declaration**, so a module author controls the panel.
 
-import type { ParamSpec } from '../../engine/core/params.ts';
+import { STEMS, type ParamSpec } from '../../engine/core/params.ts';
 import {
   GLOBAL_OWNER, addAsset, addEffect, setLayerMask, setMaskSettings, setMaskSourceVisible, clearParamOverride, findAssetByHash, findLayer, moveEffect, removeEffect, renameLayer,
   sequence, setEffectEnabled, setEffectParam, setLayerBlend, setLayerOpacity, setLayerParam, setLayerTimeRange, setLayerTransform,
@@ -507,7 +507,7 @@ function ParamControl(props: {
         <label className="field">
           <span>{spec.label}{overridden ? <Badge onReset={onReset} /> : null}</span>
           <select value={typeof raw === 'string' ? raw : spec.default} onChange={(e) => onChange(e.target.value, true)}>
-            {['mix', 'drums', 'bass', 'vocals', 'other'].map((s) => <option key={s} value={s}>{s}</option>)}
+            {STEMS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
       );

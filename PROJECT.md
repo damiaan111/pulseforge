@@ -181,6 +181,7 @@ PCIe Gen3 x16, Electron 44 / ANGLE D3D11, FFmpeg n8.1.2, torch 2.13 + CUDA 13.0.
 |---|---|---|
 | Stem separation, `htdemucs`, 4-min track | ~15–30 s (¼ of `_ft`) | **8.6 s (28× realtime)**, peak VRAM **0.54 GB allocated / 0.71 GB reserved**; 12.6 s including Python start |
 | Stem separation, `htdemucs_ft` | 1–2 min | **39.4 s** for a 2:48 song, against 22.7 s for `htdemucs` (both including decode and the four stems' analysis; 2026-09-25) — about 1.7× |
+| Stem separation, `htdemucs_6s` (S6) | — | **28.5 s** for the same song with six stems analysed, against 22.5 s for `htdemucs` (2026-09-26) — about 1.27× |
 | WhisperX, 4-min vocal stem | 30–60 s | not measured (P6) |
 | 1080p60 export, H.264 | "comfortably above realtime" | **209 fps (3.5× realtime)** on a six-layer bars project |
 | 4K60 export, H.264 | "below realtime on heavy stacks" | **56 fps (0.93× realtime)** — bounded by NVENC p5 itself (~61 fps from a synthetic source) |

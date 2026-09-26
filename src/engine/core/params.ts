@@ -77,7 +77,8 @@ export interface ColorParam extends ParamCommon {
   readonly paletteRole?: string;
 }
 
-export const STEMS = ['mix', 'drums', 'bass', 'vocals', 'other'] as const;
+/** guitar and piano exist only on the 6-stem model (S6); appended, so a shader's stem index keeps its meaning. */
+export const STEMS = ['mix', 'drums', 'bass', 'vocals', 'other', 'guitar', 'piano'] as const;
 export type Stem = (typeof STEMS)[number];
 
 export interface StemParam extends ParamCommon {

@@ -27,10 +27,10 @@ import { analyzeCached } from '../analysis/cached.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { analysisOptionsFor, cacheOptionsFor, type ProjectAnalysisSettings } from '../analysis/project-settings.ts';
 import type { AnalysisTrack, SourceAnalysis } from '../engine/core/analysis.ts';
+import { stemsForModel } from '../analysis/stem-models.ts';
 import type { Stem } from '../engine/core/params.ts';
 
-/** The stems htdemucs produces, in the names the rest of Pulseforge uses (PROJECT.md M5). */
-export const DEMUCS_STEMS: readonly Stem[] = ['drums', 'bass', 'vocals', 'other'];
+export { DEMUCS_6S_STEMS, DEMUCS_STEMS, stemsForModel } from '../analysis/stem-models.ts';
 
 /** What the stem job needs from the sidecar: one request, with progress and cancellation. */
 export interface StemSidecar {
@@ -93,8 +93,9 @@ export async function separateStems(options: SeparateStemsOptions): Promise<Sepa
   const mixBeat = mix.analysis.sources.get('mix')?.features.get('beat');
   checkCancelled();
 
-  // 2. Under way, visibly.
-  for (const stem of DEMUCS_STEMS) await cache.markSource(audioHash, settingsHash, stem, 'pending');
+  // 2. Under way, visibly. The model decides which stems there are (S6: six on htdemucs_6s).
+  const expected = stemsForModel(settings.stemModel);
+  for (const stem of expected) await cache.markSource(audioHash, settingsHash, stem, 'pending');
 
   const work = join(options.scratchDir, `stems-${audioHash.slice(0, 16)}`);
   await rm(work, { recursive: true, force: true });
@@ -120,8 +121,8 @@ export async function separateStems(options: SeparateStemsOptions): Promise<Sepa
       ...(signal === undefined ? {} : { signal }),
     });
     const produced = Array.isArray(result['sources']) ? (result['sources'] as unknown[]).filter((s): s is string => typeof s === 'string') : [];
-    const stems = DEMUCS_STEMS.filter((stem) => produced.includes(stem));
-    const missing = DEMUCS_STEMS.filter((stem) => !produced.includes(stem));
+    const stems = expected.filter((stem) => produced.includes(stem));
+    const missing = expected.filter((stem) => !produced.includes(stem));
     for (const stem of missing) {
       await cache.markSource(audioHash, settingsHash, stem, 'failed', `${settings.stemModel} did not produce a "${stem}" stem`);
     }
@@ -149,7 +150,7 @@ export async function separateStems(options: SeparateStemsOptions): Promise<Sepa
     // Whatever did not finish is marked, with why — never left "pending" for ever.
     const readiness = await cache.readiness(audioHash, settingsHash);
     const reason = error instanceof StemsCancelledError || isCancel(error) ? 'cancelled' : error instanceof Error ? error.message : String(error);
-    for (const stem of DEMUCS_STEMS) {
+    for (const stem of expected) {
       if (readiness[stem]?.state !== 'ready') await cache.markSource(audioHash, settingsHash, stem, 'failed', reason);
     }
     throw error;

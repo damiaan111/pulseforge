@@ -17,6 +17,7 @@ import { create } from 'zustand';
 
 import { decodeAnalysis } from '../analysis/container.ts';
 import { decodePeaks, type PeakPyramid } from '../analysis/peaks.ts';
+import { stemsForModel } from '../analysis/stem-models.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { Section as AnalysisSection } from '../analysis/sections.ts';
 import { withAbsolutePaths, withStoredPaths } from '../project/asset-paths.ts';
@@ -93,11 +94,12 @@ function analysisFromPayload(payload: AnalysisPayload): AnalysisSet {
   return { ...analysis, sources };
 }
 
-function stemsFromPayload(payload: AnalysisPayload): StemsState {
+function stemsFromPayload(payload: AnalysisPayload, model: string): StemsState {
   const ready = payload.stems.map((s) => s.name);
+  const complete = stemsForModel(model).every((stem) => ready.includes(stem));
   const failed = Object.entries(payload.stemStatus).filter(([, entry]) => entry.state === 'failed');
   const pending = Object.values(payload.stemStatus).some((entry) => entry.state === 'pending');
-  if (ready.length >= 4) return { ...NO_STEMS, state: 'ready', ready };
+  if (complete) return { ...NO_STEMS, state: 'ready', ready };
   if (failed.length > 0) {
     return { ...NO_STEMS, state: 'failed', ready, message: failed.map(([name, entry]) => `${name}: ${entry.error ?? 'failed'}`).join('; ') };
   }
@@ -968,7 +970,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         autoOffer: history.current.layers.length === 0 && history.current.director === null,
         analysisState: 'ready',
         analysisMessage: payload.fromCache ? 'Analysis: cache hit' : 'Analysed and cached',
-        stems: stemsFromPayload(payload),
+        stems: stemsFromPayload(payload, history.current.analysisSettings.stemModel),
       });
     } catch (error) {
       if (url !== undefined) URL.revokeObjectURL(url);
@@ -1038,7 +1040,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       if (get().audio?.path !== audio.path) return;
       set({
         analysis: analysisFromPayload(payload),
-        stems: stemsFromPayload(payload),
+        stems: stemsFromPayload(payload, history.current.analysisSettings.stemModel),
         toast: { text: `Stems ready: ${done.stems.join(', ')} (${done.seconds.toFixed(1)} s)`, kind: 'ok' },
       });
     } catch (error) {

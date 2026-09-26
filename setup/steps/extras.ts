@@ -48,22 +48,24 @@ interface ExtraSpec {
 const DEMUCS_DIR = join(VENDOR, 'models', 'demucs');
 const ALIGN_DIR = join(VENDOR, 'models', 'align');
 
+/** A Demucs model's yaml ships in the demucs package, like htdemucs.yaml (demucs-model.ts): copied beside the weights. */
+async function placeDemucsYaml(model: string, ctx: StepContext): Promise<void> {
+  const locate = await runChecked(
+    PYTHON_EXE,
+    ['-c', `import demucs, pathlib; print(pathlib.Path(demucs.__file__).parent / "remote" / "${model}.yaml")`],
+    { step: model, log: ctx.log, env: pythonEnv() },
+    () => ({ what: 'Could not locate the demucs package.', fix: ['Re-run `npm run setup -- --tier stems`.'] }),
+  );
+  await copyFile(locate.stdout.trim(), join(DEMUCS_DIR, `${model}.yaml`));
+}
+
 const SPECS: readonly ExtraSpec[] = [
   {
     extra: 'htdemucs_ft',
     title: 'Demucs htdemucs_ft (four fine-tuned models)',
     summary: 'finer stem separation in about 1.7× the time',
     needs: 'stems',
-    async after(ctx) {
-      // The bag definition ships in the demucs package, like htdemucs.yaml (demucs-model.ts).
-      const locate = await runChecked(
-        PYTHON_EXE,
-        ['-c', 'import demucs, pathlib; print(pathlib.Path(demucs.__file__).parent / "remote" / "htdemucs_ft.yaml")'],
-        { step: 'htdemucs_ft', log: ctx.log, env: pythonEnv() },
-        () => ({ what: 'Could not locate the demucs package.', fix: ['Re-run `npm run setup -- --tier stems`.'] }),
-      );
-      await copyFile(locate.stdout.trim(), join(DEMUCS_DIR, 'htdemucs_ft.yaml'));
-    },
+    after: (ctx) => placeDemucsYaml('htdemucs_ft', ctx),
     loadScript: String.raw`
 import json, sys
 from pathlib import Path
@@ -73,6 +75,22 @@ print(json.dumps({"models": len(bag.models), "sources": list(bag.sources)}))
 `,
     loadArgs: [DEMUCS_DIR],
     describeLoad: (r) => `htdemucs_ft loads offline: ${String(r['models'])} models, ${(r['sources'] as string[]).join(' / ')}`,
+  },
+  {
+    extra: 'htdemucs_6s',
+    title: 'Demucs htdemucs_6s (six stems)',
+    summary: 'guitar and piano as stems of their own',
+    needs: 'stems',
+    after: (ctx) => placeDemucsYaml('htdemucs_6s', ctx),
+    loadScript: String.raw`
+import json, sys
+from pathlib import Path
+from demucs.pretrained import get_model
+bag = get_model("htdemucs_6s", repo=Path(sys.argv[1]))
+print(json.dumps({"models": len(bag.models), "sources": list(bag.sources)}))
+`,
+    loadArgs: [DEMUCS_DIR],
+    describeLoad: (r) => `htdemucs_6s loads offline: ${(r['sources'] as string[]).join(' / ')}`,
   },
   {
     extra: 'whisper-large-v3',

@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1116 tests, `npm run golden` 29/29 identical,
+> any aspect. Last full verification: `npm run check` 1119 tests, `npm run golden` 29/29 identical,
 > `--smoke` 30/30 (31/31 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -53,9 +53,12 @@
 > Masking (S7) is done too (§4.65): any layer masks another by shape or brightness, inverted and
 > feathered, and a mask source is hidden unless shown. So is motion blur (S10, §4.66): an export
 > option that averages 4–16 subframes across a 90–360° shutter, in the export dialog and the CLI.
+> And the 6-stem model (S6, §4.67): `htdemucs_6s` is an optional model that adds guitar and piano
+> stems, chosen per project.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the 6-stem model (S6) and the
-> rest of P8.
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — Shadertoy
+> compatibility (S2), markers (S9), LUTs (S11), the performance HUD (S12), batch rendering (S13),
+> karaoke export (S15), librosa (S16), Unicode fonts (S17) and draft mode (S18).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -137,6 +140,7 @@
 | 4.64 | Keyframes in the studio: inspector, key editor, timeline rows (P8 step 2) — S1 complete |
 | 4.65 | Masking (P8 step 3) — S7 |
 | 4.66 | Motion blur (P8 step 4) — S10 |
+| 4.67 | The 6-stem model (P8 step 5) — S6 |
 
 ---
 
@@ -3485,6 +3489,58 @@ approaches `k`×, which is why the dialog says "about".
   - One of three smoke runs this step missed `recoveryDialog` (the dialog was not offered in time).
     This is the known timing flake from §4.61, and the two runs after it passed. **Open item:** if it
     recurs, move the check earlier or widen its wait again.
+
+### 4.67 The 6-stem model (P8 step 5) — S6
+
+**What it does.** `htdemucs_6s` is an optional model, like `htdemucs_ft`. It splits guitar and piano
+out of what the four-stem models call "other". Once it is installed (Settings → Audio & models →
+Optional models, or `npm run setup -- --tier extras --extras htdemucs_6s`, 52 MB), a project picks
+it in the Audio panel's stem model picker. Separating then gives **drums, bass, vocals, other,
+guitar and piano**, each analysed and usable as a layer's Source or a modulation's stem, like the
+other four.
+
+**How.**
+- **Setup:** a new extra, `htdemucs_6s`. One weights file, pinned by SHA-256 (recorded from a
+  download whose published prefix `34c22ccb` matched). Its yaml is copied from the demucs package,
+  now through a shared `placeDemucsYaml` that `htdemucs_ft` uses too. After install it is loaded
+  offline the way the sidecar loads it, and it reports its six sources. `--verify` covers it.
+- **Stem names:** `STEMS` gains `guitar` and `piano`, **appended**, so a drop-in shader's
+  `select:stem` index keeps its meaning (the authoring guide now lists the indices).
+  `STEM_CHOICES` (modulation) and the inspector's Source list follow.
+- **Which stems a model makes:** `src/analysis/stem-models.ts` (pure) has `stemsForModel`. The stem
+  job marks, expects and reports exactly those stems: a model that leaves one out gets it marked
+  failed with the reason. The studio calls the stems **ready** only when every one the project's
+  model makes is in. Before, "ready" meant "at least four", which a six-stem project would have
+  passed with two missing.
+- **Nothing silently dropped:** a binding on guitar in a project on a four-stem model is kept, and
+  reports the stem as not analysed (the existing modulation issue). Each model's stems are a
+  separate cache entry (the model is part of the settings hash), so switching back and forth never
+  mixes them.
+- **Audio panel:** the picker describes it ("six stems, adds guitar and piano"). The Separate
+  button's tooltip names the stems it will make. With no optional model installed, the hint now
+  points at "install a model" rather than only `htdemucs_ft`.
+
+**Measured on the RTX 3060** (the same 2:48 song as §4.62, read in place, fresh cache):
+
+| | Time | Whole-GPU memory peak (desktop ~658 MiB) |
+|---|---|---|
+| `htdemucs` separation + analysis of 4 stems | 22.5 s | 1386 MiB |
+| `htdemucs_6s` separation + analysis of 6 stems | **28.5 s (1.27×)** | 1514 MiB |
+
+**Verified here:**
+- `npm run check` **1119 tests**:
+  - `tests/ml/stems.test.ts` (fake sidecar): six stems cached and analysed, with guitar and piano
+    FLACs kept; a model that leaves stems out has them marked failed with the reason.
+  - `tests/golden/stems-gpu.test.ts`: real Demucs through the supervised sidecar on the GPU. The
+    6-stem model returns six analysed stems that the cache serves with the mix.
+- `npm run setup -- --verify`: all seven extras load offline, including `htdemucs_6s` with its six
+  sources.
+- `npm run golden` 29/29.
+- `--smoke` **30/30**. `extrasUi` expects seven optional models, and checks that an installed
+  `htdemucs_6s` is offered in the stem model picker.
+- The first `npm run check` of this step had one test file time out in setup (302 s, 24 tests
+  skipped). The two full runs after it passed 1119/1119, and no stray Electron, Python or FFmpeg
+  process was left. It did not recur; noted in case it does.
 
 ---
 

@@ -389,6 +389,7 @@ function templatesFolderPath(): string {
 /** How the Settings screen names each optional model (D8). */
 const EXTRA_TEXT: Readonly<Record<ExtraId, { title: string; note: string }>> = {
   htdemucs_ft: { title: 'Finer stems (htdemucs_ft)', note: 'Four fine-tuned Demucs models: cleaner separation in about 1.7× the time (39 s against 23 s for a 3-minute song here). Chosen per project in the Audio panel.' },
+  htdemucs_6s: { title: 'Six stems (htdemucs_6s)', note: 'Guitar and piano split out of "other", as stems of their own for layers and connections. Chosen per project in the Audio panel.' },
   'whisper-large-v3': { title: 'Larger transcription model (Whisper large-v3)', note: 'Hears more of the words (on a test song it caught an opening line medium missed) but splits lines less cleanly, in lower case; about 5 GB of VRAM. Medium stays the default. Chosen above.' },
   'align-fr': { title: 'Word alignment: French', note: 'Word-by-word lyric timing for French.' },
   'align-de': { title: 'Word alignment: German', note: 'Word-by-word lyric timing for German.' },
@@ -2072,10 +2073,11 @@ app.whenReady().then(async () => {
       {
         const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         click('#app header [data-action="settings"]');
-        const listed = await waitFor(() => document.querySelectorAll('#app [data-testid="optional-models"] li').length === 6, 100);
+        const listed = await waitFor(() => document.querySelectorAll('#app [data-testid="optional-models"] li').length === 7, 100);
         const installed = document.querySelectorAll('#app [data-testid="optional-models"] li .ok').length;
         // The model picker exists only where htdemucs_ft is installed; elsewhere the list is the check.
         const hasFt = document.querySelector('#app [data-testid="optional-models"] li[data-extra="htdemucs_ft"] .ok') !== null;
+        const has6s = document.querySelector('#app [data-testid="optional-models"] li[data-extra="htdemucs_6s"] .ok') !== null;
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         const picker = hasFt ? await waitFor(() => document.querySelector('#app [data-action="stem-model"]'), 100) : null;
         let switched = false;
@@ -2092,8 +2094,10 @@ app.whenReady().then(async () => {
           click('#app header button[data-action="undo"]');
           back = (await waitFor(() => document.querySelector('#app [data-action="stem-model"]')?.value === 'htdemucs', 100)) === true;
         }
-        const steps = { listed: listed === true, installed, hasFt, picker: picker !== null && picker !== false, switched, back };
-        extrasUi = steps.listed && (!hasFt || (steps.picker && switched && back));
+        // S6: an installed 6-stem model is offered in the picker too.
+        const offers6s = !has6s || [...(document.querySelector('#app [data-action="stem-model"]')?.options ?? [])].some((o) => o.value === 'htdemucs_6s');
+        const steps = { listed: listed === true, installed, hasFt, has6s, offers6s, picker: picker !== null && picker !== false, switched, back };
+        extrasUi = steps.listed && offers6s && (!hasFt || (steps.picker && switched && back));
         if (!extrasUi) console.error('[smoke] extrasUi steps ' + JSON.stringify(steps));
       }
 

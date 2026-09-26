@@ -16,7 +16,7 @@ import { decodeMono48k } from '../../src/analysis/decode.ts';
 import { cacheOptionsFor, type ProjectAnalysisSettings } from '../../src/analysis/project-settings.ts';
 import { synthesizeTestTrack } from '../../src/analysis/reference-track.ts';
 import { DEFAULT_ANALYSIS_SETTINGS } from '../../src/project/create.ts';
-import { DEMUCS_STEMS, StemsCancelledError, separateStems, type StemSidecar } from '../../src/ml/stems.ts';
+import { DEMUCS_6S_STEMS, DEMUCS_STEMS, StemsCancelledError, separateStems, type StemSidecar } from '../../src/ml/stems.ts';
 
 const available = existsSync(FFMPEG_EXE);
 const settings: ProjectAnalysisSettings = DEFAULT_ANALYSIS_SETTINGS;
@@ -36,7 +36,8 @@ afterEach(async () => {
 });
 
 /** Writes each stem as the input scaled by a different amount, as Demucs would write them. */
-function fakeSidecar(options: { onRequest?: (params: Readonly<Record<string, unknown>>) => void } = {}): StemSidecar {
+function fakeSidecar(options: { onRequest?: (params: Readonly<Record<string, unknown>>) => void; sources?: readonly string[] } = {}): StemSidecar {
+  const produced = options.sources ?? DEMUCS_STEMS;
   return {
     async request(command, params, { onProgress, signal }) {
       expect(command).toBe('separate');
@@ -44,18 +45,47 @@ function fakeSidecar(options: { onRequest?: (params: Readonly<Record<string, unk
       const input = new Float32Array((await readFile(String(params['input']))).buffer.slice(0));
       const out = String(params['outDir']);
       await mkdir(out, { recursive: true });
-      for (const [i, stem] of DEMUCS_STEMS.entries()) {
+      for (const [i, stem] of produced.entries()) {
         if (signal?.aborted === true) throw Object.assign(new Error('cancelled'), { name: 'SidecarCancelledError' });
         const scaled = input.map((v) => v * (0.2 + 0.2 * i));
         await writeFile(join(out, `${stem}.f32`), new Uint8Array(scaled.buffer));
-        onProgress?.({ fraction: (i + 1) / DEMUCS_STEMS.length, stage: 'separating' });
+        onProgress?.({ fraction: (i + 1) / produced.length, stage: 'separating' });
       }
-      return { sources: [...DEMUCS_STEMS], separateSeconds: 0.01 };
+      return { sources: [...produced], separateSeconds: 0.01 };
     },
   };
 }
 
 describe.skipIf(!available)('stem separation, end to end without Python', () => {
+  it('the 6-stem model (S6) puts guitar and piano in the cache too, and a missing one is marked failed', async () => {
+    const six = { ...settings, stemModel: 'htdemucs_6s' };
+    const run = (sources: readonly string[]) => separateStems({
+      ffmpegExe: FFMPEG_EXE,
+      sidecar: fakeSidecar({ sources }),
+      cacheRoot: join(root, 'cache'),
+      stemsRoot: join(root, 'stems'),
+      scratchDir: join(root, 'scratch'),
+      modelRepo: 'D:/models/demucs',
+      audioPath,
+      settings: six,
+    });
+    const result = await run(DEMUCS_6S_STEMS);
+    expect(result.stems).toEqual(DEMUCS_6S_STEMS);
+    expect(existsSync(join(root, 'stems', result.audioHash, 'htdemucs_6s', 'piano.flac'))).toBe(true);
+
+    const decoded = await decodeMono48k(FFMPEG_EXE, audioPath);
+    const cache = new AnalysisCache({ root: join(root, 'cache') });
+    const hit = await analyzeCached(decoded.pcm, cache, { ...cacheOptionsFor(six), audioHash: decoded.pcmSha256 });
+    expect([...hit.analysis.sources.keys()].sort()).toEqual(['bass', 'drums', 'guitar', 'mix', 'other', 'piano', 'vocals']);
+
+    // A model that leaves one out: the rest are kept, the missing one says why.
+    await rm(join(root, 'cache'), { recursive: true, force: true });
+    const partial = await run(DEMUCS_STEMS);
+    expect(partial.stems).toEqual(DEMUCS_STEMS);
+    const readiness = await new AnalysisCache({ root: join(root, 'cache') }).readiness(partial.audioHash, hit.settingsHash);
+    expect(readiness['guitar']).toMatchObject({ state: 'failed', error: 'htdemucs_6s did not produce a "guitar" stem' });
+  });
+
   it('puts every stem in the cache beside the mix, analysed, with the mix beat grid, and keeps the audio', async () => {
     const progress: number[] = [];
     let requested: Readonly<Record<string, unknown>> = {};

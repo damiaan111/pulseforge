@@ -292,7 +292,7 @@ verify and repair from inside the app, a Storage view that shows what the cache 
 with a size limit and one-click cleanup, and logs plus "copy diagnostics" for when something
 goes wrong.
 
-**Optional extras:** a finer stem model, the larger Whisper model, and word timing for French,
+**Optional extras:** a finer stem model, a six-stem model that adds guitar and piano, the larger Whisper model, and word timing for French,
 German, Spanish and Italian, each installed with one click in Settings (or `npm run setup -- --tier
 extras`). `npm run setup -- --rebuild-check` proves the whole Python side can be rebuilt with no
 internet.
@@ -302,7 +302,7 @@ curve editor, in the inspector and on the timeline. Mask any layer by another's 
 brightness, inverted and feathered. Export with film-like motion blur (a tick box in the export
 dialog, or `--motion-blur` on the command line).
 
-**Still to come:** the rest of the Should-have list — a 6-stem model, Shadertoy shaders, markers,
+**Still to come:** the rest of the Should-have list — Shadertoy shaders, markers,
 LUTs, a performance HUD, batch rendering and more.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest

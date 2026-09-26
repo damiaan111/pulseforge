@@ -60,7 +60,7 @@ Each parameter becomes a control in the inspector **and** a uniform in your shad
 | `bool` | — | `bool` | Checkbox. |
 | `enum` | `options: [{ value, label }]` | `int` | The **index** of the chosen option, in declaration order. |
 | `color` | optional `paletteRole` | `vec3` | Already converted to **linear** light. Link to a palette role (`primary`, `accent`, `glow`, …) and the project palette recolours it. |
-| `select:stem` | — | `int` | The first one also decides which stem the audio uniforms describe. |
+| `select:stem` | — | `int` | 0 mix, 1 drums, 2 bass, 3 vocals, 4 other, 5 guitar, 6 piano (the last two only on the 6-stem model). The first one also decides which stem the audio uniforms describe. |
 
 Common fields: `key`, `label`, `group` (inspector section), `default`, and optionally
 `description`, `visibleWhen: { "param": "mode", "equals": "rings" }`, `advanced: true` (behind

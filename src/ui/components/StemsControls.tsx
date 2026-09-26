@@ -7,12 +7,14 @@
 
 import { useEffect, useState } from 'react';
 
+import { stemsForModel } from '../../analysis/stem-models.ts';
 import { useStudio } from '../store.ts';
 
 /** What each installed model is for, in the panel's words (D8). */
 const MODEL_TEXT: Readonly<Record<string, string>> = {
   htdemucs: 'htdemucs — fast',
   htdemucs_ft: 'htdemucs_ft — finer, about 1.7× the time',
+  htdemucs_6s: 'htdemucs_6s — six stems, adds guitar and piano',
 };
 
 const STAGE_TEXT: Readonly<Record<string, string>> = {
@@ -47,7 +49,7 @@ export function StemsControls(): React.JSX.Element | null {
           </select>
         </label>
       ) : models.length === 1 && (
-        <p className="dim stems-line">Finer stems: <button type="button" className="link" onClick={() => setSettingsOpen(true)}>install htdemucs_ft</button> (340 MB) in Settings.</p>
+        <p className="dim stems-line">Finer stems, or guitar and piano: <button type="button" className="link" onClick={() => setSettingsOpen(true)}>install a model</button> in Settings.</p>
       )}
       {stems.state === 'running' ? (
         <>
@@ -72,7 +74,7 @@ export function StemsControls(): React.JSX.Element | null {
             type="button"
             className="wide"
             data-action="stems-separate"
-            title="Split the track into drums, bass, vocals and other with Demucs, on the GPU, and analyse each"
+            title={`Split the track into ${stemsForModel(model).join(', ')} with Demucs, on the GPU, and analyse each`}
             onClick={() => void separate()}
           >
             {stems.state === 'failed' ? 'Try separating again' : 'Separate stems'}

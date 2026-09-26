@@ -18,7 +18,7 @@ import { cacheOptionsFor } from '../../src/analysis/project-settings.ts';
 import { synthesizeTestTrack } from '../../src/analysis/reference-track.ts';
 import { encodeWavFloat32 } from '../../src/export/audio.ts';
 import { SidecarSupervisor, spawnPythonSidecar } from '../../src/ml/supervisor.ts';
-import { DEMUCS_STEMS, separateStems } from '../../src/ml/stems.ts';
+import { DEMUCS_6S_STEMS, DEMUCS_STEMS, separateStems } from '../../src/ml/stems.ts';
 import { GpuQueue } from '../../src/node/gpu-queue.ts';
 import { DEFAULT_ANALYSIS_SETTINGS } from '../../src/project/create.ts';
 
@@ -92,6 +92,27 @@ describe.skipIf(!available)('stem separation on the GPU', () => {
     const energy = stems.map((s) => s.reduce((acc, v) => acc + v * v, 0));
     const total = energy.reduce((a, b) => a + b, 0);
     expect(energy.filter((e) => e / total > 0.05).length).toBeGreaterThanOrEqual(2);
+  }, 300_000);
+
+  it.skipIf(!existsSync(join(MODELS, 'demucs', 'htdemucs_6s.yaml')))('the 6-stem model (S6) adds analysed guitar and piano stems', async () => {
+    const six = { ...DEFAULT_ANALYSIS_SETTINGS, stemModel: 'htdemucs_6s' };
+    const result = await new GpuQueue().run('ml', 'stems', () => separateStems({
+      ffmpegExe: FFMPEG_EXE,
+      sidecar: supervisor,
+      cacheRoot: join(root, 'cache'),
+      stemsRoot: join(root, 'stems'),
+      scratchDir: join(root, 'scratch'),
+      modelRepo: join(MODELS, 'demucs'),
+      audioPath,
+      settings: six,
+    }));
+    expect(result.stems).toEqual(DEMUCS_6S_STEMS);
+    const decoded = await decodeMono48k(FFMPEG_EXE, audioPath);
+    const hit = await analyzeCached(decoded.pcm, new AnalysisCache({ root: join(root, 'cache') }), { ...cacheOptionsFor(six), audioHash: decoded.pcmSha256 });
+    expect([...hit.analysis.sources.keys()].sort()).toEqual(['bass', 'drums', 'guitar', 'mix', 'other', 'piano', 'vocals']);
+    for (const stem of ['guitar', 'piano']) {
+      expect(existsSync(join(root, 'stems', result.audioHash, 'htdemucs_6s', `${stem}.flac`))).toBe(true);
+    }
   }, 300_000);
 
   it('the sidecar stays usable, and stops cleanly to free the GPU', async () => {
