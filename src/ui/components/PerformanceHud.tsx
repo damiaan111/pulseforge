@@ -9,6 +9,7 @@
 import { ticksToSeconds } from '../../engine/core/time.ts';
 import { walkLayers } from '../../project/document.ts';
 import { timelineDurationTicks } from '../../project/snapshot.ts';
+import { previewRenderSize } from '../preview/render-size.ts';
 import { useStudio } from '../store.ts';
 
 /** The heaviest spans shown; the rest are summed in one line, so none is silently left out. */
@@ -35,14 +36,15 @@ export function PerformanceHud(): React.JSX.Element | null {
   const available = useStudio((s) => s.gpuAvailable);
   const document = useStudio((s) => s.document);
   const previewScale = useStudio((s) => s.previewScale);
+  const draft = useStudio((s) => s.draft);
   if (!open) return null;
 
   const names = new Map([...walkLayers(document.layers)].map(({ layer }) => [layer.id, layer.name !== '' ? layer.name : layer.kind === 'group' ? 'group' : layer.module]));
   const spans = timings === null ? [] : [...timings.spans].sort((a, b) => b[1] - a[1]);
   const worst = spans[0]?.[1] ?? 0;
   const { width, height } = document.canvas;
-  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
-  const previewPixels = even(width * previewScale) * even(height * previewScale);
+  const rendered = previewRenderSize(document.canvas, previewScale, draft);
+  const previewPixels = rendered.width * rendered.height;
   const scaleTo = (w: number, h: number) => (w * h) / Math.max(1, previewPixels);
   const total = timings?.totalMs ?? 0;
   const fps = document.canvas.fps.num / document.canvas.fps.den;
@@ -78,12 +80,13 @@ export function PerformanceHud(): React.JSX.Element | null {
             </tbody>
           </table>
           <div className="perf-hud-total">
-            {formatMs(total)} at the preview's {even(width * previewScale)}×{even(height * previewScale)}
+            {formatMs(total)} at the preview's {rendered.width}×{rendered.height}{draft ? ' (draft)' : ''}
           </div>
           <div className="perf-hud-estimate" title="Estimates: most GPU work grows with the pixel count. Rendering is offline, so export never drops frames — this is how long it takes.">
             ≈ {formatMs(total * scaleTo(width, height))} at {width}×{height}
             {width * height < 3840 * 2160 ? <> · ≈ {formatMs(at4k)} at 3840×2160</> : null}
             {frames > 0 ? <><br />A 4K render: the GPU alone ≈ {formatMinutes((at4k * frames) / 1000)} for {frames} frames</> : null}
+            {draft ? <><br />Measured in draft: a render uses full effects and costs more — turn Draft off for render estimates.</> : null}
           </div>
         </>
       )}

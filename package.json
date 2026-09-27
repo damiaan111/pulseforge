@@ -11,7 +11,7 @@
     "setup": "node --disable-warning=ExperimentalWarning setup/index.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run --reporter=default --reporter=json --outputFile.json=out/vitest-last.json",
     "check": "npm run typecheck && npm run lint && npm run test",
     "spike:determinism": "node --disable-warning=ExperimentalWarning spike/determinism.ts",
     "spike:export": "node --disable-warning=ExperimentalWarning spike/export.ts",

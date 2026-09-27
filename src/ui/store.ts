@@ -265,6 +265,9 @@ export interface StudioState {
   reportModulation(live: LiveModulation): void;
   /** The performance HUD (S12): open, and the latest GPU times the preview measured. */
   hudOpen: boolean;
+  /** Draft mode (S18): the preview at a fixed low resolution with expensive effects approximated. */
+  draft: boolean;
+  setDraft(on: boolean): void;
   /** The "Paste a Shadertoy" dialog (S2). */
   shadertoyOpen: boolean;
   setShadertoyOpen(open: boolean): void;
@@ -1082,6 +1085,10 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 
   hudOpen: false,
+  draft: false,
+  setDraft(on) {
+    set({ draft: on });
+  },
   shadertoyOpen: false,
   setShadertoyOpen(open) {
     set({ shadertoyOpen: open });

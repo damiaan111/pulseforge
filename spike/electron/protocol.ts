@@ -127,6 +127,8 @@ export interface FramesConfig {
   motionBlur?: MotionBlur;
   /** Time each layer on the GPU (S12) and return the summary. */
   profile?: boolean;
+  /** 'final' unless asked: 'draft' renders as the studio's draft mode does (S18). */
+  quality?: 'draft' | 'preview' | 'final';
 }
 
 export interface SpikeFramesResult {

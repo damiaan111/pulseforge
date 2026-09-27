@@ -21,6 +21,7 @@
 // intermediate) with a depth texture, and is then copied into the layer's target. The depth
 // texture outlives the copy, which is how a depth-of-field effect on the layer can read it.
 
+import type { RenderQuality } from '../../core/module.ts';
 import {
   DepthTexture, FloatType, HalfFloatType, LinearSRGBColorSpace, NearestFilter, NoToneMapping, RGBAFormat,
   WebGLRenderTarget, WebGLRenderer, type Camera, type Scene, type Texture,
@@ -137,10 +138,18 @@ export class SceneRenderer {
     scene: Scene,
     camera: Camera & { near: number; far: number; fov: number },
     output: { framebuffer: WebGLFramebuffer; width: number; height: number },
+    quality: RenderQuality = 'final',
   ): { depth: LayerDepth | null; error: string | null } {
     const gl = this.gl;
     const renderer = this.shared.renderer;
     const { width, height } = output;
+    // Draft (S18): no MSAA — smoother edges are fidelity, not composition. Three re-creates the
+    // target's buffers on next use after a dispose, so switching costs one reallocation.
+    const samples = quality === 'draft' ? 0 : SAMPLES;
+    if (this.target.samples !== samples) {
+      this.target.samples = samples;
+      this.target.dispose();
+    }
     if (this.target.width !== width || this.target.height !== height) this.target.setSize(width, height);
 
     this.shared.shaderError = null;

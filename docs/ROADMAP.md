@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-27, P8 in progress (S1, S2, S6, S7, S9, S10, S11, S12, S13 and S15 done). States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-27, P8 in progress (S1, S2, S6, S7, S9, S10, S11, S12, S13, S15 and S18 done). States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -119,7 +119,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S15 Karaoke export | ✅ | 4.70 — export dialog, `render --instrumental`, batch; every stem but the vocals, summed; refused without stems |
 | S12 Performance HUD | ✅ | 4.71 — GPU time per top-level layer, whole-frame effects and output; estimates at full size and 4K; per-layer cost in every render report |
 | S14 Headless CLI | ✅ | `npm run render` (4.13), `npm run batch` (4.68) |
-| S18 Draft/proxy mode | 🔶 | preview resolution scale and video proxies; no effect approximations |
+| S18 Draft/proxy mode | ✅ | 4.74 — Draft: 640 px long side, DOF 16 taps instead of 48, no MSAA on 3D scenes; measured −64% on the heaviest case; video proxies already existed |
 | S19 Collect files | ✅ | 4.37 |
 
 S16 and S17 are not started. Could-haves (C1–C15) are untouched.
@@ -141,8 +141,8 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 8. ✅ **P1 remainder** — done (STATUS 4.62).
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
    6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
-   4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72), ✅ LUTs (S11, 4.73); next
-   S18 draft mode, S16 librosa, S17 Unicode fonts, and the free-space precheck before a render
+   4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72), ✅ LUTs (S11, 4.73), ✅ draft mode
+   (S18, 4.74); next S16 librosa, S17 Unicode fonts, and the free-space precheck before a render
    (export-spec §14).
 
 ---

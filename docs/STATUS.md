@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1174 tests, `npm run golden` 29/29 identical,
-> `--smoke` 36/36 (37/37 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1177 tests, `npm run golden` 29/29 identical,
+> `--smoke` 37/37 (38/38 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -64,10 +64,11 @@
 > size and to 4K, with per-layer cost in every render report. And Shadertoy shaders (S2, §4.72):
 > paste one (it checks as you type) or drop a `.glsl` file in `modules/`, and it runs as on the
 > site, with the music as `iChannel0`. And LUTs (S11, §4.73): a LUT effect grades a layer or the whole
-> frame with any `.cube` file.
+> frame with any `.cube` file. And draft mode (S18, §4.74): the preview at 640 px with the expensive
+> effects approximated, for smooth editing on heavy projects.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — draft mode (S18),
-> librosa (S16) and Unicode fonts (S17).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — librosa (S16) and
+> Unicode fonts (S17) — and the free-space check before a render.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -156,6 +157,7 @@
 | 4.71 | The performance HUD (P8 step 9) — S12 |
 | 4.72 | Shadertoy shaders (P8 step 10) — S2 |
 | 4.73 | LUTs (P8 step 11) — S11; the vignette keeps alpha |
+| 4.74 | Draft mode (P8 step 12) — S18 |
 
 ---
 
@@ -4071,6 +4073,75 @@ by Collect files, and reported as missing or changed when the file moves.
 
 **Not done:** LUTs are not listed in the asset library (M40), which holds images, fonts and video.
 A LUT is chosen from the effect, which is where it is used.
+
+### 4.74 Draft mode (P8 step 12) — S18, module-spec §7 rule 5
+
+**What it does.** **Draft** in the canvas bar:
+- renders the preview at a **fixed low resolution**, 640 px on the long side (640×360 for 16:9,
+  360×640 vertical), or smaller if the quality scale already is;
+- switches the engine to a third quality, **`draft`**, in which the expensive modules approximate.
+
+The size badge reads "Draft 360×640". Exports are never drafts: an export engine is created
+`final` (D20), and asking it for `draft` is refused.
+
+**What approximates, and why these.** The S12 HUD measured every candidate at 1080p on the RTX 3060:
+- 3D scenes 0.4–0.6 ms; depth of field **1.2 ms** on top of its scene;
+- blur and bloom about 0.25 ms (blur is already a fixed 4 taps each side, and bloom works at half
+  resolution);
+- particles, blobs, tunnel and spectrogram about 0.1 ms.
+
+So draft touches the two that cost:
+- **Depth of field** runs a 16-tap variant of its 48-tap golden-angle kernel: the same spiral over
+  the same disc, sparser, so it is grainier and never wider. It is a separate compiled program, so
+  the final shader's source is untouched.
+- **3D scenes** drop their 4× MSAA: edges are smoothed less, and geometry, camera and lighting are
+  unchanged. Three re-creates the target once when the mode flips.
+- Everything else is carried by the resolution: a ninth of 1080p's pixels.
+
+This is module-spec §7 rule 5 exactly: lower fidelity within the same structure. The draft is
+recognisably the final frame.
+
+**How.**
+- `RenderQuality = 'draft' | 'preview' | 'final'` on the render context.
+- `Engine.setQuality` (the preview's switch). `SceneRenderer.render` takes the quality, and the DOF
+  module picks its variant per frame.
+- `src/ui/preview/render-size.ts` is one function for the render size. The preview host, the size
+  badge and the performance HUD all use it, so they cannot disagree.
+- The HUD says when its numbers were measured in draft, since a render costs more.
+
+**Measured here:**
+- **City + DOF at 1080p: 2.00 ms final, 0.73 ms draft** (−64%). The coarse layout (a 16×9 grid of
+  mean levels) differs by at most **1.3 levels** out of 255: the same picture.
+- The UI tour's project at 1080×1920: about 27 ms per frame in the preview (S12's shot) against
+  **5.9 ms in draft** at 360×640.
+- In draft the HUD shows that fixed per-frame costs, not pixel costs, now dominate: the text
+  layer's 3.1 ms leads.
+
+**Also: test runs now keep a report.**
+- During this step one test failed in three consecutive `npm run test` runs, then passed in five
+  more, and its name was never captured: the summary scrolled away and my greps did not match
+  vitest's format.
+- `npm run test` now also writes `out/vitest-last.json` (every test, pass or fail), so the next
+  intermittent failure names itself.
+- The likeliest suspects are the GPU tests that compare *measured* times (`profiling-gpu`,
+  `draft-gpu`), which a busy GPU could upset. **Open item:** if it recurs, read the JSON report and
+  widen that test's margin.
+
+**Verified here:**
+- `npm run check` **1177 tests**:
+  - `tests/golden/draft-gpu.test.ts`, on the GPU:
+    - draft costs under 70% of final (measured 36%);
+    - the layout matches within 12 levels (measured 1.3);
+    - the pixels are not final's;
+    - draft repeats byte for byte.
+  - `tests/ui/render-size.test.ts`: the cap in both orientations, never enlarging, and the quality
+    scale standing below the cap.
+- `npm run golden` 29/29 identical: final renders are unchanged.
+- `--smoke` **37/37**, and **38/38** with the queued render (fresh result files). New `draftUi`:
+  - Draft caps the badge's size at 640;
+  - the preview keeps drawing without an error;
+  - Draft off restores the size.
+- The UI tour adds `17-draft` (draft with the HUD open).
 
 ---
 

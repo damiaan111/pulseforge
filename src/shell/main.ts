@@ -2489,6 +2489,27 @@ app.whenReady().then(async () => {
       const perfHud = Object.values(hudSteps).every(Boolean);
       if (!perfHud) console.error('[smoke] perfHud steps ' + JSON.stringify(hudSteps) + ' ' + hudText.slice(0, 200));
 
+      // Draft mode (S18): the canvas bar's Draft caps the preview at 640 px on the long side (the size
+      // badge says so), the preview keeps drawing with no new errors, and Draft off restores the size.
+      console.log('[smoke] step: draftUi');
+      let draftUi = false;
+      {
+        const badge = () => document.querySelector('#app [data-testid="render-size"]')?.textContent ?? '';
+        const sizeOf = (text) => text.replace('Draft', '').trim().split('×').map(Number);
+        const before = badge();
+        document.querySelector('#app [data-action="draft-mode"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const drafted = (await waitFor(() => badge().startsWith('Draft'), 40)) === true;
+        const [w, h] = sizeOf(badge());
+        const capped = Math.max(w, h) <= 640 && Math.max(w, h) > 0;
+        await new Promise((d) => setTimeout(d, 300));
+        const errorFree = document.querySelector('#app .canvas-error') === null;
+        document.querySelector('#app [data-action="draft-mode"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const restored = (await waitFor(() => badge() === before, 40)) === true;
+        const draftSteps = { drafted, capped, errorFree, restored };
+        draftUi = Object.values(draftSteps).every(Boolean);
+        if (!draftUi) console.error('[smoke] draftUi steps ' + JSON.stringify(draftSteps) + ' ' + before + ' / ' + badge());
+      }
+
       // LUTs (S11): a background layer gets the LUT effect, Choose picks a .cube (the smoke answers
       // with a generated one), the inspector names it, and the preview grades with no LUT note.
       console.log('[smoke] step: lutUi');
@@ -2627,6 +2648,7 @@ app.whenReady().then(async () => {
         perfHud,
         shadertoyUi,
         lutUi,
+        draftUi,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;
@@ -2924,6 +2946,10 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(`${click('#app [data-action="shadertoy-paste"]')}; await new Promise((d) => setTimeout(d, 800))`);
     await snap(`${label}-16-shadertoy`);
     await js(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+    // Draft mode (S18) with the HUD open: the low-resolution preview and what it costs.
+    await js(`${click('#app [data-action="draft-mode"]')}; ${click('#app [data-action="perf-hud"]')}; await new Promise((d) => setTimeout(d, 800))`);
+    await snap(`${label}-17-draft`);
+    await js(`${click('#app [data-action="draft-mode"]')}; ${click('#app [data-action="perf-hud"]')}`);
     // Settings (M36), then the whole studio in the light theme, then back to dark.
     const theme = (value: string) => `
       const select = document.querySelector('#app [data-setting="theme"]');

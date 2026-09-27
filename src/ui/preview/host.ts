@@ -28,6 +28,7 @@ import type { ProjectDocument } from '../../project/document.ts';
 import { PreviewClock, type PreviewStats, type Transport } from '../clock.ts';
 import type { GpuFrameTimings } from '../../engine/render/gpu-profiler.ts';
 import { parseCube } from '../../engine/core/lut.ts';
+import { previewRenderSize } from './render-size.ts';
 import { clipLevel } from '../../project/audio-clip.ts';
 
 /** An analysis set with nothing in it, so the preview runs before any audio is loaded. */
@@ -74,6 +75,7 @@ export class PreviewHost {
   private project: RenderProject | null = null;
   private analysis: AnalysisSet = EMPTY_ANALYSIS;
   private scale = 1;
+  private draft = false;
   private images: ReadonlyMap<string, DecodedImage> = new Map();
   /**
    * Glyph rasterisation for text layers. Created here and handed to the engine at startup, because
@@ -142,6 +144,7 @@ export class PreviewHost {
     this.feeder.setSequences(this.videoSequences);
     this.engine.addModules(this.userModules);
     this.engine.setProfiling(this.profiling);
+    this.engine.setQuality(this.draft ? 'draft' : 'preview');
     this.registerLuts();
     this.running = true;
     this.uploadImages();
@@ -288,6 +291,16 @@ export class PreviewHost {
     // A stopped preview must still render a frame for there to be anything to time.
     this.needsRedraw = true;
     if (on) this.callbacks.onGpuTimings?.(null, this.engine?.profiling.available ?? false);
+  }
+
+  /**
+   * Draft mode (S18): a fixed low resolution and the engine's 'draft' quality, where expensive
+   * modules approximate (fewer DOF samples, no MSAA on 3D scenes). Export is never affected.
+   */
+  setDraft(on: boolean): void {
+    this.draft = on;
+    this.engine?.setQuality(on ? 'draft' : 'preview');
+    this.needsRedraw = true;
   }
 
   setScale(scale: number): void {
@@ -494,17 +507,11 @@ export class PreviewHost {
   private renderFrame(engine: Engine, gl: WebGL2RenderingContext, project: RenderProject, frameIndex: number): void {
     // Preview resolution is the project's, scaled. Even dimensions keep it comparable with the
     // export path, which cannot encode an odd one.
-    const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
-    const scaled: RenderProject = this.scale === 1
+    // The quality scale, capped in draft mode (S18) — render-size.ts, shared with the badge and HUD.
+    const size = previewRenderSize(project.canvas, this.scale, this.draft);
+    const scaled: RenderProject = size.width === project.canvas.width && size.height === project.canvas.height
       ? project
-      : {
-        ...project,
-        canvas: {
-          ...project.canvas,
-          width: even(project.canvas.width * this.scale),
-          height: even(project.canvas.height * this.scale),
-        },
-      };
+      : { ...project, canvas: { ...project.canvas, ...size } };
 
     const report = engine.renderFrame(scaled, this.analysis, frameIndex);
     this.live = { values: report.modulatedValues, levels: report.bindingLevels, issues: report.modulationIssues };

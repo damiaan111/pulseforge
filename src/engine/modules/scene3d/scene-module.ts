@@ -214,7 +214,7 @@ export function scene3dModule(
           camera.aspect = width / height;
           camera.updateProjectionMatrix();
 
-          const result = renderer.render(content.scene, camera, ctx.outputTarget);
+          const result = renderer.render(content.scene, camera, ctx.outputTarget, ctx.quality);
           if (result.error !== null) ctx.warn(`${manifest.name}: ${result.error}`);
           depth = result.depth;
         },

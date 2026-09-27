@@ -8,6 +8,10 @@
 //  5. quality 'preview' may lower fidelity, never change composition.
 //  6. Allocate in init/resize, not per frame.
 
+
+/** How much a frame may approximate (S18). Export is always 'final'. */
+export type RenderQuality = 'draft' | 'preview' | 'final';
+
 import type { LutTexture } from '../render/lut-store.ts';
 import type { AnalysisSet } from './analysis.ts';
 import type { RenderLyrics } from './lyrics.ts';
@@ -99,7 +103,12 @@ export interface RenderContext {
    * way and must come back to this one for its final pass.
    */
   readonly outputTarget: RenderTarget;
-  readonly quality: 'preview' | 'final';
+  /**
+   * 'final' for export (D20). 'preview' for the studio. 'draft' (S18) for heavy projects: expensive
+   * modules may approximate — fewer samples, no MSAA — but never change composition (module-spec §7
+   * rule 5): the draft is recognisably the final frame at lower fidelity.
+   */
+  readonly quality: RenderQuality;
   /** Reports a problem for this frame's report. Never a reason to render differently between runs. */
   readonly warn: (message: string) => void;
   /**

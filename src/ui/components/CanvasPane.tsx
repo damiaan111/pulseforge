@@ -13,6 +13,7 @@ import { setThumbnailHost } from '../preset-thumbnails.ts';
 import { shaderModuleDefinition } from '../../engine/modules/shader-module.ts';
 import { useStudio } from '../store.ts';
 import { PerformanceHud } from './PerformanceHud.tsx';
+import { previewRenderSize } from '../preview/render-size.ts';
 import { TapOverlay } from './TapOverlay.tsx';
 
 /** Canvas sizes for the aspect switcher, all about 2 megapixels so switching is like for like. */
@@ -66,6 +67,8 @@ export function CanvasPane(): React.JSX.Element {
   const reportModulation = useStudio((s) => s.reportModulation);
   const notify = useStudio((s) => s.notify);
   const hudOpen = useStudio((s) => s.hudOpen);
+  const draft = useStudio((s) => s.draft);
+  const setDraft = useStudio((s) => s.setDraft);
   const setHudOpen = useStudio((s) => s.setHudOpen);
   const reportGpuTimings = useStudio((s) => s.reportGpuTimings);
 
@@ -103,6 +106,10 @@ export function CanvasPane(): React.JSX.Element {
   }, [hudOpen]);
 
   useEffect(() => {
+    hostRef.current?.setDraft(draft);
+  }, [draft]);
+
+  useEffect(() => {
     hostRef.current?.setDocument(document, analysis);
   }, [document, analysis]);
 
@@ -131,10 +138,7 @@ export function CanvasPane(): React.JSX.Element {
   }, [videos]);
 
   const canvasAspect = aspectBucket(document.canvas.width, document.canvas.height);
-  const effective = {
-    width: Math.round(document.canvas.width * previewScale),
-    height: Math.round(document.canvas.height * previewScale),
-  };
+  const effective = previewRenderSize(document.canvas, previewScale, draft);
   const dropped = stats?.droppedRecent ?? 0;
 
   function switchAspect(bucket: AspectBucket): void {
@@ -173,7 +177,16 @@ export function CanvasPane(): React.JSX.Element {
             <option value="1">100%</option>
           </select>
         </label>
-        <span className="badge dim">{effective.width}×{effective.height}</span>
+        <button
+          type="button"
+          data-action="draft-mode"
+          className={draft ? 'active' : ''}
+          title="Draft: a fixed low resolution (640 px on the long side), fewer depth-of-field samples and no anti-aliasing on 3D scenes — for smooth editing on heavy projects. Exports are never drafts."
+          onClick={() => setDraft(!draft)}
+        >
+          Draft
+        </button>
+        <span className={draft ? 'badge warn' : 'badge dim'} data-testid="render-size">{draft ? 'Draft ' : ''}{effective.width}×{effective.height}</span>
         <button type="button" data-action="perf-hud" className={hudOpen ? 'active' : ''} title="GPU time per layer, and what it means at full size and 4K (S12)" onClick={() => setHudOpen(!hudOpen)}>
           HUD
         </button>

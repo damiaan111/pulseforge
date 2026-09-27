@@ -11,7 +11,7 @@
 // this pixel may blur no more than this pixel does, so a defocused background cannot bleed over a
 // sharp subject standing in front of it. The spiral is fixed, so the result is deterministic.
 
-import type { ModuleManifest } from '../core/module.ts';
+import type { ModuleDefinition, ModuleInstance, ModuleManifest } from '../core/module.ts';
 import { num } from '../core/params.ts';
 import { singlePassEffect } from './effect-base.ts';
 
@@ -36,8 +36,10 @@ export const dofManifest: ModuleManifest = {
 };
 
 const TAPS = 48;
+/** Draft (S18): the same golden-angle spiral over the same disc, sparser — grainier, never wider. */
+const DRAFT_TAPS = 16;
 
-const FRAG = /* glsl */ `#version 300 es
+const fragWith = (TAPS: number) => /* glsl */ `#version 300 es
 precision highp float;
 uniform sampler2D u_input;
 uniform sampler2D u_depth;
@@ -89,7 +91,7 @@ void main() {
 }
 `;
 
-export const dofModule = singlePassEffect(dofManifest, FRAG, {
+const dofOptions: Parameters<typeof singlePassEffect>[2] = {
   uniforms: ['u_depth', 'u_hasDepth', 'u_near', 'u_far', 'u_focus', 'u_range', 'u_maxRadius'],
   filter: 'linear',
   set(gl, u, ctx, params) {
@@ -108,4 +110,31 @@ export const dofModule = singlePassEffect(dofManifest, FRAG, {
     // The largest blur follows the layer's size reference, so it matches at 1080p and 4K.
     gl.uniform1f(u('u_maxRadius'), num(params, 'amount') * 0.035 * ctx.canvas.referenceScale);
   },
-});
+};
+
+const finalDof = singlePassEffect(dofManifest, fragWith(TAPS), dofOptions);
+const draftDof = singlePassEffect(dofManifest, fragWith(DRAFT_TAPS), dofOptions);
+
+/** Depth of field: the full 48-tap kernel, or in draft (S18) the 16-tap one, chosen per frame. */
+export const dofModule: ModuleDefinition = {
+  manifest: dofManifest,
+  create(gl) {
+    const full = finalDof.create(gl);
+    let draft: ModuleInstance | null = null;
+    return {
+      resize(width, height) {
+        full.resize(width, height);
+        draft?.resize(width, height);
+      },
+      render(ctx, params) {
+        if (ctx.quality !== 'draft') return full.render(ctx, params);
+        draft ??= draftDof.create(gl);
+        return draft.render(ctx, params);
+      },
+      dispose() {
+        full.dispose();
+        draft?.dispose();
+      },
+    };
+  },
+};

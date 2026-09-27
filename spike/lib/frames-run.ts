@@ -41,6 +41,8 @@ export interface FramesOptions {
   readonly motionBlur?: MotionBlur;
   /** Time each layer on the GPU (S12); the summary comes back as `gpu`. */
   readonly profile?: boolean;
+  /** Draft or preview quality (S18); final by default, as an export. */
+  readonly quality?: 'draft' | 'preview' | 'final';
   /** Decoded images by content hash, for layers that reference assets. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
   /** .cube texts by content hash (S11). */
@@ -123,6 +125,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     dither: options.dither ?? false,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
     ...(options.profile === true ? { profile: true } : {}),
+    ...(options.quality === undefined ? {} : { quality: options.quality }),
   };
   const { result, log } = await runElectron<SpikeFramesResult>(config);
   if (!result.ok) throw new FramesRunError(`Frame render failed: ${result.error ?? 'unknown error'}`, log);

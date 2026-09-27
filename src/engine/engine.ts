@@ -5,7 +5,7 @@
 
 import type { AnalysisSet } from './core/analysis.ts';
 import { parseHexColor, toLinearPremultiplied } from './core/color.ts';
-import type { ModuleDefinition, ModuleInstance } from './core/module.ts';
+import type { ModuleDefinition, ModuleInstance, RenderQuality } from './core/module.ts';
 import {
   IDENTITY_LAYER_TRANSFORM, isIdentityTransform, layerMatrix, referenceLength,
   type Mat3, type ScaleReference,
@@ -90,7 +90,7 @@ const MAX_GROUP_DEPTH = 8;
 export const ENGINE_VERSION = '0.1.0-p0';
 
 export interface EngineOptions {
-  readonly quality: 'preview' | 'final';
+  readonly quality: RenderQuality;
   readonly output: OutputOptions;
   /**
    * Byte layout handed to readback. 'rgba': 4 bytes/pixel (RGBA8 or packed 10-bit).
@@ -181,6 +181,12 @@ export interface Engine {
   /** Mean and worst per span over every frame measured since profiling was turned on. */
   gpuTimingSummary(): GpuTimingSummary;
   /**
+   * The preview switching between 'preview' and 'draft' (S18). An export engine stays 'final'
+   * (D20); asking it to change is refused, so an export can never render a draft.
+   */
+  setQuality(quality: RenderQuality): void;
+  readonly quality: RenderQuality;
+  /**
    * Registers decoded pixels for an image asset under its content hash (image.ts). The host does
    * this for every image the project references before rendering; the engine never reads files.
    */
@@ -248,6 +254,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const luts = new LutStore(gl);
   const compositor = new Compositor(gl, pool);
   const profiler = new GpuProfiler(gl);
+  let quality: RenderQuality = options.quality;
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
   let output: RenderTarget | undefined;
 
@@ -331,6 +338,14 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       return pool.highWaterMark;
     },
 
+    setQuality(next) {
+      if (options.quality === 'final' && next !== 'final') throw new RenderSetupError('a final-quality (export) engine cannot render drafts');
+      quality = next;
+    },
+    get quality() {
+      return quality;
+    },
+
     setProfiling(on) {
       if (on === (compositor.profiler !== null)) return;
       if (on) {
@@ -390,7 +405,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           audioSeconds: timelineToSourceSeconds(t, project.audio),
           prng: createPrng(project.seed),
           gl,
-          quality: options.quality,
+          quality,
           warn: (message: string) => warnings.push(message),
           image: (assetId: string) => {
             const ref = project.assets?.[assetId];
