@@ -4,7 +4,7 @@
 > part works, how it was verified, what went wrong); this file is the checklist against
 > PROJECT.md §9–§10. **Update both at the end of every step.**
 >
-> **As of 2026-09-27, P8 in progress (S1, S2, S6, S7, S9, S10, S12, S13 and S15 done).** States: ✅ done · 🔶 partly done · ⬜ not started.
+> **As of 2026-09-27, P8 in progress (S1, S2, S6, S7, S9, S10, S11, S12, S13 and S15 done). States: ✅ done · 🔶 partly done · ⬜ not started.
 > "Where" points at the STATUS section that describes it. Every ✅ was verified on the RTX machine
 > (tests, golden frames, the studio smoke check, and a real render where it applies).
 
@@ -114,7 +114,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S2 Custom GLSL layer | ✅ | 4.42 drop-in shader modules; 4.72 Shadertoy dialect: paste with a live check, bare `.glsl` files, `iChannel0` audio; single pass only, no image channels |
 | S8 Preset browser | ✅ | 4.44 |
 | S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; loop region and I/O keys not built |
-| S11 Colour management | 🔶 | linear-light, premultiplied compositing and correct output transfer; no LUTs |
+| S11 Colour management | ✅ | linear-light, premultiplied compositing and correct output transfer; 4.73 the LUT effect with `.cube` files (3D and 1D), for display or linear input |
 | S13 Batch mode | ✅ | 4.68 — drop tracks or Batch…, `npm run batch`; completion notification, shutdown when done; the free-space precheck (export-spec §14) is still open |
 | S15 Karaoke export | ✅ | 4.70 — export dialog, `render --instrumental`, batch; every stem but the vocals, summed; refused without stems |
 | S12 Performance HUD | ✅ | 4.71 — GPU time per top-level layer, whole-frame effects and output; estimates at full size and 4K; per-layer cost in every render report |
@@ -141,8 +141,8 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 8. ✅ **P1 remainder** — done (STATUS 4.62).
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
    6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
-   4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72); next S11 LUTs, S18
-   draft mode, S16 librosa, S17 Unicode fonts, and the free-space precheck before a render
+   4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72), ✅ LUTs (S11, 4.73); next
+   S18 draft mode, S16 librosa, S17 Unicode fonts, and the free-space precheck before a render
    (export-spec §14).
 
 ---
@@ -167,6 +167,7 @@ it was made; they are collected here so none is a surprise.
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
 | The markers lane sits **under the waveform**; **[ / ] also stop at section boundaries**; timeline markers are **separate from the lyrics' `[Chorus]` section markers** | ui-spec §3 lists a Markers track without placing it | the waveform stays the scrub strip; the keys work before any marker exists; lyrics own their structure | STATUS 4.69 |
+| The **vignette now darkens and keeps alpha** (it used to fade the edges to transparent) | module-spec §6 says only "darkens toward the edges" | a LUT after it graded see-through corners; on a layer, darkening is what "vignette" means | STATUS 4.73 |
 | **Dropped audio files open the Batch dialog**, even one; a CLI folder is read **one level deep**; "shut down when done" waits **two minutes** | export-spec §12 says "optional shutdown-when-done" and nothing about drops or folders | the dialog is where the folder and preset are chosen; a library's subfolders are albums; two minutes to see it and cancel | STATUS 4.68 |
 | Motion-blur subframes **keep the frame's index** (only `t` moves), and one **before the timeline is held at 0** | export-spec §9 gives the shutter interval only | a video layer has one decoded frame per frame and its own motion blur; grain keyed on the frame should not smear; frame 0 has nothing before it | STATUS 4.66 |
 | Masks are applied **in canvas space** (the source as drawn in the frame, after both layers' transforms); a source that is **off leaves the target unmasked** | compositor-spec §5 places the mask step before the target's transform and does not say what an off source means | "a shape masks what is under it on screen" is what people expect; switching a mask's eye off to compare is a common gesture | STATUS 4.65 |

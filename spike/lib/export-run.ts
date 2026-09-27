@@ -39,6 +39,8 @@ export interface ExportRunOptions {
   readonly durationTicks: number;
   /** Image assets already written as raw RGBA files. */
   readonly images?: readonly ImageFile[];
+  /** .cube texts by content hash (S11). */
+  readonly luts?: readonly { readonly hash: string; readonly text: string }[];
   /** Fonts for text layers. */
   readonly text?: FontsConfig;
   /** Extracted video sequences (M39). */
@@ -122,6 +124,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
       durationTicks: options.durationTicks,
       project: options.project,
       ...(options.images !== undefined && options.images.length > 0 ? { images: [...options.images] } : {}),
+      ...(options.luts !== undefined && options.luts.length > 0 ? { luts: options.luts.map((l) => ({ hash: l.hash, text: l.text })) } : {}),
       ...(options.text === undefined ? {} : { text: options.text }),
       ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
       ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),

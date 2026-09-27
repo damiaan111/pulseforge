@@ -19,6 +19,7 @@ import { AnalysisCache } from '../analysis/cache.ts';
 import type { MotionBlur } from '../engine/core/time.ts';
 import { rangeFrames, type RenderRange } from './range.ts';
 import { InstrumentalError, buildInstrumental } from './instrumental.ts';
+import { loadLutAssets } from '../assets/luts.ts';
 
 /** The soundtrack of a render: the song, or its instrumental for a karaoke render (S15). */
 export type AudioMix = 'full' | 'instrumental';
@@ -211,6 +212,8 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   // Fonts cross as files (the child reads them); the bundled default is always registered, so a text
   // layer with no font chosen — or a missing one — still renders, and says which.
   const fontAssets = loadFontAssets(document, options.projectPath);
+  // LUTs (S11) go to the render as text; a missing or unreadable one is a note, and its effect passes the picture through.
+  const lutAssets = loadLutAssets(document, options.projectPath);
   // Video clips are extracted to the frame cache at this render's fps and width (M39). A clip that
   // cannot be found or read is a problem, not a failure: its layer draws the missing-clip
   // checkerboard and the render says why, exactly as the preview does.
@@ -247,7 +250,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   // here too. A broken module is a note, and its layers draw nothing — the engine says which.
   const scanned = await scanModules(options.modulesDir ?? MODULES_DIR, new Set(BUILTIN_MODULES.map((m) => m.manifest.id)));
   for (const broken of scanned.problems) say(`Warning: modules/${broken.folder}: ${broken.problems.join('; ')}`);
-  const problems = [...loaded.problems, ...fontAssets.problems, ...videoProblems];
+  const problems = [...loaded.problems, ...fontAssets.problems, ...lutAssets.problems, ...videoProblems];
   const allNotes: SnapshotNote[] = [
     ...notes,
     ...problems.map((problem) => ({ path: `assets.${problem.assetId}`, detail: problem.detail })),
@@ -310,6 +313,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     durationTicks,
     images,
     text: { default: defaultFontFile(), fonts: fontAssets.fonts },
+    ...(lutAssets.luts.length > 0 ? { luts: lutAssets.luts } : {}),
     videos,
     modules: [...scanned.modules],
     settings: defaultEncodeSettings(options.codec),

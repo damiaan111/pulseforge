@@ -10,6 +10,7 @@ import { rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
+import type { Lut3D } from '../engine/core/lut.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
 import type { ModuleDefinition } from '../engine/core/module.ts';
 import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
@@ -32,6 +33,8 @@ export interface ExportRequest {
   readonly durationTicks: number;
   /** Decoded image assets by content hash, registered before the first frame. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
+  /** Parsed LUT assets by content hash (S11), registered before the first frame. */
+  readonly luts?: ReadonlyMap<string, Lut3D>;
   /** Glyph rasterisation with the project's fonts already registered. */
   readonly text?: TextRasterizer;
   /**
@@ -139,6 +142,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     ...(request.motionBlur === undefined ? {} : { motionBlur: request.motionBlur }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
+  for (const [hash, lut] of request.luts ?? []) engine.setLut(hash, lut);
   // Per-layer GPU cost for the report (PROJECT.md §8.15, S12). Observes only; never changes a pixel.
   engine.setProfiling(true);
   request.onEngine?.(engine);

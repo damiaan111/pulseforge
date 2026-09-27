@@ -43,7 +43,7 @@ import { encodeAnalysis } from '../analysis/container.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
-  IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult,
+  IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult, type LutFile, type LutLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
   type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob,
 } from './ipc.ts';
@@ -58,6 +58,7 @@ import {
 import { loadDocument } from '../project/load.ts';
 import { scanModules, type ModuleScan } from '../modules-folder/scan.ts';
 import { motionBlurProblems } from '../engine/core/time.ts';
+import { parseCube } from '../engine/core/lut.ts';
 import { BUILTIN_MODULES, ENGINE_VERSION } from '../engine/engine.ts';
 import { SidecarSupervisor, spawnPythonSidecar } from '../ml/supervisor.ts';
 import { StemsCancelledError, separateStems } from '../ml/stems.ts';
@@ -408,6 +409,8 @@ let rendersForDiagnostics: (() => readonly RenderJob[]) | null = null;
 
 /** Set in smoke mode: "Import audio…" answers with this file instead of opening a dialog. */
 let smokeAudioPath: string | null = null;
+/** Set in smoke mode: "Choose a LUT" answers with this generated .cube instead of a dialog (S11). */
+let smokeLutPath: string | null = null;
 
 /**
  * A minute of song-shaped audio for the smoke's auto-director check: the reference beat track with
@@ -1198,6 +1201,41 @@ function registerHandlers(): void {
     }
   });
 
+  // LUTs (S11): read, hashed and parsed here, so a malformed .cube is refused at import with its line
+  // rather than failing in a render later.
+  const readLut = async (path: string): Promise<LutFile> => {
+    const bytes = await readFile(path);
+    if (bytes.length > 64 * 1024 * 1024) throw new Error(`${basename(path)} is larger than 64 MB; that is not a LUT`);
+    const text = bytes.toString('utf8');
+    const parsed = parseCube(text);
+    return { path, hash: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, name: basename(path), text, description: parsed.description };
+  };
+  ipcMain.handle(IPC.lutImport, async (): Promise<LutFile | null> => {
+    if (smokeLutPath !== null) return readLut(smokeLutPath);
+    const result = await dialog.showOpenDialog({
+      title: 'Choose a LUT (.cube)',
+      properties: ['openFile'],
+      filters: [{ name: 'LUTs', extensions: ['cube'] }, { name: 'All files', extensions: ['*'] }],
+    });
+    const path = result.canceled ? undefined : result.filePaths[0];
+    if (path === undefined) return null;
+    try {
+      return await readLut(path);
+    } catch (error) {
+      throw new Error(`${basename(path)} is not a LUT this app can read: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+  });
+  ipcMain.handle(IPC.lutLoad, async (_event, stored: unknown, projectPath: unknown): Promise<LutLoadResult> => {
+    if (typeof stored !== 'string') throw new Error('loadLut needs a path');
+    const path = resolveAssetPath(stored, typeof projectPath === 'string' ? projectPath : null);
+    if (path === undefined || !existsSync(path)) return { status: 'missing', path: path ?? stored };
+    try {
+      return { status: 'ok', lut: await readLut(path) };
+    } catch (error) {
+      return { status: 'error', path, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle(IPC.fontDefault, async (): Promise<FontBytes> => {
     if (!existsSync(DEFAULT_FONT_FILE)) {
       throw new Error(`The bundled default font is missing (${DEFAULT_FONT_FILE}).\n\nTry:\n• Run \`npm run setup\` to provision vendor/fonts`);
@@ -1662,6 +1700,9 @@ app.whenReady().then(async () => {
     if (!settled) console.error('[smoke] FAIL the renderer did not finish starting within 10 s');
 
     smokeAudioPath = await smokeSong();
+    // A 2-point LUT that inverts, for the LUT check (S11).
+    smokeLutPath = join(ROOT, 'out', 'smoke-lut.cube');
+    await writeFile(smokeLutPath, 'TITLE "Smoke invert"\nLUT_3D_SIZE 2\n' + [0, 1].flatMap((b) => [0, 1].flatMap((g) => [0, 1].map((r) => `${1 - r} ${1 - g} ${1 - b}`))).join('\n') + '\n');
     const checks = await window.webContents.executeJavaScript(`(async () => {
       // Does the renderer have Node? It must not — sandbox + contextIsolation.
       const noNode = typeof require === 'undefined' && typeof module === 'undefined'
@@ -2448,6 +2489,30 @@ app.whenReady().then(async () => {
       const perfHud = Object.values(hudSteps).every(Boolean);
       if (!perfHud) console.error('[smoke] perfHud steps ' + JSON.stringify(hudSteps) + ' ' + hudText.slice(0, 200));
 
+      // LUTs (S11): a background layer gets the LUT effect, Choose picks a .cube (the smoke answers
+      // with a generated one), the inspector names it, and the preview grades with no LUT note.
+      console.log('[smoke] step: lutUi');
+      let lutUi = false;
+      {
+        document.querySelector('#app .module-buttons button[data-action="add-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((d) => setTimeout(d, 100));
+        const picker = document.querySelector('#app .inspector select[data-action="add-effect"]');
+        const hasOption = picker !== null && [...picker.options].some((o) => o.value === 'core.effect.lut');
+        if (hasOption) {
+          picker.value = 'core.effect.lut';
+          picker.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const chooser = await waitFor(() => document.querySelector('#app .inspector [data-action="choose-lut"]'), 40);
+        if (chooser) chooser.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const named = (await waitFor(() => [...document.querySelectorAll('#app .inspector .asset-name')].some((n) => (n.textContent ?? '').includes('smoke-lut.cube')), 60)) === true;
+        await new Promise((d) => setTimeout(d, 400));
+        const notes = document.querySelector('#app .canvas-notes')?.textContent ?? '';
+        const graded = named && !notes.includes('LUT');
+        const lutSteps = { hasOption, chooser: chooser !== null && chooser !== false, named, graded };
+        lutUi = Object.values(lutSteps).every(Boolean);
+        if (!lutUi) console.error('[smoke] lutUi steps ' + JSON.stringify(lutSteps) + ' ' + notes.slice(0, 200));
+      }
+
       // Shadertoy (S2): the paste dialog checks as you type — the example compiles, a typo is named on
       // its own line — and Add saves it in modules/ and puts it on the project as a layer that renders.
       console.log('[smoke] step: shadertoyUi');
@@ -2561,6 +2626,7 @@ app.whenReady().then(async () => {
         markerUi,
         perfHud,
         shadertoyUi,
+        lutUi,
         ...(recoveryDialog === undefined ? {} : { recoveryDialog }),
       };
     })()`) as Record<string, boolean>;

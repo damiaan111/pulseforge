@@ -94,7 +94,7 @@ export interface StemParam extends ParamCommon {
 export interface AssetParam extends ParamCommon {
   readonly type: 'asset';
   readonly default: '';
-  readonly accept: 'image' | 'font' | 'video';
+  readonly accept: 'image' | 'font' | 'video' | 'lut';
 }
 
 /** Free text (module-spec §3.2 `string`) — a title, a credit line. */

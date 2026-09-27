@@ -73,6 +73,8 @@ export interface ExportConfig {
   durationTicks: number;
   project: RenderProject;
   images?: ImageFile[];
+  /** .cube LUTs (S11) as text, by content hash; the child parses them with the studio's parser. */
+  luts?: LutText[];
   /** Absent: text layers report that no rasteriser is available. */
   text?: FontsConfig;
   videos?: VideoSequenceFile[];
@@ -99,6 +101,12 @@ export interface ExportConfig {
  * headless render path: used to check layout on the GPU, and the basis for golden frames
  * (export-spec §16).
  */
+/** A LUT asset's file text under its content hash. */
+export interface LutText {
+  hash: string;
+  text: string;
+}
+
 export interface FramesConfig {
   mode: 'frames';
   analysisFile: string;
@@ -106,6 +114,8 @@ export interface FramesConfig {
   rawDir: string;
   project: RenderProject;
   images?: ImageFile[];
+  /** .cube LUTs (S11) as text, by content hash; the child parses them with the studio's parser. */
+  luts?: LutText[];
   /** Absent: text layers report that no rasteriser is available. */
   text?: FontsConfig;
   videos?: VideoSequenceFile[];

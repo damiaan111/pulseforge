@@ -44,7 +44,13 @@ const VISIBLE_SETTINGS: Readonly<Record<string, Readonly<Record<string, unknown>
   'core.effect.glitch': { amount: 1, density: 1, displace: 0.3 },
   // Focused just in front of the camera, so the whole scene behind it is thrown out of focus.
   'core.effect.dof': { focus: 2, range: 0, amount: 1 },
+  // An effect that needs an asset gets one: every project here carries CATALOGUE_LUT (below).
+  'core.effect.lut': { lut: 'catalogueLut', amount: 1 },
 };
+
+/** A 2-point LUT that inverts, registered for every render here, so the LUT effect (S11) is tested like the rest. */
+const CATALOGUE_LUT = { hash: 'catalogue-invert', text: `LUT_3D_SIZE 2\n${[0, 1].flatMap((b) => [0, 1].flatMap((g) => [0, 1].map((r) => `${1 - r} ${1 - g} ${1 - b}`))).join('\n')}\n` };
+const LUTS = [CATALOGUE_LUT];
 
 const NEEDS_DEPTH = new Set(BUILTIN_MODULES.filter((m) => m.manifest.capabilities.needsDepth === true).map((m) => m.manifest.id));
 
@@ -61,6 +67,7 @@ function projectFor(effectId: string | null, host = hostFor(effectId)): RenderPr
     durationTicks: 48_000 * 2,
     canvas: { width: 320, height: 180, fps: rational(60), background: '#000000' },
     audio: { leadInTicks: 0, clipInTicks: 0 },
+    assets: { catalogueLut: { kind: 'lut', hash: CATALOGUE_LUT.hash, name: 'catalogue-invert.cube' } },
     layers: [{
       id: 'v',
       module: host,
@@ -82,7 +89,7 @@ describe.skipIf(!available)('every effect renders on the GPU', () => {
   beforeAll(async () => {
     await bundleElectron();
     for (const host of new Set(EFFECTS.map(hostFor))) {
-      const run = await renderFrames({ name: `fx-plain-${host.replace(/\W+/g, '-')}`, project: projectFor(null, host), frames: [40] });
+      const run = await renderFrames({ name: `fx-plain-${host.replace(/\W+/g, '-')}`, project: projectFor(null, host), frames: [40], luts: LUTS });
       plain.set(host, run.frames[0] as RenderedFrame);
     }
   }, 300_000);
@@ -99,9 +106,9 @@ describe.skipIf(!available)('every effect renders on the GPU', () => {
 
   it.each(EFFECTS)('%s compiles and changes the frame', async (effectId) => {
     const name = effectId.replace(/\W+/g, '-');
-    const run = await renderFrames({ name: `fx-${name}`, project: projectFor(effectId), frames: [40] });
+    const run = await renderFrames({ name: `fx-${name}`, project: projectFor(effectId), frames: [40], luts: LUTS });
     const frame = run.frames[0] as RenderedFrame;
-    expect(run.warnings.filter((w) => w.includes('no input texture') || w.includes('is not applied'))).toEqual([]);
+    expect(run.warnings.filter((w) => w.includes('no input texture') || w.includes('is not applied') || w.includes('passes through'))).toEqual([]);
     expect(frame.sha256).not.toEqual(plain.get(hostFor(effectId))?.sha256);
     // Not just *different*: an effect that blanked the frame would also differ.
     expect(litFraction(frame)).toBeGreaterThan(0.002);
@@ -110,8 +117,8 @@ describe.skipIf(!available)('every effect renders on the GPU', () => {
   it.each(EFFECTS)('%s is deterministic', async (effectId) => {
     const name = effectId.replace(/\W+/g, '-');
     const [a, b] = await Promise.all([
-      renderFrames({ name: `fxdet-a-${name}`, project: projectFor(effectId), frames: [12, 40] }),
-      renderFrames({ name: `fxdet-b-${name}`, project: projectFor(effectId), frames: [40, 12] }),
+      renderFrames({ name: `fxdet-a-${name}`, project: projectFor(effectId), frames: [12, 40], luts: LUTS }),
+      renderFrames({ name: `fxdet-b-${name}`, project: projectFor(effectId), frames: [40, 12], luts: LUTS }),
     ]);
     const byIndex = (run: { frames: readonly RenderedFrame[] }) =>
       Object.fromEntries(run.frames.map((f) => [f.frameIndex, f.sha256]));

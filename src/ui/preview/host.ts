@@ -27,6 +27,7 @@ import { toRenderProject, timelineDurationTicks } from '../../project/snapshot.t
 import type { ProjectDocument } from '../../project/document.ts';
 import { PreviewClock, type PreviewStats, type Transport } from '../clock.ts';
 import type { GpuFrameTimings } from '../../engine/render/gpu-profiler.ts';
+import { parseCube } from '../../engine/core/lut.ts';
 import { clipLevel } from '../../project/audio-clip.ts';
 
 /** An analysis set with nothing in it, so the preview runs before any audio is loaded. */
@@ -99,6 +100,7 @@ export class PreviewHost {
   private live: LiveModulation | null = null;
   private liveSent: LiveModulation | null = null;
   private profiling = false;
+  private luts: ReadonlyMap<string, string> = new Map();
   private timingsSent: GpuFrameTimings | null = null;
   private lastNotes = '';
   private failed = false;
@@ -140,6 +142,7 @@ export class PreviewHost {
     this.feeder.setSequences(this.videoSequences);
     this.engine.addModules(this.userModules);
     this.engine.setProfiling(this.profiling);
+    this.registerLuts();
     this.running = true;
     this.uploadImages();
     this.loop();
@@ -232,6 +235,30 @@ export class PreviewHost {
     };
     if (defaultFont !== null) void register(defaultFont.hash, defaultFont.bytes, true);
     for (const [hash, bytes] of fonts) void register(hash, bytes, false);
+  }
+
+  /**
+   * LUT assets (S11): each .cube text parsed once and registered under its hash. Kept, so an engine
+   * made later (start) gets them too. A table that does not parse is reported, not dropped silently —
+   * the LUT effect then says the LUT is not loaded and passes the picture through.
+   */
+  setLuts(luts: ReadonlyMap<string, string>): void {
+    this.luts = luts;
+    this.registerLuts();
+  }
+
+  private registerLuts(): void {
+    const engine = this.engine;
+    if (engine === null) return;
+    for (const [hash, text] of this.luts) {
+      if (engine.hasLut(hash)) continue;
+      try {
+        engine.setLut(hash, parseCube(text));
+        this.needsRedraw = true;
+      } catch (error) {
+        this.callbacks.onError(`A LUT could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   /**

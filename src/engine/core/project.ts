@@ -6,6 +6,7 @@ import type { AutomationTrackSpec } from './automation.ts';
 import type { ImageAssetRef } from './image.ts';
 import type { FontAssetRef } from './text.ts';
 import type { VideoAssetRef } from './video.ts';
+import type { LutAssetRef } from './lut.ts';
 import type { LayerTransform } from './layout.ts';
 import type { RenderLyrics } from './lyrics.ts';
 import type { ModulationBinding } from './modulation.ts';
@@ -156,7 +157,7 @@ export interface RenderProject {
   /** Post-process chain over the finished composite. */
   readonly globalEffects?: readonly EffectSpec[];
   /** Asset id → what it is. Pixels are registered with the engine separately, by hash (image.ts). */
-  readonly assets?: Readonly<Record<string, ImageAssetRef | FontAssetRef | VideoAssetRef>>;
+  readonly assets?: Readonly<Record<string, ImageAssetRef | FontAssetRef | VideoAssetRef | LutAssetRef>>;
   /**
    * The project's timed lyric lines (lyrics-spec §1), for lyrics layers and the lyric modulation
    * sources. Absent when the project has no lyrics.

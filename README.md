@@ -320,8 +320,11 @@ the song without its vocals, with the lyrics on screen.
 `modules/`, and it becomes a layer — `iTime`, `iResolution` and the music as `iChannel0` work as on
 the site.
 
-**Still to come:** the rest of the Should-have list — LUTs, draft mode, librosa beat tracking and
-Unicode fonts.
+**LUTs:** grade a layer or the whole frame with any `.cube` file — a film emulation, a show look — at
+any strength.
+
+**Still to come:** the rest of the Should-have list — draft mode, librosa beat tracking and Unicode
+fonts.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

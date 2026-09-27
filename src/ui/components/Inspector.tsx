@@ -564,7 +564,7 @@ function ColorControl(props: {
  */
 function AssetControl(props: {
   label: string;
-  accept: 'image' | 'font' | 'video';
+  accept: 'image' | 'font' | 'video' | 'lut';
   assetId: string;
   badge: React.ReactNode;
   assign?: (value: unknown) => Command;
@@ -575,6 +575,7 @@ function AssetControl(props: {
   const importImage = useStudio((s) => s.importImage);
   const importFont = useStudio((s) => s.importFont);
   const importVideo = useStudio((s) => s.importVideo);
+  const importLut = useStudio((s) => s.importLut);
   const run = useStudio((s) => s.run);
   const asset = assetId === '' ? undefined : assets.find((a) => a.id === assetId);
   const status = asset === undefined ? undefined : statuses[asset.id];
@@ -583,7 +584,7 @@ function AssetControl(props: {
 
   async function choose(): Promise<void> {
     if (assign === undefined) return;
-    const imported = accept === 'font' ? await importFont() : accept === 'video' ? await importVideo() : await importImage();
+    const imported = accept === 'font' ? await importFont() : accept === 'video' ? await importVideo() : accept === 'lut' ? await importLut() : await importImage();
     if (imported === null) return;
     const existing = findAssetByHash(useStudio.getState().document, imported.hash);
     run(existing === undefined

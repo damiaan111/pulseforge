@@ -112,6 +112,8 @@ const api: PulseforgeApi = {
   },
   importFont: () => ipcRenderer.invoke(IPC.fontImport) as ReturnType<PulseforgeApi['importFont']>,
   loadFont: (path, projectPath) => ipcRenderer.invoke(IPC.fontLoad, path, projectPath) as ReturnType<PulseforgeApi['loadFont']>,
+  importLut: () => ipcRenderer.invoke(IPC.lutImport) as ReturnType<PulseforgeApi['importLut']>,
+  loadLut: (path, projectPath) => ipcRenderer.invoke(IPC.lutLoad, path, projectPath) as ReturnType<PulseforgeApi['loadLut']>,
   defaultFont: () => ipcRenderer.invoke(IPC.fontDefault) as ReturnType<PulseforgeApi['defaultFont']>,
   importImage: () => ipcRenderer.invoke(IPC.imageImport) as ReturnType<PulseforgeApi['importImage']>,
   loadImage: (path, projectPath) => ipcRenderer.invoke(IPC.imageLoad, path, projectPath) as ReturnType<PulseforgeApi['loadImage']>,

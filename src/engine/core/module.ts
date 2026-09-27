@@ -8,6 +8,7 @@
 //  5. quality 'preview' may lower fidelity, never change composition.
 //  6. Allocate in init/resize, not per frame.
 
+import type { LutTexture } from '../render/lut-store.ts';
 import type { AnalysisSet } from './analysis.ts';
 import type { RenderLyrics } from './lyrics.ts';
 import type { ImageTexture } from './image.ts';
@@ -128,6 +129,12 @@ export interface RenderContext {
    * its file was never registered — and the module must say so and draw with the default.
    */
   readonly font: (assetId: string) => { readonly hash: string | null; readonly name: string; readonly missing?: string };
+  /**
+   * A LUT asset (S11), by the id a `lut` asset param holds: its 3D texture, or `missing` naming why
+   * there is none — no LUT chosen, not in the project, or its file never registered. The module
+   * must then pass the picture through and say so.
+   */
+  readonly lut: (assetId: string) => LutTexture | { readonly missing: string };
 }
 
 /**

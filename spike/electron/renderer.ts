@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ipcRenderer } from 'electron';
+import { parseCube } from '../../src/engine/core/lut.ts';
 import type { MotionBlur } from '../../src/engine/core/time.ts';
 import { createEngine, type Engine } from '../../src/engine/engine.ts';
 import { hash32 } from '../../src/engine/core/prng.ts';
@@ -209,6 +210,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
     const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur);
     if (config.profile === true) engine.setProfiling(true);
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
+    for (const lut of config.luts ?? []) engine.setLut(lut.hash, parseCube(lut.text));
     const feeder = videoFeeder(engine, config.videos);
     const pixels = new Uint8Array(width * height * 4);
     const warnings = new Set<string>();
@@ -287,6 +289,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       },
       durationTicks: config.durationTicks,
       images: loadImages(config.images),
+      luts: new Map((config.luts ?? []).map((lut) => [lut.hash, parseCube(lut.text)])),
       ...(() => {
         const modules = moduleSet(config.modules);
         return modules === undefined ? {} : { modules };

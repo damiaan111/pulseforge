@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1162 tests, `npm run golden` 29/29 identical,
-> `--smoke` 35/35 (36/36 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification: `npm run check` 1174 tests, `npm run golden` 29/29 identical,
+> `--smoke` 36/36 (37/37 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -63,10 +63,11 @@
 > performance HUD (S12, §4.71): measured GPU time per layer in the preview, projected to the export
 > size and to 4K, with per-layer cost in every render report. And Shadertoy shaders (S2, §4.72):
 > paste one (it checks as you type) or drop a `.glsl` file in `modules/`, and it runs as on the
-> site, with the music as `iChannel0`.
+> site, with the music as `iChannel0`. And LUTs (S11, §4.73): a LUT effect grades a layer or the whole
+> frame with any `.cube` file.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — LUTs (S11), draft
-> mode (S18), librosa (S16) and Unicode fonts (S17).
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — draft mode (S18),
+> librosa (S16) and Unicode fonts (S17).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -154,6 +155,7 @@
 | 4.70 | Karaoke export (P8 step 8) — S15; the smoke check made independent of the screen |
 | 4.71 | The performance HUD (P8 step 9) — S12 |
 | 4.72 | Shadertoy shaders (P8 step 10) — S2 |
+| 4.73 | LUTs (P8 step 11) — S11; the vignette keeps alpha |
 
 ---
 
@@ -3986,6 +3988,89 @@ stalled run should be let time out rather than killed if it can be.
   - the dialog closes;
   - the main side then deletes the file it created. `modules/` is left as it was.
 - The UI tour adds `16-shadertoy`.
+
+### 4.73 LUTs (P8 step 11) — S11
+
+**What it does.** A **LUT** effect (grade category) on any layer or on the whole frame. It takes a
+`.cube` file, the format Resolve, Premiere, After Effects and LUT packs write. It has:
+- **Amount**, a blend;
+- **Made for**: *Display (sRGB / Rec.709)* by default, which is almost every LUT, or *Linear light*.
+
+**Choose…** picks the file. A malformed `.cube` is refused at once, with the line that is wrong. The
+LUT becomes a project asset like an image: content-hashed, stored relative where it can be, kept
+by Collect files, and reported as missing or changed when the file moves.
+
+**How.**
+- **`src/engine/core/lut.ts`** (pure): `parseCube` reads the format.
+  - It handles `TITLE`, `LUT_3D_SIZE` up to 129, `LUT_1D_SIZE`, `DOMAIN_MIN/MAX` and the older
+    `LUT_*_INPUT_RANGE`, comments, and vendor keywords (ignored, as the format allows).
+  - A **1D LUT is expanded to 3D** (33 points, each channel through its own curve), so the engine
+    has one kind of table and one shader.
+  - Every problem names its line.
+  - `applyLut` is the CPU reference: trilinear, as the GPU filters.
+- **`src/engine/render/lut-store.ts`:** each table is an RGB16F **3D texture** with linear filtering
+  (half floats are filterable in core WebGL2), keyed by content hash like images.
+- **`core.effect.lut`:**
+  - un-premultiply;
+  - for display LUTs, encode with the sRGB curve (the output's own, D49), clamped to 0..1: a
+    0..1 table has no answer above 1, as in any grading tool;
+  - map into the table's domain, onto texel centres;
+  - look up, decode back, blend by Amount, re-premultiply.
+  - A LUT that is not there is reported every frame, and the picture **passes through ungraded**:
+    a missing grade must look like no grade, with a note, never black.
+- **Plumbing** (the font path, mirrored):
+  - `lut` is a fourth asset kind;
+  - the main process reads, hashes and **parses** on import (`importLut`) and on load (`loadLut`);
+  - the studio keeps the texts and the preview host parses and registers them (again after its
+    engine is recreated);
+  - an export reads the files (`src/assets/luts.ts`, a missing, unreadable or changed one becoming a
+    note) and sends the text to the render child, which parses it with the same parser;
+  - `ctx.lut(assetId)` is how an effect reaches a table.
+
+**Found and fixed: the vignette faded instead of darkening.**
+- It multiplied alpha along with colour, which made the frame's corners partly transparent.
+- That was invisible at the end of the frame's chain, where the output ignores alpha. But a LUT
+  after it graded a see-through corner: in one of the owner's projects the "inverted" corner came
+  out 174 instead of ~251, and the whole frame was off by 43.8/255 on average.
+- It now scales colour and keeps alpha (premultiplied data stays valid). `npm run golden` stayed
+  29/29 identical, so nothing referenced the old behaviour.
+- On a *layer*, a vignette now darkens its edges instead of showing what is beneath. That is a
+  behaviour change, and is recorded in ROADMAP §4.
+
+**Measured here:**
+- One of the owner's projects, rendered with an inverting LUT last in its whole-frame chain, against
+  the same frames without it: **within 5.2/255 of the exact inverse** on average (grain, H.264, and
+  the tone shoulder that maps white to 251).
+- 300 frames at 640×360 in 0.9 s (317 fps), the same speed as without the LUT.
+
+**Verified here:**
+- `npm run check` **1174 tests**:
+  - `tests/engine/lut.test.ts`:
+    - 3D and 1D tables, and the domain in both forms;
+    - the errors, with their lines.
+  - `tests/project/lut-asset.test.ts`: the asset survives save and load, and reaches the render
+    project under its hash.
+  - `tests/golden/lut-gpu.test.ts`, on the GPU:
+    - a 17-point channel-rotating LUT moves #336699 to (102, 153, 51) ±2;
+    - a 1D inversion in display values;
+    - Amount 0.5 in linear light lands on mid grey;
+    - a missing LUT passes through with its note;
+    - byte-identical repeat;
+    - **LUT after a vignette** gives white corners, and vignette after the LUT dark ones (the
+      regression test for the vignette fix).
+  - `tests/golden/effects-catalogue-gpu.test.ts`: every project there now carries a small LUT
+    asset, so the LUT effect is held to the catalogue's rule like every other effect (it compiles,
+    changes the frame, is deterministic): 13 effects, 26 tests.
+- `npm run golden` 29/29.
+- `--smoke` **36/36**, and **37/37** with the queued render (fresh result files). New `lutUi`:
+  - a background layer gets the LUT effect from the picker;
+  - Choose… is answered with a generated `.cube` in smoke mode;
+  - the inspector names it;
+  - the preview grades with no LUT note.
+- A real export through `npm run render` with a LUT asset passed verification.
+
+**Not done:** LUTs are not listed in the asset library (M40), which holds images, fonts and video.
+A LUT is chosen from the effect, which is where it is used.
 
 ---
 

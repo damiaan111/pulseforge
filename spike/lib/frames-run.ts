@@ -43,6 +43,8 @@ export interface FramesOptions {
   readonly profile?: boolean;
   /** Decoded images by content hash, for layers that reference assets. */
   readonly images?: ReadonlyMap<string, DecodedImage>;
+  /** .cube texts by content hash (S11). */
+  readonly luts?: readonly { readonly hash: string; readonly text: string }[];
   /** Font files by content hash, beyond the bundled default (which is always registered when present). */
   readonly fonts?: readonly FontFileRef[];
   /** Extracted video sequences, for layers that reference video assets (M39). */
@@ -117,6 +119,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
     ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
     frames: [...options.frames],
+    ...(options.luts === undefined || options.luts.length === 0 ? {} : { luts: options.luts.map((l) => ({ hash: l.hash, text: l.text })) }),
     dither: options.dither ?? false,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
     ...(options.profile === true ? { profile: true } : {}),

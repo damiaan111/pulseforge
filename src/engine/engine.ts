@@ -64,6 +64,9 @@ import { shapesModule } from './modules/scene3d/shapes.ts';
 import { terrainModule } from './modules/scene3d/terrain.ts';
 import { cityModule } from './modules/scene3d/city.ts';
 import { dofModule } from './modules/dof.ts';
+import { lutModule } from './modules/lut.ts';
+import { LutStore } from './render/lut-store.ts';
+import type { Lut3D } from './core/lut.ts';
 
 export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Sources (M14), text (M16), visualizers (M11), 3D scenes (M37), then effects (M12), then the test modules the validator uses.
@@ -73,7 +76,7 @@ export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // 3D scenes (M37).
   shapesModule, terrainModule, cityModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
-  grainModule, pixelateModule, scanlinesModule, kaleidoscopeModule, glitchModule, dofModule,
+  grainModule, pixelateModule, scanlinesModule, kaleidoscopeModule, glitchModule, dofModule, lutModule,
   testPatternModule, flashModule,
 ];
 
@@ -183,6 +186,9 @@ export interface Engine {
    */
   setImage(hash: string, image: DecodedImage): void;
   hasImage(hash: string): boolean;
+  /** A parsed .cube table (S11) under its file's content hash, as `setImage` does for pixels. */
+  setLut(hash: string, lut: Lut3D): void;
+  hasLut(hash: string): boolean;
   /**
    * Video (M39). The host extracts a clip to stills at the project's fps and then, before each
    * render, pushes in the frame that frame needs — `videoSourceFrame` says which. `setVideoSequence`
@@ -239,6 +245,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const pool = new TargetPool(gl);
   const images = new ImageStore(gl);
   const videos = new VideoStore(gl);
+  const luts = new LutStore(gl);
   const compositor = new Compositor(gl, pool);
   const profiler = new GpuProfiler(gl);
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
@@ -395,6 +402,12 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
           },
           text: options.text,
           lyrics: project.lyrics,
+          lut: (assetId: string) => {
+            if (assetId === '') return { missing: 'no LUT chosen' };
+            const ref = project.assets?.[assetId];
+            if (ref === undefined || ref.kind !== 'lut') return { missing: `LUT asset "${assetId}" is not in the project` };
+            return luts.get(ref.hash) ?? { missing: `the LUT "${ref.name}" is not loaded (missing file?)` };
+          },
           font: (assetId: string) => {
             if (assetId === '') return { hash: null, name: 'default' };
             const ref = project.assets?.[assetId];
@@ -765,6 +778,12 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
 
     hasImage: (hash) => images.has(hash),
 
+    setLut(hash, lut) {
+      luts.set(hash, lut);
+    },
+
+    hasLut: (hash) => luts.has(hash),
+
     setVideoSequence(hash, frameCount) {
       videos.setSequence(hash, frameCount);
     },
@@ -797,6 +816,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       for (const { instance } of instances.values()) instance.dispose();
       instances.clear();
       images.dispose();
+      luts.dispose();
       videos.dispose();
       nv12?.dispose();
       profiler.dispose();

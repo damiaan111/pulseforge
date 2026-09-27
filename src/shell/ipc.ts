@@ -88,6 +88,8 @@ export const IPC = {
   /** Main → renderer: frames extracted so far for a clip being prepared. */
   videoProgress: 'pf:video:progress',
   fontImport: 'pf:font:import',
+  lutImport: 'pf:lut:import',
+  lutLoad: 'pf:lut:load',
   fontLoad: 'pf:font:load',
   fontDefault: 'pf:font:default',
   imageImport: 'pf:image:import',
@@ -323,6 +325,22 @@ export interface FontBytes {
   readonly bytes: Uint8Array;
 }
 
+/** A .cube LUT (S11): its text (parsed and checked by the main process on the way in) and identity. */
+export interface LutFile {
+  readonly path: string;
+  readonly hash: string;
+  readonly size: number;
+  readonly name: string;
+  readonly text: string;
+  /** "3D, 33 points" — shown in the inspector. */
+  readonly description: string;
+}
+
+export type LutLoadResult =
+  | { readonly status: 'ok'; readonly lut: LutFile }
+  | { readonly status: 'missing'; readonly path: string }
+  | { readonly status: 'error'; readonly path: string; readonly message: string };
+
 export type FontLoadResult =
   | { readonly status: 'ok'; readonly font: FontBytes }
   | { readonly status: 'missing'; readonly path: string }
@@ -556,6 +574,9 @@ export interface PulseforgeApi {
   importFont(): Promise<FontBytes | null>;
   /** Reads a font the project references; the path may be relative to `projectPath`. */
   loadFont(path: string, projectPath: string | null): Promise<FontLoadResult>;
+  /** A .cube file chosen for a LUT effect (S11); null when cancelled. A malformed file is refused with its line. */
+  importLut(): Promise<LutFile | null>;
+  loadLut(path: string, projectPath: string | null): Promise<LutLoadResult>;
   /** The bundled default typeface (Inter Regular). */
   defaultFont(): Promise<FontBytes>;
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */

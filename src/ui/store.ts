@@ -153,6 +153,9 @@ export interface StudioState {
   assetStatus: Readonly<Record<string, AssetStatus>>;
   /** Font file bytes by content hash, for the preview's text rasteriser. */
   fonts: ReadonlyMap<string, Uint8Array>;
+  /** .cube texts by content hash (S11), registered into the preview by the host. */
+  luts: ReadonlyMap<string, string>;
+  importLut(): Promise<AssetRef | null>;
   /** The bundled default typeface; null until loaded at startup. */
   defaultFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
   loadDefaultFont(): Promise<void>;
@@ -445,6 +448,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   images: new Map(),
   fonts: new Map(),
+  luts: new Map(),
   defaultFont: null,
   assetStatus: {},
 
@@ -454,7 +458,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     for (const asset of document.assets) {
       // Another project was opened meanwhile: stop, rather than attach this one's problems to it.
       if (history.current.id !== document.id) return;
-      if (asset.kind !== 'image' && asset.kind !== 'font' && asset.kind !== 'video') continue;
+      if (asset.kind !== 'image' && asset.kind !== 'font' && asset.kind !== 'video' && asset.kind !== 'lut') continue;
       const setStatus = (state: AssetStatus['state'], detail: string) =>
         set({ assetStatus: { ...get().assetStatus, [asset.id]: { state, detail, path: asset.path, hash: asset.hash } } });
       const known = get().assetStatus[asset.id];
@@ -497,7 +501,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       try {
         const result = asset.kind === 'image'
           ? await window.pulseforge.loadImage(asset.path, projectPath)
-          : await window.pulseforge.loadFont(asset.path, projectPath);
+          : asset.kind === 'lut'
+            ? await window.pulseforge.loadLut(asset.path, projectPath)
+            : await window.pulseforge.loadFont(asset.path, projectPath);
         if (history.current.id !== document.id) return;
         if (result.status === 'missing') {
           setStatus('missing', `Not found: ${result.path}`);
@@ -508,9 +514,11 @@ export const useStudio = create<StudioState>((set, get) => ({
           continue;
         }
         // Under the recorded hash, which is what the snapshot looks up; a changed file still draws.
-        const loaded = 'image' in result ? result.image : result.font;
+        const loaded = 'image' in result ? result.image : 'lut' in result ? result.lut : result.font;
         if ('image' in result) {
           set({ images: new Map(get().images).set(asset.hash, imageOf(result.image)) });
+        } else if ('lut' in result) {
+          set({ luts: new Map(get().luts).set(asset.hash, result.lut.text) });
         } else {
           set({ fonts: new Map(get().fonts).set(asset.hash, result.font.bytes) });
         }
@@ -534,6 +542,22 @@ export const useStudio = create<StudioState>((set, get) => ({
       return { id, kind: 'image', path: image.path, hash: image.hash, size: image.size, name: image.name, extra: {} };
     } catch (error) {
       set({ toast: { text: describeError(error, 'Importing the image'), kind: 'bad' } });
+      return null;
+    }
+  },
+
+  async importLut() {
+    try {
+      const lut = await window.pulseforge.importLut();
+      if (lut === null) return null;
+      const id = newId();
+      set({
+        luts: new Map(get().luts).set(lut.hash, lut.text),
+        assetStatus: { ...get().assetStatus, [id]: { state: 'ok', detail: `${lut.path} (${lut.description})`, path: lut.path, hash: lut.hash } },
+      });
+      return { id, kind: 'lut', path: lut.path, hash: lut.hash, size: lut.size, name: lut.name, extra: {} };
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Choosing the LUT'), kind: 'bad' } });
       return null;
     }
   },

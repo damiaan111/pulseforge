@@ -51,8 +51,11 @@ void main() {
   d.x *= mix(1.0, u_aspect, u_roundness);
   float dist = length(d) * 2.0;
   float shade = 1.0 - u_amount * smoothstep(u_radius, u_radius + u_softness, dist);
-  // Premultiplied throughout: colour and alpha scale together, or the edges gain a halo.
-  outColor = src * shade;
+  // Darkening, not fading: colour scales and alpha stays. (Premultiplied data stays valid: rgb only
+  // shrinks.) Scaling alpha too made the edges partly transparent — invisible at the end of the
+  // frame's chain, where the output ignores alpha, but an effect after it (a LUT, S11) then graded
+  // a see-through corner, and on a layer the edges showed what was beneath instead of going dark.
+  outColor = vec4(src.rgb * shade, src.a);
 }
 `;
 
