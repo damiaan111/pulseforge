@@ -75,4 +75,12 @@ describe('linesFromTranscript', () => {
     expect(long.map((l) => l.text)).toEqual(['I wanted more,', 'but all I ever got was the rain']);
     expect(long[1]?.start).toBe(0.9);
   });
+
+  it('joins a lone first word stranded seconds ahead of its phrase, and keeps a real one', () => {
+    const stranded = linesFromTranscript(transcript('You@3 say@12 you@12.3 won\'t@12.6 come@12.9'));
+    expect(stranded.map((l) => l.text)).toEqual(['You say you won\'t come']);
+    expect(stranded[0]?.start).toBe(12);
+    const shout = linesFromTranscript(transcript('Hey@3 say@5 you@5.3 will@5.6'));
+    expect(shout.map((l) => l.text)).toEqual(['Hey', 'say you will']);
+  });
 });

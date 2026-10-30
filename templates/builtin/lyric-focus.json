@@ -57,7 +57,7 @@
     },
     {
       "id": "LYRICS", "role": "LYRICS", "required": true, "condition": "hasLyrics",
-      "params": { "maxWidth": 0.7, "upcoming": "@text", "active": "@primary", "sung": "@text", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "params": { "maxWidth": 0.7, "upcoming": "@accent", "active": "@text", "sung": "@text", "glowColor": "@glow", "shadowColor": "@textShadow" },
       "transform": { "y": 0.48, "scale": 1.35 },
       "aspectOverrides": { "9:16": { "transform": { "y": 0.45, "scale": 1.2 } } }
     },

@@ -62,7 +62,7 @@
     },
     {
       "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
-      "params": { "upcoming": "@text", "active": "@accent", "sung": "@text", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "params": { "upcoming": "@accent", "active": "@text", "sung": "@text", "glowColor": "@glow", "shadowColor": "@textShadow" },
       "transform": { "y": 0.82 },
       "aspectOverrides": { "9:16": { "transform": { "y": 0.74 } } }
     },

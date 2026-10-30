@@ -69,3 +69,29 @@ export function coveredSeconds(segments: readonly VocalSegment[], start: number,
   }
   return total;
 }
+
+/** Margin around a line, seconds: a held last note is not singing with no words. */
+const LINE_MARGIN_SECONDS = 0.3;
+
+/**
+ * The singing no line covers, at least `minSeconds` long and in order. Whisper hears nothing in
+ * vocal chops, stacked harmonies or a mumbled outro, so a transcription can miss whole stretches
+ * of them; this is how the person finds out where to look.
+ */
+export function uncoveredSinging(segments: readonly VocalSegment[], lines: readonly VocalSegment[], minSeconds = 1): readonly VocalSegment[] {
+  const covers = [...lines].sort((a, b) => a.start - b.start);
+  const out: VocalSegment[] = [];
+  for (const segment of segments) {
+    let from = segment.start;
+    for (const line of covers) {
+      const start = line.start - LINE_MARGIN_SECONDS;
+      const end = line.end + LINE_MARGIN_SECONDS;
+      if (end <= from) continue;
+      if (start >= segment.end) break;
+      if (start - from >= minSeconds) out.push({ start: from, end: start });
+      from = Math.max(from, end);
+    }
+    if (segment.end - from >= minSeconds) out.push({ start: from, end: segment.end });
+  }
+  return out;
+}

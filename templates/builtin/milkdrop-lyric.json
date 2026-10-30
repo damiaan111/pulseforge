@@ -98,12 +98,12 @@
         }
       ],
       "transform": {
-        "y": 0.84
+        "y": 0.14
       },
       "aspectOverrides": {
         "9:16": {
           "transform": {
-            "y": 0.76
+            "y": 0.14
           }
         }
       }
@@ -113,19 +113,25 @@
       "role": "LYRICS",
       "condition": "hasLyrics",
       "params": {
-        "upcoming": "@text",
-        "active": "@accent",
+        "size": 0.062,
+        "upcoming": "@glow",
+        "active": "@text",
         "sung": "@text",
+        "nextOpacity": 0.85,
+        "plate": true,
+        "plateColor": "@textShadow",
+        "plateOpacity": 0.92,
+        "shadow": 0.9,
         "glowColor": "@glow",
         "shadowColor": "@textShadow"
       },
       "transform": {
-        "y": 0.82
+        "y": 0.76
       },
       "aspectOverrides": {
         "9:16": {
           "transform": {
-            "y": 0.74
+            "y": 0.7
           }
         }
       }

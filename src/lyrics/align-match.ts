@@ -205,6 +205,8 @@ export function matchLyricsToTranscript(lines: readonly LineToAlign[], segments:
  * they are cut where the singer breathes (a pause over 0.6 s between words) and where a line grows
  * past ~42 characters, at its natural break.
  */
+const LONE_WORD_GAP_SECONDS = 3;
+
 export function linesFromTranscript(segments: readonly TranscriptSegment[], maxChars = 42): { text: string; start: number; end: number }[] {
   const out: { text: string; start: number; end: number }[] = [];
   for (const segment of segments) {
@@ -220,6 +222,17 @@ export function linesFromTranscript(segments: readonly TranscriptSegment[], maxC
       const last = phrases[phrases.length - 1] as TranscriptWord[];
       if (word.start - (last[last.length - 1] as TranscriptWord).end > 0.6) phrases.push([word]);
       else last.push(word);
+    }
+    // A lone first word seconds ahead of its phrase is the voice filter stretching a segment back
+    // over wordless singing, not a line: the word belongs to what follows, and alignment times it.
+    const lone = phrases[0] as TranscriptWord[];
+    const following = phrases[1];
+    if (lone.length === 1 && following !== undefined) {
+      const start = (following[0] as TranscriptWord).start;
+      if (start - (lone[0] as TranscriptWord).end > LONE_WORD_GAP_SECONDS) {
+        following.unshift({ ...(lone[0] as TranscriptWord), start, end: start });
+        phrases.shift();
+      }
     }
     for (const phrase of phrases) {
       const text = phrase.map((w) => w.text.trim()).join(' ');

@@ -44,8 +44,8 @@ import type { BeatRefinementState } from '../analysis/beat-refinement.ts';
 import type { LoopState } from './loop-region.ts';
 import { extendSelection } from './layer-selection.ts';
 import { applyAlignment, importLyrics, lyricsToText, setLyricsText, setTranscribedLyrics } from '../project/lyrics-commands.ts';
-import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
-import { sourceToTimelineSeconds } from '../engine/core/time.ts';
+import { detectVocalSegments, uncoveredSinging } from '../lyrics/vocal-segments.ts';
+import { TICKS_PER_SECOND, sourceToTimelineSeconds } from '../engine/core/time.ts';
 import type { LyricsAlignMode, LyricsAlignProgress, UserSettings } from '../shell/ipc.ts';
 import type { BatchStatus, QueueFinishedEvent } from '../shell/ipc.ts';
 import type { GpuFrameTimings } from '../engine/render/gpu-profiler.ts';
@@ -1499,11 +1499,14 @@ export const useStudio = create<StudioState>((set, get) => ({
         set({ toast: { text: parts.join('\n'), kind: flagged.length > 0 || low > 0 ? 'warn' : 'ok' } });
       } else {
         get().run(setTranscribedLyrics(result.created));
+        const missed = uncoveredSinging(vocalSegments ?? [], result.created.map((l) => ({ start: l.startTicks / TICKS_PER_SECOND, end: l.endTicks / TICKS_PER_SECOND })));
+        const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
         set({
           toast: {
             text: `Transcribed ${result.created.length} lines from the vocals (heard as “${result.detectedLanguage}”). Expect errors: correct the text in the Text tab — timings are kept where the words still match.`
-              + (result.rejected.length > 0 ? `\n${result.rejected.length} lines have line timing only (their words could not be aligned).` : ''),
-            kind: 'ok',
+              + (result.rejected.length > 0 ? `\n${result.rejected.length} lines have line timing only (their words could not be aligned).` : '')
+              + (missed.length > 0 ? `\nSinging with no line, where Whisper heard no words: ${missed.slice(0, 5).map((m) => `${clock(m.start)}–${clock(m.end)}`).join(', ')}${missed.length > 5 ? ` and ${missed.length - 5} more` : ''}. If there are words there, paste them and align.` : ''),
+            kind: missed.length > 0 ? 'warn' : 'ok',
           },
         });
       }
