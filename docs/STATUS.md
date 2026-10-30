@@ -178,6 +178,7 @@
 | 4.75 | The free-space check and encoder readiness (P8 step 13) — export-spec §14 |
 | 4.76 | Unicode text (P8 step 14) — S17 |
 | 4.77 | Beat refinement (P8 step 15) — S16, D28 |
+| 4.78 | The stall watchdog (P8 step 16) — export-spec §14 |
 
 ---
 
@@ -4321,6 +4322,22 @@ smoke song, sees it applied, reverts it.
 
 **Not built:** beat refinement in `npm run batch` and the auto-director; a progress bar (a spinner
 line and Cancel, for 8 seconds); downbeats.
+
+### 4.78 The stall watchdog (P8 step 16) — export-spec §14
+
+The intermittent test failure of §4.74 finally named itself through `out/vitest-last.json`:
+`logo-gpu`, "draws at the requested width", a 180-second timeout on the first test of the file in a
+full run, with six clean runs alone. An Electron child had stopped without failing or finishing. **The
+cause of the hang is not known.** It showed only with the whole suite running.
+
+It exposed a real gap: export-spec §14 asks a stalled render to fail with diagnostics, and nothing
+did. `runElectron` waited for ever, so a hung child would have blocked a queue all night. Now
+`stallWatch` (`src/export/stall.ts`) stops a child after 120 s with nothing on stdout or stderr, and
+the job fails with the log's tail, leaving the queue to carry on.
+
+**Verified here:** the timer logic in two tests. **Not verified:** a real hung child; the hang has not
+come back to be caught. If it does, a test now fails at 120 s with the child's last words, which is
+the evidence missing so far.
 
 ## 5. Measured results
 

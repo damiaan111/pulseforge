@@ -1,5 +1,6 @@
 // Shared plumbing for the spike orchestrators: bundle the Electron side, run it, collect results.
 
+import { STALL_TIMEOUT_MS, stallWatch } from '../src/export/stall.ts';
 import { spawn } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -55,7 +56,14 @@ export function runElectron<T>(
     signal?.addEventListener('abort', onAbort, { once: true });
     let log = '';
     let pending = '';
+    let stalled = false;
+    // A hung child neither fails nor finishes, and a queue would wait behind it for ever.
+    const watch = stallWatch(STALL_TIMEOUT_MS, () => {
+      stalled = true;
+      child.kill();
+    });
     child.stdout.on('data', (chunk: Buffer) => {
+      watch.alive();
       pending += chunk.toString();
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? '';
@@ -64,10 +72,21 @@ export function runElectron<T>(
         else log = (log + line + '\n').slice(-20_000);
       }
     });
-    child.stderr.on('data', (chunk: Buffer) => (log = (log + chunk.toString()).slice(-20_000)));
-    child.on('error', reject);
+    child.stderr.on('data', (chunk: Buffer) => {
+      watch.alive();
+      log = (log + chunk.toString()).slice(-20_000);
+    });
+    child.on('error', (error) => {
+      watch.stop();
+      reject(error);
+    });
     child.on('close', async () => {
+      watch.stop();
       signal?.removeEventListener('abort', onAbort);
+      if (stalled) {
+        reject(new Error(`The render stopped responding: nothing from it for ${STALL_TIMEOUT_MS / 1000} s, so it was stopped.\n${log.trim().split('\n').slice(-15).join('\n')}`));
+        return;
+      }
       // Killing Electron closes FFmpeg's stdin, so the encoder sees end-of-input and exits on its
       // own; the partial output is the caller's to delete.
       if (signal?.aborted === true) {
