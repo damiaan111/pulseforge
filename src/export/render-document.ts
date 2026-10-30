@@ -182,6 +182,10 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     ? `Analysis: cache hit (${analysed.audioHash.slice(0, 12)}…)`
     : `Analysis: computed and cached (${analysed.audioHash.slice(0, 12)}…)`);
 
+  if (analysed.beatRefinement === 'stale') {
+    say('Warning: the refined beats belong to another audio file; rendering with the detected beats');
+  }
+
   const canvas = options.size ?? (options.aspect !== undefined
     ? canvasForAspect(options.aspect, document.canvas)
     : { width: document.canvas.width, height: document.canvas.height });
@@ -265,6 +269,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   const allNotes: SnapshotNote[] = [
     ...notes,
     ...problems.map((problem) => ({ path: `assets.${problem.assetId}`, detail: problem.detail })),
+    ...(analysed.beatRefinement === 'stale' ? [{ path: 'analysisSettings.beatRefinement', detail: 'the refined beats belong to another audio file; the detected beats were used' }] : []),
   ];
   for (const problem of problems) say(`Warning: ${problem.detail}`);
   await mkdir(options.workDir, { recursive: true });

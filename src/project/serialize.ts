@@ -283,6 +283,7 @@ export function toJson(document: ProjectDocument): Json {
       onsetSensitivity: analysis.onsetSensitivity,
       bpmOverride: analysis.bpmOverride,
       stemModel: analysis.stemModel,
+      ...(analysis.beatRefinement === null ? {} : { beatRefinement: analysis.beatRefinement }),
       bands: analysis.bands.map((band) =>
         withExtra(band.extra, { id: band.id, label: band.label, minHz: band.minHz, maxHz: band.maxHz, gain: band.gain }),
       ),

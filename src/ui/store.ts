@@ -21,7 +21,7 @@ import { stemsForModel } from '../analysis/stem-models.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { Section as AnalysisSection } from '../analysis/sections.ts';
 import { withAbsolutePaths, withStoredPaths } from '../project/asset-paths.ts';
-import {
+import { setBeatRefinement,
   addAsset, addLayer, findAssetByHash, relinkAsset, sequence, setStemModel, type EditTarget,
 } from '../project/commands.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
@@ -39,6 +39,7 @@ import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing,
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import { detectLyricsFormat, exportLyrics as exportLyricsText, importLyricsFile, type LyricsExportFormat } from '../lyrics/formats.ts';
 import type { TapSession } from '../lyrics/tap.ts';
+import type { BeatRefinementState } from '../analysis/beat-refinement.ts';
 import { applyAlignment, importLyrics, lyricsToText, setLyricsText, setTranscribedLyrics } from '../project/lyrics-commands.ts';
 import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
 import { sourceToTimelineSeconds } from '../engine/core/time.ts';
@@ -158,6 +159,14 @@ export interface StudioState {
   importLut(): Promise<AssetRef | null>;
   /** The bundled default typeface; null until loaded at startup. */
   defaultFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
+  /** What became of the project's refined grid (S16) at the last analysis. */
+  beatRefinementState: BeatRefinementState;
+  refiningBeats: boolean;
+  /** Tracks the open song with librosa and stores the result as one undoable edit. */
+  refineBeats(): Promise<void>;
+  cancelRefineBeats(): Promise<void>;
+  /** Analyses the open song again: the settings it reads have changed. */
+  reanalyse(): Promise<void>;
   /** The bundled fallback chain (S17), in order; empty until loaded. */
   fallbackFonts: readonly { readonly hash: string; readonly bytes: Uint8Array }[];
   loadDefaultFont(): Promise<void>;
@@ -456,6 +465,45 @@ export const useStudio = create<StudioState>((set, get) => ({
   luts: new Map(),
   defaultFont: null,
   fallbackFonts: [],
+  beatRefinementState: 'none',
+  refiningBeats: false,
+
+  async refineBeats() {
+    const audio = get().audio;
+    if (audio === null || get().refiningBeats) return;
+    set({ refiningBeats: true });
+    try {
+      const refinement = await window.pulseforge.refineBeats(audio.path, history.current.analysisSettings.stemModel);
+      if (get().audio?.path !== audio.path) return;
+      get().run(setBeatRefinement(refinement));
+      set({ toast: { text: `Beats refined: ${refinement.beats.length} beats, about ${refinement.bpm.toFixed(1)} bpm`, kind: 'ok' } });
+    } catch (error) {
+      const text = describeError(error, 'Refining the beats');
+      set({ toast: { text, kind: /cancelled/i.test(text) ? 'warn' : 'bad' } });
+    } finally {
+      set({ refiningBeats: false });
+    }
+  },
+
+  async cancelRefineBeats() {
+    await window.pulseforge.cancelRefineBeats();
+  },
+
+  async reanalyse() {
+    const audio = get().audio;
+    if (audio === null) return;
+    try {
+      const payload = await window.pulseforge.analyzeAudio(audio.path, history.current.analysisSettings);
+      if (get().audio?.path !== audio.path) return;
+      set({
+        analysis: analysisFromPayload(payload),
+        sections: payload.sections,
+        beatRefinementState: payload.beatRefinement,
+      });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Analysing the audio'), kind: 'bad' } });
+    }
+  },
   assetStatus: {},
 
   async loadAssets(recheck = false) {
@@ -1068,6 +1116,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         analysis,
         peaks: decodePeaks(payload.peaks),
         sections: payload.sections,
+        beatRefinementState: payload.beatRefinement,
         onsetTimes: payload.onsetTimes,
         // D9: a track in an empty project is the moment to offer a generated one — offered, never forced.
         autoOffer: history.current.layers.length === 0 && history.current.director === null,

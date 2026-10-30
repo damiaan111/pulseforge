@@ -15,11 +15,11 @@ import { fallbackFontsStep } from './steps/fallback-fonts.ts';
 import { lyricsModelsStep } from './steps/lyrics-models.ts';
 import { extraInstalled, extraSteps } from './steps/extras.ts';
 import { runRebuildCheck } from './steps/rebuild-check.ts';
-import { pythonEnvStep, pythonLyricsEnvStep } from './steps/python-env.ts';
+import { pythonBeatsEnvStep, pythonEnvStep, pythonLyricsEnvStep } from './steps/python-env.ts';
 import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
-const STEPS: readonly Step[] = [ffmpegStep, fontStep, fallbackFontsStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, lyricsModelsStep, ...extraSteps];
+const STEPS: readonly Step[] = [ffmpegStep, fontStep, fallbackFontsStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, pythonBeatsEnvStep, lyricsModelsStep, ...extraSteps];
 
 const USAGE = `
 Usage: npm run setup -- [options]
@@ -184,7 +184,7 @@ async function printPlan(log: Logger, steps: readonly Step[], options: Options):
   log.info(`Disk space to have free before starting: ~${formatBytes(requiredBytes(options.tiers))}`);
   log.info('Also written: vendor/vendor.lock.json, vendor/LICENSES.md, vendor/setup.log.');
   log.info('Temporary files: vendor/.tmp and vendor/.staging (not %TEMP%). Package caches: vendor/.cache.');
-  log.info('Nothing is installed outside vendor/ except the Python locks in setup/python/ (requirements.lock.txt, requirements-lyrics.lock.txt), generated on first run for you to commit.');
+  log.info('Nothing is installed outside vendor/ except the Python locks in setup/python/ (requirements.lock.txt, requirements-lyrics.lock.txt, requirements-beats.lock.txt), generated on first run for you to commit.');
   log.info('');
   log.info('Run `npm run setup` to execute this plan.');
 }

@@ -2,12 +2,14 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PYTHON_PACKAGES, PYTHON_PACKAGES_LYRICS } from '../manifest.ts';
+import { PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS, PYTHON_PACKAGES_LYRICS } from '../manifest.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import type { LockedPackage } from '../lib/lockfile.ts';
 import { formatBytes } from '../lib/log.ts';
 import {
+  PY_BEATS_REQUIREMENTS_IN,
+  PY_BEATS_REQUIREMENTS_LOCK,
   PY_LYRICS_REQUIREMENTS_IN,
   PY_LYRICS_REQUIREMENTS_LOCK,
   PY_REQUIREMENTS_IN,
@@ -81,6 +83,8 @@ interface EnvProbe {
   demucsError?: string;
   whisperx?: string;
   lyricsError?: string;
+  librosa?: string;
+  beatsError?: string;
   ctranslate2Cuda?: number;
   packages: LockedPackage[];
 }
@@ -577,5 +581,58 @@ except Exception as e:
   record(ctx, lockSha, info) {
     recordEnv(ctx, lockSha, info);
     ctx.lock.pythonLyricsEnv = { requirementsLockSha256: lockSha };
+  },
+});
+
+export const pythonBeatsEnvStep: Step = createPythonEnvStep({
+  id: 'python-beats-env',
+  title: 'Python packages for beat tracking (librosa)',
+  tier: PYTHON_PACKAGES_BEATS.tier,
+  requirementsIn: PY_BEATS_REQUIREMENTS_IN,
+  requirementsLock: PY_BEATS_REQUIREMENTS_LOCK,
+  lockRelative: 'setup/python/requirements-beats.lock.txt',
+  marker: join(VENDOR, 'python', '.pulseforge-beats-env.json'),
+  approxWheelhouseBytes: PYTHON_PACKAGES_BEATS.approxWheelhouseBytes,
+  requires() {
+    if (!existsSync(PY_LYRICS_REQUIREMENTS_LOCK)) {
+      throw new SetupError({
+        step: 'Python packages for beat tracking (librosa)',
+        what: 'The beats lock is resolved against the lyrics lock, which does not exist yet.',
+        fix: ['Run setup with the lyrics tier first (the default does both).'],
+      });
+    }
+  },
+  async compileArgs() {
+    // As the lyrics step does: the lock below it, without hashes, as constraints.
+    await mkdir(TMP, { recursive: true });
+    const constraints = join(TMP, 'lyrics-constraints.txt');
+    const pins = (await readFile(PY_LYRICS_REQUIREMENTS_LOCK, 'utf8')).split(/\r?\n/)
+      .map((line) => /^([A-Za-z0-9_.-]+==\S+)/.exec(line)?.[1])
+      .filter((pin): pin is string => pin !== undefined);
+    await writeFile(constraints, `${pins.join('\n')}\n`);
+    return ['--constraint', constraints, '--override', await lyricsOverridesFile()];
+  },
+  installArgs: async () => ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)],
+  probeExtra: String.raw`
+try:
+    import librosa
+    out["librosa"] = metadata.version("librosa")
+except Exception as e:
+    out["beatsError"] = repr(e)
+`,
+  check(info) {
+    if (info.beatsError !== undefined) {
+      throw new SetupError({
+        step: 'Python packages for beat tracking (librosa)',
+        what: `librosa is installed but fails to import: ${info.beatsError}`,
+        likelyCause: 'A dependency mismatch in the resolved lock.',
+        fix: ['Re-run with `npm run setup -- --relock`; if it persists, share vendor/setup.log.'],
+      });
+    }
+    return `librosa ${info.librosa ?? '?'}`;
+  },
+  record(ctx, lockSha, info) {
+    recordEnv(ctx, lockSha, info);
+    ctx.lock.pythonBeatsEnv = { requirementsLockSha256: lockSha };
   },
 });

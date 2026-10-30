@@ -5,6 +5,7 @@
 // always analyse a track the same way, and a binding on a band a project defines reads the band the
 // analyser actually computed under that name. Part of the cache key, like every analyser setting.
 
+import { parseBeatRefinement, type BeatRefinement } from './beat-refinement.ts';
 import { DEFAULT_SPECTRUM_SETTINGS } from './spectrum.ts';
 import type { AnalyzeOptions } from './analyze.ts';
 import type { CachedAnalyzeOptions } from './cached.ts';
@@ -16,6 +17,8 @@ export interface ProjectAnalysisSettings {
   readonly bpmOverride: number | null;
   /** Which Demucs model makes the stems (D8). Part of the cache key, so a model change re-separates. */
   readonly stemModel: string;
+  /** The refined grid (S16); applied over the analysis, so not part of the cache key. */
+  readonly beatRefinement?: BeatRefinement | null;
 }
 
 /**
@@ -24,7 +27,7 @@ export interface ProjectAnalysisSettings {
  * land in one cache entry.
  */
 export function cacheOptionsFor(settings: ProjectAnalysisSettings): CachedAnalyzeOptions {
-  return { ...analysisOptionsFor(settings), stemModel: settings.stemModel };
+  return { ...analysisOptionsFor(settings), stemModel: settings.stemModel, beatRefinement: settings.beatRefinement ?? null };
 }
 
 export function analysisOptionsFor(settings: ProjectAnalysisSettings): AnalyzeOptions {
@@ -65,5 +68,11 @@ export function parseProjectAnalysisSettings(raw: unknown): ProjectAnalysisSetti
   const model = value['stemModel'];
   // A model name becomes a path under vendor/models/demucs: letters, digits, dashes, underscores.
   if (typeof model !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(model)) return fail('stemModel');
-  return { bands, onsetSensitivity: sensitivity, bpmOverride: bpm as number | null, stemModel: model };
+  let beatRefinement: BeatRefinement | null;
+  try {
+    beatRefinement = parseBeatRefinement(value['beatRefinement']);
+  } catch (error) {
+    return fail((error as Error).message);
+  }
+  return { bands, onsetSensitivity: sensitivity, bpmOverride: bpm as number | null, stemModel: model, beatRefinement };
 }

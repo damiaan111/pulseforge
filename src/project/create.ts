@@ -54,6 +54,7 @@ export const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
   bpmOverride: null,
   // D8: fast by default, `htdemucs_ft` one click away.
   stemModel: 'htdemucs',
+  beatRefinement: null,
   extra: {},
 };
 

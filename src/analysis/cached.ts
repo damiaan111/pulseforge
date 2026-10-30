@@ -12,6 +12,7 @@
 
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import { analyzeMix, type AnalyzeOptions, type AnalyzeResult } from './analyze.ts';
+import { refineSections, refinementState, withRefinedGrid, type BeatRefinement, type BeatRefinementState } from './beat-refinement.ts';
 import { hashAnalysisSettings, hashPcm, type AnalysisCache, type AnalysisKeyInputs } from './cache.ts';
 import type { BeatGrid } from './features.ts';
 import { buildPeakPyramid, type PeakPyramid } from './peaks.ts';
@@ -24,6 +25,8 @@ export interface CachedAnalyzeOptions extends AnalyzeOptions {
   readonly stemModel?: string;
   /** Precomputed hash, when the caller already has one (it is not cheap on a long track). */
   readonly audioHash?: string;
+  /** The project's refined grid (S16). Laid over the cached result, so never part of the key. */
+  readonly beatRefinement?: BeatRefinement | null;
 }
 
 export interface CachedAnalyzeResult {
@@ -37,6 +40,8 @@ export interface CachedAnalyzeResult {
   readonly audioHash: string;
   readonly settingsHash: string;
   readonly fromCache: boolean;
+  /** What became of the project's refined grid. */
+  readonly beatRefinement: BeatRefinementState;
 }
 
 /**
@@ -51,6 +56,19 @@ export async function analyzeCached(
   cache: AnalysisCache,
   options: CachedAnalyzeOptions = {},
 ): Promise<CachedAnalyzeResult> {
+  const result = await detected(pcm, cache, options);
+  const state = refinementState(options.beatRefinement, result.audioHash, options.bpmOverride);
+  if (state !== 'applied') return { ...result, beatRefinement: state };
+  const refinement = options.beatRefinement as BeatRefinement;
+  const { analysis, beatGrid } = withRefinedGrid(result.analysis, refinement);
+  return { ...result, analysis, beatGrid, sections: refineSections(result.sections, refinement.sections, refinement.beats), beatRefinement: state };
+}
+
+async function detected(
+  pcm: Float32Array,
+  cache: AnalysisCache,
+  options: CachedAnalyzeOptions,
+): Promise<Omit<CachedAnalyzeResult, 'beatRefinement'>> {
   const audioHash = options.audioHash ?? hashPcm(pcm);
   const keyInputs: AnalysisKeyInputs = {
     ...(options.settings === undefined ? {} : { settings: options.settings }),

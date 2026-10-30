@@ -1,0 +1,10 @@
+# Beat tracking and structure (S16, D28): librosa on top of the lyrics set.
+#
+# Resolved with the lyrics lock as constraints (setup/steps/python-env.ts), so every package they
+# share keeps its version: this tier never changes stem separation or transcription. The pinned
+# lock is requirements-beats.lock.txt.
+#
+# madmom, the other tool D28 names, publishes no Windows wheels, and the lock is wheels only.
+
+-r requirements-lyrics.in
+librosa

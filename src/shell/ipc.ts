@@ -18,6 +18,7 @@ import type { TemplateFile } from '../director/template-library.ts';
 import type { CacheCategory, CacheInventory } from '../cache/cache-store.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
+import type { BeatRefinement, BeatRefinementState } from '../analysis/beat-refinement.ts';
 
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
 export const IPC = {
@@ -36,6 +37,8 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  beatsRefine: 'pf:beats:refine',
+  beatsCancel: 'pf:beats:cancel',
   recoveryWrite: 'pf:recovery:write',
   recoveryClear: 'pf:recovery:clear',
   recoveryList: 'pf:recovery:list',
@@ -188,6 +191,8 @@ export interface AnalysisPayload {
   readonly peaks: Uint8Array;
   /** With each section's mean energy: the director's drops are boundaries into much louder sections. */
   readonly sections: readonly Section[];
+  /** What became of the project's refined grid (S16). */
+  readonly beatRefinement: BeatRefinementState;
   /** Detected onsets in source seconds: the director puts drop impulses exactly on them. */
   readonly onsetTimes: readonly number[];
   readonly durationSeconds: number;
@@ -484,6 +489,9 @@ export interface PulseforgeApi {
    * same mapping the exporter uses (analysis/project-settings.ts), so preview and export agree.
    */
   analyzeAudio(path: string, settings: ProjectAnalysisSettings): Promise<AnalysisPayload>;
+  /** Tracks the beats with librosa (S16). Rejects with a sentence, including on cancel. */
+  refineBeats(path: string, stemModel: string): Promise<BeatRefinement>;
+  cancelRefineBeats(): Promise<void>;
   /**
    * Separates the track into stems with Demucs and analyses each (M5), through the GPU queue (M28).
    * Minutes on a long track the first time; the result lands in the analysis cache, so

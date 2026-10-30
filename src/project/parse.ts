@@ -12,6 +12,7 @@
 // Undeclared fields are collected into each node's `extra` and written back by serialize.ts,
 // so a document that has been through a newer build survives a round-trip through this one.
 
+import { parseBeatRefinement, type BeatRefinement } from '../analysis/beat-refinement.ts';
 import {
   ANCHORS, ASPECT_BUCKETS, ASSET_KINDS, BLEND_MODES, CURRENT_SCHEMA_VERSION, DEFAULT_CURVE, FADE_CURVES, type FadeCurve,
   LYRIC_ROLES, LYRICS_SOURCES, type LyricLine, type LyricLineStyle, type Lyrics, type LyricSection, type LyricWord,
@@ -100,6 +101,11 @@ class Node {
 
   private report(key: string, problem: IssueProblem, detail: string): void {
     this.issues.push({ path: this.at(key), problem, detail });
+  }
+
+  /** Reports a bespoke field that did not read. */
+  invalid(key: string, detail: string): void {
+    this.report(key, 'invalid-value', detail);
   }
 
   /** Marks a key consumed without reading it — for fields handled by bespoke code. */
@@ -576,8 +582,19 @@ function parseAnalysisSettings(node: Node): AnalysisSettings {
     onsetSensitivity: s.num('onsetSensitivity', 0.5, { min: 0, max: 1 }),
     bpmOverride: s.nullableNum('bpmOverride', { min: 1 }),
     stemModel: s.str('stemModel', 'htdemucs'),
+    beatRefinement: parseStoredRefinement(s),
     extra: s.rest(),
   };
+}
+
+/** A refined grid that does not read is dropped with an issue: the detected one still works. */
+function parseStoredRefinement(s: Node): BeatRefinement | null {
+  try {
+    return parseBeatRefinement(s.take('beatRefinement'));
+  } catch (error) {
+    s.invalid('beatRefinement', `${(error as Error).message}; using the detected beats`);
+    return null;
+  }
 }
 
 function parsePalette(node: Node, issues: DocumentIssue[]): Palette {

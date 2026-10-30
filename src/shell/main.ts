@@ -71,6 +71,8 @@ import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { probeCodecs, type CodecSupport } from '../export/encoder-probe.ts';
+import { BeatTrackingError, refineBeats, worthFollowing } from '../ml/beats.ts';
+import type { BeatRefinement } from '../analysis/beat-refinement.ts';
 import { freeBytesAt } from '../node/free-bytes.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { BatchRequestError, completionWatcher, createBatchService, type BatchRequest, type BatchService, type BatchStatus } from './batch-service.ts';
@@ -621,6 +623,7 @@ function registerHandlers(): void {
         onsetTimes: result.onsetTimes,
         durationSeconds: decoded.pcm.length / 48_000,
         fromCache: result.fromCache,
+        beatRefinement: result.beatRefinement,
         stems,
         stemStatus,
       };
@@ -628,6 +631,35 @@ function registerHandlers(): void {
       throw describe(error);
     }
   });
+
+  // Beat refinement (S16): librosa in a child process, on the CPU, so it does not queue for the GPU.
+  let beatsController: AbortController | null = null;
+  ipcMain.handle(IPC.beatsRefine, async (_event, path: unknown, stemModel: unknown): Promise<BeatRefinement> => {
+    if (typeof path !== 'string' || typeof stemModel !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(stemModel)) throw new Error('refineBeats needs a path and a stem model');
+    if (beatsController !== null) throw new Error('Beats are already being refined.');
+    const controller = new AbortController();
+    beatsController = controller;
+    try {
+      const decoded = await decodeMono48k(FFMPEG_EXE, path);
+      // The drum stem when it has been separated and has something in it (PROJECT.md §8.1).
+      const drumsFile = join(cacheRootPath(), 'stems', decoded.pcmSha256, stemModel, 'drums.flac');
+      const drums = existsSync(drumsFile) ? (await decodeMono48k(FFMPEG_EXE, drumsFile)).pcm : null;
+      return await refineBeats({
+        pythonExe: PYTHON_EXE,
+        packageDir: join(ROOT, 'python'),
+        env: pythonEnv(),
+        pcm: drums !== null && worthFollowing(drums, decoded.pcm) ? drums : decoded.pcm,
+        audioHash: decoded.pcmSha256,
+        workDir: scratchPath(),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw error instanceof BeatTrackingError ? new Error(error.message) : describe(error);
+    } finally {
+      beatsController = null;
+    }
+  });
+  ipcMain.handle(IPC.beatsCancel, () => beatsController?.abort());
 
   // Stems (M5): Demucs through the supervised sidecar (M27), taking its turn on the GPU (M28).
   // One separation at a time; a second request while one runs is refused rather than queued twice.
@@ -2259,6 +2291,17 @@ app.whenReady().then(async () => {
       const chain = await window.pulseforge.fallbackFonts();
       const unicodeFonts = chain.length === 10 && chain.every((font) => font.bytes.length > 10000);
       if (!unicodeFonts) console.error('[smoke] unicodeFonts: ' + chain.length + ' fonts');
+      // Refining the beats (S16): a real run of librosa on the smoke song, then undone like any edit.
+      console.log('[smoke] step: beatsUi');
+      const beatStates = [];
+      const beatState = () => document.querySelector('#app [data-testid="beat-controls"]')?.getAttribute('data-state');
+      document.querySelector('#app [data-action="beats-refine"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      beatStates.push(await waitFor(() => beatState() === 'applied', 1200));
+      beatStates.push(/refined with librosa/.test(document.querySelector('#app [data-testid="beat-source"]')?.textContent ?? ''));
+      document.querySelector('#app [data-action="beats-revert"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      beatStates.push(await waitFor(() => beatState() === 'none', 400));
+      const beatsUi = beatStates.every((step) => step === true);
+      if (!beatsUi) console.error('[smoke] beatsUi steps ' + JSON.stringify(beatStates) + ' state ' + beatState());
       console.log('[smoke] step: settingsUi');
       let settingsUi = false;
       {
@@ -2664,6 +2707,7 @@ app.whenReady().then(async () => {
         ...(alignLive === undefined ? {} : { alignLive }),
         exportDialog,
         unicodeFonts,
+        beatsUi,
         batchUi,
         markerUi,
         perfHud,

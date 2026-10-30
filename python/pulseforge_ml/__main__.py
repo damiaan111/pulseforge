@@ -178,6 +178,16 @@ def _served_separate(params, context):
     return _separate(args, context)
 
 
+def cmd_beats(args):
+    """One track: the refined grid and section boundaries (S16). CPU only; imports no torch."""
+    import numpy as np
+
+    from .beats import track
+
+    pcm = np.fromfile(args.input, dtype="<f4")
+    emit("beats", **track(pcm, args.sample_rate))
+
+
 def _warm_native_extensions():
     """Import the native extensions on the main thread, before the reader thread exists.
 
@@ -225,11 +235,15 @@ def main(argv=None):
     separate.add_argument("--shifts", type=int, default=1)
     separate.add_argument("--overlap", type=float, default=0.25)
 
+    beats = commands.add_parser("beats", help="beat tracking and structure with librosa")
+    beats.add_argument("--input", required=True, help="raw little-endian float32 PCM, mono")
+    beats.add_argument("--sample-rate", type=int, default=48000)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "serve":
             return cmd_serve(args) or 0
-        {"health": cmd_health, "separate": cmd_separate}[args.command](args)
+        {"health": cmd_health, "separate": cmd_separate, "beats": cmd_beats}[args.command](args)
         return 0
     except Exception as error:
         emit("error", type=type(error).__name__, message=str(error))

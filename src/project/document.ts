@@ -14,6 +14,7 @@
 // are not reported as unknown, because their absence from this version is deliberate, not a
 // mistake in the file.
 
+import type { BeatRefinement } from '../analysis/beat-refinement.ts';
 import type { BlendMode as EngineBlendMode } from '../engine/core/project.ts';
 import { ANCHORS, SCALE_REFERENCES, type Anchor, type ScaleReference } from '../engine/core/layout.ts';
 import type { Rational } from '../engine/core/time.ts';
@@ -107,6 +108,8 @@ export interface AnalysisSettings {
   /** Overrides detected tempo when the grid is wrong; null to use detection. */
   readonly bpmOverride: number | null;
   readonly stemModel: string;
+  /** The refined beat grid (S16), kept here so a render needs no Python. Null: the detected grid. */
+  readonly beatRefinement: BeatRefinement | null;
   readonly extra: Extra;
 }
 

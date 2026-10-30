@@ -13,6 +13,7 @@ import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { AssetsPanel } from './AssetsPanel.tsx';
 import { PresetsPanel } from './PresetsPanel.tsx';
+import { BeatControls } from './BeatControls.tsx';
 import { ClipControls } from './ClipControls.tsx';
 import { StemsControls } from './StemsControls.tsx';
 import { LyricsSection } from './LyricsPanel.tsx';
@@ -90,6 +91,7 @@ export function LeftRail(): React.JSX.Element {
           <dt>Sections</dt><dd>{sections.length === 0 ? 'none' : String(sections.length)}</dd>
         </dl>
       )}
+      <BeatControls />
       <ClipControls />
       <StemsControls />
       {analysisMessage !== null && (

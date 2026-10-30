@@ -82,7 +82,10 @@
 > Armenian, Georgian, Japanese, Chinese, Korean and emoji, from bundled fonts on any machine, with
 > right-to-left karaoke, and a report for anything no font has.
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): librosa beat tracking (S16).
+> And beat refinement (S16, §4.77): one click tracks a tempo that moves, finds exact tempos the
+> built-in grid misses, and moves section boundaries onto the music, stored in the project.
+>
+> **Every must-have and every should-have is done.** What is left is listed in ROADMAP.md §6.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -174,6 +177,7 @@
 | 4.74 | Draft mode (P8 step 12) — S18 |
 | 4.75 | The free-space check and encoder readiness (P8 step 13) — export-spec §14 |
 | 4.76 | Unicode text (P8 step 14) — S17 |
+| 4.77 | Beat refinement (P8 step 15) — S16, D28 |
 
 ---
 
@@ -4249,6 +4253,74 @@ the pinned hashes, not through `npm run setup`. A normal `npm run setup` on a fi
 up as a core step. The fonts add 19 MB to PROJECT.md §3's ~20 MB font budget.
 
 **Not built:** colour emoji, vertical text, Thai segmentation, per-project choice of CJK region.
+
+### 4.77 Beat refinement (P8 step 15) — S16, D28
+
+**What it does.** **Refine beats** in the Audio panel runs a second tracker on the song, about 8 s
+for a 3-minute track on the CPU. The panel suggests it when the detected tempo is uncertain. The
+result replaces the grid, redraws the `beat` track and moves section boundaries, and it undoes like
+any edit (**Use detected** too).
+
+**How it works.**
+- `python/pulseforge_ml/beats.py`, one-shot `python -m pulseforge_ml beats`: onsets over all bands plus
+  the low bands; a local tempo per frame, folded to 70–180 bpm like the built-in tracker; librosa's
+  dynamic-programming beat search along it.
+- `_on_the_beat`: if the points halfway between the beats are the stronger low-band pulse, those are
+  the beats. `_straightened`: beats within 35 ms RMS of a straight line become that line.
+- `ATTACK_LAG`: 20 ms taken off, the detector's measured lag.
+- **Sections** (D28): agglomerative clustering on beat-synchronous chroma and MFCCs gives structural
+  boundaries; `refineSections` moves each detected boundary to one within 4 s, then onto a beat, and
+  never leaves a section under 2 s. Labels and energy stay.
+
+**Stored in the project** (`analysisSettings.beatRefinement`, written only when set, so older files
+keep their bytes), not in the cache: a cache is rebuildable and a render must not need Python. So the
+preview, `npm run render` and an export elsewhere react to the same beats. `cacheOptionsFor` passes
+it to `analyzeCached`, which lays it over the result and leaves the cache entry and key alone.
+- It holds the audio's hash. On other audio it is `stale`: not applied, said in the panel and as a
+  note in the render. A tempo override wins (`overridden`), since that is the user being explicit.
+- With stems separated, the drum stem is tracked when it has at least 10% of the mix's energy.
+- `setBeatRefinement` is the undoable command; `BeatControls` re-analyses when undo changes it.
+
+**Measured against known beat times** (F-measure at ±70 ms, 60 s synthetic tracks):
+
+| Track | Built-in | Refined |
+|---|---|---|
+| Steady 128 | 0.36 | 0.98 |
+| Slow drift, 118→126 | 0.23 | 0.98 |
+| Rubato, 100 ± 12 bpm | 0.37 | 0.98 |
+| Accelerando, 90→140 | 0.38 | 0.98 |
+| Live drums, 12 ms jitter | 0.20 | 0.99 |
+| Sparse percussion | 0.40 | 0.98 |
+
+Those tracks have hats between the beats, which is hard for the built-in tracker: it read the steady
+128 as 85.2. Numbers from before `_straightened` and the 20 ms correction; the rubato case is pinned
+in `tests/analysis/beat-refinement.test.ts` above 0.95, and within 15 ms at the median.
+
+**On five real songs** there is no truth to score against. Tempos agreed on four: 125.2/126.0,
+76.2/76.0 twice, 156.5/156.6; the fifth read 76.2 and 101.3, a 3:4 ratio nobody has checked by ear. Two
+straightened to **76.00 and 76.01**, which looks like the production tempo; the built-in 76.2 would
+be half a second out by the end of a 200-second song. Refinement took 7–8 s each.
+
+**What measuring changed.** The first version scored F = 0.00 with a perfect tempo: exactly half a
+beat late, on the hats, because a median over bands favours broadband noise. Real songs then showed
+what the synthetic tracks could not: a confidence stuck at 1.0, and jitter on music made to a click.
+`_strength` and `_straightened` came from that.
+
+**Provisioning.** `requirements-beats.in` and its lock, resolved on top of the lyrics lock: librosa
+0.11 adds 10 packages and changes none. **madmom has no Windows wheels**, and the lock is wheels only,
+so D28's "librosa/madmom" is librosa. The new step `python-beats-env` is also in the offline
+rebuild check.
+
+**Setup note.** uv fails on the spaced path here (``File not found: `D:\Claude` ``), exactly what the
+precondition warns of, so the lock and install were done by hand with relative paths and the same
+arguments. The step's own run is **not verified**; `npm run setup` at a path without spaces does it,
+and writes the marker `--verify` looks for.
+
+**Verified here.** 13 tests, two with real librosa; smoke `beatsUi` clicks the button, runs it on the
+smoke song, sees it applied, reverts it.
+
+**Not built:** beat refinement in `npm run batch` and the auto-director; a progress bar (a spinner
+line and Cancel, for 8 seconds); downbeats.
 
 ## 5. Measured results
 

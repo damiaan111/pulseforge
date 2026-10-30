@@ -23,7 +23,7 @@
 | P5 — Export | ✅ | the render pipeline, reports and diagnostics; the free-space check (STATUS 4.75) was the last of it |
 | P6 — Lyrics | ✅ | five steps, 2026-09-25: STATUS 4.50–4.55 |
 | P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
-| P8 — Expansion (Should-haves) | 🔶 | 15 of 16 done; S16 remains (S3 became C15, S4 M37, S5 M26) |
+| P8 — Expansion (Should-haves) | ✅ | all 16 done (S3 became C15, S4 M37, S5 M26) |
 
 **Must-haves (M1–M40): all 40 done.**
 
@@ -119,9 +119,10 @@
 | S14 Headless CLI | ✅ | `npm run render` (4.13), `npm run batch` (4.68) |
 | S18 Draft/proxy mode | ✅ | 4.74 — Draft: 640 px long side, DOF 16 taps instead of 48, no MSAA on 3D scenes; measured −64% on the heaviest case; video proxies already existed |
 | S19 Collect files | ✅ | 4.37 |
+| S16 Beat and structure refinement | ✅ | 4.77 — librosa (madmom has no Windows wheels), stored in the project; F 0.98 against 0.20–0.40 on known tracks; not in batch or the auto-director |
 | S17 Unicode & font fallback | ✅ | 4.76 — bundled Noto chain, right-to-left layout and karaoke, CJK line breaks, a report instead of system fonts; emoji are monochrome |
 
-S16 is not started. Could-haves (C1–C15) are untouched.
+Could-haves (C1–C15) are untouched.
 
 ---
 
@@ -141,7 +142,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
    6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
    4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72), ✅ LUTs (S11, 4.73), ✅ draft mode
-   (S18, 4.74), ✅ the free-space check (4.75), ✅ Unicode text (S17, 4.76); next S16 librosa.
+   (S18, 4.74), ✅ the free-space check (4.75), ✅ Unicode text (S17, 4.76), ✅ beat refinement (S16, 4.77). **P8 is complete.**
 
 ---
 
@@ -165,6 +166,7 @@ it was made; they are collected here so none is a surprise.
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
 | The markers lane sits **under the waveform**; **[ / ] also stop at section boundaries**; timeline markers are **separate from the lyrics' `[Chorus]` section markers** | ui-spec §3 lists a Markers track without placing it | the waveform stays the scrub strip; the keys work before any marker exists; lyrics own their structure | STATUS 4.69 |
+| **librosa only**, no madmom; refinement is **stored in the project** and **offered, not automatic** | D28 and PROJECT.md S16 name both tools and "an optional pass" | madmom has no Windows wheels, and the lock is wheels only; a render must not need Python; for music on a click the built-in grid is only as good as its tempo, but refining is still an edit to the project | STATUS 4.77 |
 | **Emoji are monochrome**, and one CJK font (Japanese forms) serves Chinese and Korean | PROJECT.md S17 lists emoji and non-Latin scripts without saying how | text effects work from coverage masks, which colour bitmaps do not have; a project can choose its own font, which goes first | STATUS 4.76 |
 | The **vignette now darkens and keeps alpha** (it used to fade the edges to transparent) | module-spec §6 says only "darkens toward the edges" | a LUT after it graded see-through corners; on a layer, darkening is what "vignette" means | STATUS 4.73 |
 | **Dropped audio files open the Batch dialog**, even one; a CLI folder is read **one level deep**; "shut down when done" waits **two minutes** | export-spec §12 says "optional shutdown-when-done" and nothing about drops or folders | the dialog is where the folder and preset are chosen; a library's subfolders are albums; two minutes to see it and cancel | STATUS 4.68 |
@@ -190,3 +192,35 @@ it was made; they are collected here so none is a surprise.
 | `npm run modules:check` | every drop-in module compiles, is deterministic and reflows |
 | `npm run render -- <project> -o <mp4>` | a real NVENC export, verified after encoding |
 | `npm run validate` | the P0 hardware checks (determinism, readback, NVENC, stems, sync) |
+
+---
+
+## 6. What is left
+
+Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
+effect on a finished video last. Each is noted beside its requirement in §2.
+
+**Needs the machine fixed first** (STATUS header): update the NVIDIA driver to 580 or newer and put the
+repo at a path without spaces, then run `npm run setup`, `npm run check` and a real render. Until then
+real encodes, GPU stems and lyrics, and the new setup steps as a whole are unverified here.
+
+**Timeline:** drag layer time ranges and clip edges; multi-select; marquee select and a loop region
+in the lyrics lane; per-stem waveform rows; stem solo in the preview.
+
+**Lyrics:** contrast enforcement against the backdrop; gradient fills; `large-v3` and other languages
+need installing from Settings.
+
+**Modulation:** source sparkline; copy and paste of bindings; bindings on the global effect chain.
+
+**Export:** spatial supersampling (export-spec §9); presets that bring their images along.
+
+**Auto-director:** convert arrangement curves to keyframes; `derive-from-image` palettes; "Extract as
+template"; beat refinement in `npm run batch`.
+
+**Text:** colour emoji, vertical text, Thai word segmentation.
+
+**Settings:** shortcut remapping.
+
+**The owner's decisions:** §4, above all whether to keep offering the non-commercial alignment models.
+
+**Could-haves (C1–C15):** optional, not started.

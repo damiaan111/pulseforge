@@ -47,10 +47,10 @@ P4 are complete (2026-09-18), and so are the modulation UI (M13), the layer/clip
 (M7, M9, M29), stems end to end (M5, M27, M28), autosave with crash recovery (M1) and **P6, lyrics**
 (M18–M20, M26; 2026-09-25), **P7, the auto-director** (M21, M22) and **operability** (M33, M34,
 M36) and **the P1 remainder** (extras tier, offline rebuild check; 2026-09-25) — every must-have is
-done. P8, the Should-haves, is under way (ROADMAP §3 item 9): keyframes (S1), Shadertoy shaders
+done. P8, the Should-haves, is complete (ROADMAP §3 item 9): keyframes (S1), Shadertoy shaders
 (S2), the 6-stem model (S6), masking (S7), markers (S9), motion blur (S10), LUTs (S11), the
-performance HUD (S12), batch mode (S13), karaoke export (S15), draft mode (S18) and Unicode text (S17) are done; the rest
-follow ROADMAP §3. `npm run test` writes `out/vitest-last.json`: read it when a run fails.
+performance HUD (S12), batch mode (S13), karaoke export (S15), draft mode (S18), Unicode text (S17) and beat refinement (S16) are all done. ROADMAP §6 lists
+what is left. `npm run test` writes `out/vitest-last.json`: read it when a run fails.
 
 - The smoke check's renderer code is one template literal: never write a backslash in it (`\n`
   becomes a real line break, `\b` a backspace). Delete `out/smoke-result.json` before a run: a run

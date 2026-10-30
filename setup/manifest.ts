@@ -406,6 +406,12 @@ export const PYTHON_PACKAGES_LYRICS = {
   approxWheelhouseBytes: 0.9 * 1024 ** 3,
 };
 
+/** librosa for beat tracking and structure (S16), resolved on top of the lyrics lock. */
+export const PYTHON_PACKAGES_BEATS = {
+  tier: 'lyrics' as Tier,
+  approxWheelhouseBytes: 0.1 * 1024 ** 3,
+};
+
 /** Free space setup insists on before starting, per tier (downloads + install + temp). */
 export const REQUIRED_FREE_BYTES: Readonly<Record<Tier, number>> = {
   core: 1 * 1024 ** 3,

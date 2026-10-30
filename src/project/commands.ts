@@ -14,6 +14,7 @@
 // A command aimed at an id that does not exist throws: ids come from the live document, so a
 // miss is a bug in the caller, not a condition to paper over.
 
+import type { BeatRefinement } from '../analysis/beat-refinement.ts';
 import {
   IDENTITY_TRANSFORM, walkLayers,
   type AspectBucket, type AspectOverride, type AssetRef, type EffectSpec, type GroupLayer, type Layer,
@@ -741,6 +742,14 @@ export function setStemModel(model: string): Command {
     apply: (document) => (document.analysisSettings.stemModel === model
       ? document
       : { ...document, analysisSettings: { ...document.analysisSettings, stemModel: model } }),
+  };
+}
+
+/** Stores a refined beat grid (S16), or goes back to the detected one with null. */
+export function setBeatRefinement(refinement: BeatRefinement | null): Command {
+  return {
+    label: refinement === null ? 'Use detected beats' : 'Refine beats',
+    apply: (document) => ({ ...document, analysisSettings: { ...document.analysisSettings, beatRefinement: refinement } }),
   };
 }
 

@@ -30,6 +30,8 @@ export const PY_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements.
 /** The lyrics tier (WhisperX): a superset of the stems set, resolved with it as constraints. */
 export const PY_LYRICS_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', 'requirements-lyrics.in');
 export const PY_LYRICS_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements-lyrics.lock.txt');
+export const PY_BEATS_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', 'requirements-beats.in');
+export const PY_BEATS_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements-beats.lock.txt');
 
 // Vendored executables. Always invoked by absolute path, never resolved from PATH
 // (PROJECT.md §3) — a system-wide python or ffmpeg must never be picked up.

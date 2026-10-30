@@ -40,6 +40,7 @@ export interface VendorLock {
   pythonEnv: LockedPythonEnv | null;
   /** The lyrics tier's lock, when installed (its packages are in `pythonEnv.packages`). */
   pythonLyricsEnv?: { requirementsLockSha256: string } | null;
+  pythonBeatsEnv?: { requirementsLockSha256: string } | null;
 }
 
 export function emptyLock(): VendorLock {
@@ -51,7 +52,7 @@ export async function readVendorLock(log: Logger): Promise<VendorLock> {
   try {
     const parsed = JSON.parse(await readFile(VENDOR_LOCK, 'utf8')) as Partial<VendorLock>;
     if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.artefacts)) throw new Error('unrecognised schema');
-    return { schemaVersion: 1, artefacts: parsed.artefacts, pythonEnv: parsed.pythonEnv ?? null, pythonLyricsEnv: parsed.pythonLyricsEnv ?? null };
+    return { schemaVersion: 1, artefacts: parsed.artefacts, pythonEnv: parsed.pythonEnv ?? null, pythonLyricsEnv: parsed.pythonLyricsEnv ?? null, pythonBeatsEnv: parsed.pythonBeatsEnv ?? null };
   } catch (error) {
     // The lock is a record, not a source of truth: every artefact is re-verified on
     // disk, so a damaged lock is rebuilt rather than trusted or fatal.
@@ -95,6 +96,7 @@ export async function writeVendorLock(lock: VendorLock): Promise<void> {
               .map((p) => ({ name: p.name, version: p.version, license: p.license })),
           },
     ...(lock.pythonLyricsEnv == null ? {} : { pythonLyricsEnv: { requirementsLockSha256: lock.pythonLyricsEnv.requirementsLockSha256 } }),
+    ...(lock.pythonBeatsEnv == null ? {} : { pythonBeatsEnv: { requirementsLockSha256: lock.pythonBeatsEnv.requirementsLockSha256 } }),
   };
   await writeFile(VENDOR_LOCK, JSON.stringify(ordered, null, 2) + '\n');
 }
