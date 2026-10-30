@@ -10,8 +10,8 @@
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
 > any aspect. Last full verification, 2026-10-30, on the machine described below: golden 29/29
-> identical; smoke 41/42, the failure being `settingsUi` on the driver precondition; `npm run check`
-> 1266 of 1277, the 11 failures being the driver's. On the owner's fixed machine, before that driver
+> identical; smoke 42/43, the failure being `settingsUi` on the driver precondition; `npm run check`
+> 1276 of 1287, the 11 failures being the driver's. On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -184,6 +184,7 @@
 | 4.79 | Dragging on the timeline (P8 step 17) — M9, M29 |
 | 4.80 | The launcher and the component chooser — the public release |
 | 4.81 | Polish: modulation, lyrics, stems — ROADMAP §6 |
+| 4.82 | Choosing visuals, and the licence |
 
 ---
 
@@ -4460,6 +4461,35 @@ tests; beat refinement in a real batch.
 first and composites them in one pass, so a layer cannot see what is behind it, and changing that for
 one feature is not worth it. The default shadow meets the spec's "shadow or plate", and the director
 enforces contrast against the palette's background.
+
+### 4.82 Choosing visuals, and the licence — from the owner's first real use
+
+**The complaint:** "when I selected an effect it was not clear how to deselect them. And when clicking
+another one they stack on each other." Both were design faults. The rail's buttons always added a
+layer and showed nothing; a preset click replaced whatever was selected, even the lyrics or the
+background; and the only way out of a selection was a row called "Whole frame".
+
+**Now** (`src/project/layer-picker.ts`, pure):
+- What is in use is marked where it is chosen: the rail button is highlighted, the preset card has an
+  accent border and a ✓.
+- Clicking it again removes it; a preset card does the same. Clicking another of the same family swaps
+  it in place, keeping position, timing, opacity and effects. Modulations cannot survive a change of
+  module, so the toast counts them, and undo brings them back.
+- **Shift+click stacks**, and the card's ⋯ menu still has Add as layer. The section is called Visuals,
+  with a line saying all this.
+- A swap stays within a family, visualizers and 3D scenes being one. Choosing a visual never overwrites
+  text or a background, and a locked layer is left alone: a new layer is added instead.
+- Letting go: Esc, once nothing else is open, and a second click on the selected layer's row.
+
+A preset "in use" means a layer with its module and its name: no new file field, so it survives a
+reload, and renaming the layer ends the link. A project preset has no such mark.
+
+**Verified here.** 10 tests in `tests/project/layer-picker.test.ts`; smoke `pickerUi` runs add, swap,
+Shift-stack and remove with real clicks. 1276 of 1287 tests, golden 29/29, smoke 42/43; the failures
+are the driver's. Older smoke steps relied on "always adds" and now Shift-click.
+
+**Licence:** MIT, by the owner's decision, in `LICENSE` and `package.json`. It covers this project's
+code. What setup downloads keeps its own licences, listed in `vendor/LICENSES.md`.
 
 ## 5. Measured results
 

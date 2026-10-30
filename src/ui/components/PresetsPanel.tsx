@@ -12,7 +12,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { findLayer } from '../../project/commands.ts';
+import { findLayer, removeLayer } from '../../project/commands.ts';
+import { presetLayer } from '../../project/layer-picker.ts';
 import { newId } from '../../project/ids.ts';
 import { applyPreset, defaultApplyMode, type PresetApplyMode } from '../../project/preset-apply.ts';
 import { searchPresets, tagCounts } from '../../project/preset-search.ts';
@@ -151,6 +152,7 @@ function PresetCard(props: {
   const deletePreset = useStudio((s) => s.deletePreset);
   const selectedLayerId = useStudio((s) => s.selectedLayerId);
   const document = useStudio((s) => s.document);
+  const { manifests } = useModules();
 
   function apply(mode: PresetApplyMode): void {
     try {
@@ -173,15 +175,27 @@ function PresetCard(props: {
     }
   }
 
-  const clickMode = defaultApplyMode(entry.preset, document, selectedLayerId);
-  const clickTitle = clickMode === 'replace' ? 'Click to replace the selected layer'
-    : clickMode === 'add' ? 'Click to add as a new layer'
-      : 'Click to use this look for the project';
+  const kindOf = (id: string) => manifests.get(id)?.kind;
+  const inUse = entry.scope === 'layer' ? presetLayer(document, { name: entry.name, moduleId: entry.moduleId ?? undefined }) : undefined;
+  const clickMode = defaultApplyMode(entry.preset, document, selectedLayerId, kindOf);
+  const clickTitle = inUse !== undefined ? 'In use. Click to remove it'
+    : clickMode === 'replace' ? 'Click to swap the selected layer for this'
+      : clickMode === 'add' ? 'Click to add this as a layer'
+        : 'Click to use this look for the project';
+
+  function remove(layerId: string, name: string): void {
+    if (inUse?.locked === true) {
+      notify({ text: `"${name}" is locked. Unlock it to remove it.`, kind: 'warn' });
+      return;
+    }
+    run({ ...removeLayer(layerId), label: `Remove ${name}` });
+    if (selectedLayerId === layerId) select(null);
+  }
 
   return (
-    <li className={`preset-card${open ? ' open' : ''}`} data-preset={entry.slug}>
+    <li className={`preset-card${open ? ' open' : ''}${inUse !== undefined ? ' in-use' : ''}`} data-preset={entry.slug} data-in-use={inUse !== undefined}>
       <div className="preset-visual">
-        <button type="button" className="preset-thumb" title={clickTitle} data-action="apply-preset" onClick={() => apply(clickMode)}>
+        <button type="button" className="preset-thumb" title={clickTitle} data-action="apply-preset" onClick={() => (inUse !== undefined ? remove(inUse.id, inUse.name) : apply(clickMode))}>
           <Thumbnail entry={entry} lookup={lookup} />
         </button>
         {/* Over the picture's corner, so the name below gets the card's whole width. */}
@@ -198,7 +212,10 @@ function PresetCard(props: {
           <button type="button" title="More ways to apply" data-action="preset-menu" onClick={onToggle}>⋯</button>
         </div>
       </div>
-      <div className="preset-name" title={entry.name}>{entry.name}</div>
+      <div className="preset-name" title={entry.name}>
+        {inUse !== undefined ? <span className="preset-check" aria-label="In use">✓ </span> : null}
+        {entry.name}
+      </div>
       <div className="preset-sub dim">
         {entry.scope === 'project' ? 'project' : (lookup(entry.moduleId ?? '') === undefined ? `${entry.moduleId} (not installed)` : entry.moduleId?.split('.').pop())}
         {entry.origin === 'builtin' ? ' · built-in' : ''}

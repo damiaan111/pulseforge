@@ -354,6 +354,14 @@ The design was written before the code, and it is all in the repo.
 | `docs/ui-spec.md` | The studio interface. |
 | `docs/data-formats-spec.md` | File formats and how old projects keep working. |
 
+## Licence
+
+MIT: see [LICENSE](LICENSE). Do what you want with it.
+
+That covers Pulseforge's own code. What the launcher downloads comes with its own licences, listed
+in `vendor/LICENSES.md` after setup. In particular, the French, German, Spanish and Italian alignment
+models are non-commercial (CC BY-NC 4.0), so they are never installed unless you choose them.
+
 ## Notes
 
 This started as a personal project, built on my own hardware, and it is shaped around that. It is

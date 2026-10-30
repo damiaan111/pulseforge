@@ -1,12 +1,13 @@
 // The left rail (ui-spec §5): the audio panel and the layer list.
 
+import { pickLayer } from '../../project/layer-picker.ts';
 import { secondsToTicks } from '../../engine/core/time.ts';
 import {
-  addLayer, addPaletteColor, duplicateLayer, findLayer, groupLayers, moveLayer, removeLayer,
+  addPaletteColor, duplicateLayer, findLayer, groupLayers, moveLayer, removeLayer,
   removePaletteColor, sequence, setAudio, setLayerFlag, setPaletteColor, setPaletteRole, ungroupLayer,
 } from '../../project/commands.ts';
 import { PALETTE_ROLES } from '../../project/palette.ts';
-import { createGroupLayer, createModuleLayer } from '../../project/create.ts';
+import { createGroupLayer } from '../../project/create.ts';
 import { type Layer } from '../../project/document.ts';
 import { displayOrder, dropPosition, stepPosition } from '../../project/layer-order.ts';
 import { newId } from '../../project/ids.ts';
@@ -40,7 +41,7 @@ export function LeftRail(): React.JSX.Element {
   const run = useStudio((s) => s.run);
   const loadAudio = useStudio((s) => s.loadAudio);
 
-  const { all } = useModules();
+  const { all, manifests } = useModules();
   const VISUALIZERS = all.filter((m) => (LAYER_KINDS as readonly string[]).includes(m.manifest.kind));
   const grid = analysis?.beatGrid;
   // Top first, each group's row above its children (layer-order.ts).
@@ -66,10 +67,11 @@ export function LeftRail(): React.JSX.Element {
     }));
   }
 
-  function addVisualizer(moduleId: string): void {
-    const layer = createModuleLayer(moduleId, { id: newId(), name: moduleId.split('.').pop() ?? 'Layer' });
-    run(addLayer(layer));
-    select(layer.id);
+  function pick(moduleId: string, stack: boolean): void {
+    const result = pickLayer(document, selectedLayerId, moduleId, (id) => manifests.get(id)?.kind, stack, newId);
+    run(result.command);
+    select(result.select);
+    if (result.note !== null) useStudio.getState().notify({ text: result.note, kind: 'warn' });
   }
 
   return (
@@ -110,14 +112,26 @@ export function LeftRail(): React.JSX.Element {
 
       <AssetsPanel />
 
-      <h2>Add layer</h2>
+      <h2>Visuals</h2>
       <div className="module-buttons">
-        {VISUALIZERS.map((m) => (
-          <button key={m.manifest.id} type="button" data-action="add-layer" onClick={() => addVisualizer(m.manifest.id)}>
-            {m.manifest.name}
-          </button>
-        ))}
+        {VISUALIZERS.map((m) => {
+          const active = selectedLayer?.kind === 'module' && selectedLayer.module === m.manifest.id;
+          return (
+            <button
+              key={m.manifest.id}
+              type="button"
+              className={active ? 'active' : ''}
+              aria-pressed={active}
+              data-action="add-layer"
+              title={active ? 'In use. Click to remove it; Shift+click adds another on top' : 'Click to use it; Shift+click adds it on top'}
+              onClick={(event) => pick(m.manifest.id, event.shiftKey)}
+            >
+              {m.manifest.name}
+            </button>
+          );
+        })}
       </div>
+      <p className="dim note">Click to use, click again to remove. Shift+click adds on top. Esc deselects.</p>
 
       <ModulesPanel />
 
@@ -147,7 +161,9 @@ export function LeftRail(): React.JSX.Element {
               depth={depth}
               selected={selectedIds.includes(layer.id)}
               onSelect={(event) => {
-                if (event.shiftKey) extendLayerSelection(layer.id, 'range', layers.map((row) => row.layer.id));
+                // A second click lets go, so there is always an obvious way out of a selection.
+                if (!event.shiftKey && !event.ctrlKey && !event.metaKey && layer.id === selectedLayerId && selectedIds.length <= 1) select(null);
+                else if (event.shiftKey) extendLayerSelection(layer.id, 'range', layers.map((row) => row.layer.id));
                 else if (event.ctrlKey || event.metaKey) extendLayerSelection(layer.id, 'toggle', layers.map((row) => row.layer.id));
                 else select(layer.id);
               }}

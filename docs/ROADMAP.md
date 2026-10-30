@@ -200,7 +200,7 @@ it was made; they are collected here so none is a surprise.
 Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
 effect on a finished video last. Each is noted beside its requirement in §2.
 
-**Before a public release:** a LICENSE file (the owner's choice); real renders, stems and lyrics
+**Before a public release:** real renders, stems and lyrics
 through the chooser on a current driver (STATUS header); a PC with no NVIDIA card; moving the FFmpeg
 pin before BtbN drops it, around 2028.
 

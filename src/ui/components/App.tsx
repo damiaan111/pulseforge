@@ -174,6 +174,7 @@ export function App(): React.JSX.Element {
         else if (state.lyricsOpen) state.setLyricsOpen(false);
         else if (state.autoOpen) state.setAutoOpen(false);
         else if (state.toast !== null) state.notify(null);
+        else if (state.selectedLayerId !== null) state.select(null);
         return;
       }
       const target = event.target as HTMLElement | null;

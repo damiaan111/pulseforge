@@ -717,3 +717,8 @@ kbd { font: 11px Consolas, monospace; padding: 1px 5px; border: 1px solid var(--
 .non-commercial p { margin: 0 0 6px; }
 .level-spark { flex: 0 0 44px; width: 44px; height: 12px; }
 .level-spark polyline { stroke: var(--text-dim); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+/* What is in use, shown where it is chosen. */
+.preset-card.in-use { border-color: var(--accent); }
+.preset-check { color: var(--accent); font-weight: 600; }
+.module-buttons button.active { background: var(--panel-raised); }

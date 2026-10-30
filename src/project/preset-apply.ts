@@ -15,6 +15,7 @@
 
 import { addLayer, findLayer, replaceLayer, replaceLook, CommandError } from './commands.ts';
 import { createModuleLayer } from './create.ts';
+import { sameFamily, type KindLookup } from './layer-picker.ts';
 import type { ProjectDocument } from './document.ts';
 import type { Command } from './history.ts';
 import { applyLayerPreset, applyProjectPreset, type ManifestLookup, type Preset } from './presets.ts';
@@ -28,11 +29,15 @@ export interface PresetApplication {
   readonly select: string | null;
 }
 
-/** What a plain click on a card does: replace the selected layer if there is one, else add. */
-export function defaultApplyMode(preset: Preset, document: ProjectDocument, selectedLayerId: string | null): PresetApplyMode {
+/**
+ * What a plain click on a card does: swap the selected layer if it is the same family of thing, else
+ * add. With no `kindOf` any module layer counts. A locked layer is left alone rather than refused.
+ */
+export function defaultApplyMode(preset: Preset, document: ProjectDocument, selectedLayerId: string | null, kindOf?: KindLookup): PresetApplyMode {
   if (preset.scope === 'project') return 'look';
   const selected = selectedLayerId === null ? undefined : findLayer(document, selectedLayerId);
-  return selected?.kind === 'module' ? 'replace' : 'add';
+  if (selected?.kind !== 'module' || selected.locked) return 'add';
+  return kindOf === undefined || sameFamily(selected.module, preset.module.id, kindOf) ? 'replace' : 'add';
 }
 
 export function applyPreset(

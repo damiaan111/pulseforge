@@ -1817,7 +1817,7 @@ app.whenReady().then(async () => {
       // pass by having nothing to test. A vacuous pass is worse than a failure: it reports
       // green for a feature that was never reached.
       document.querySelector('#app .module-buttons button[data-action="add-layer"]')
-        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
       await new Promise((done) => setTimeout(done, 50));
       const before = document.querySelectorAll('#app .layer-row').length;
       // The eye toggles visibility, which is a command; clicking the row only selects.
@@ -1838,6 +1838,8 @@ app.whenReady().then(async () => {
       // picker, see it appear, take it away again. The inspector builds itself from schema,
       // so this also proves a module's parameters can be reached at all — which is the part
       // that was true of the engine long before it was true of the UI.
+      document.querySelector('#app [data-action="select-whole-frame"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 30));
       document.querySelector('#app .layer-row .layer-name')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
       const picker = document.querySelector('#app .inspector select[data-action="add-effect"]');
@@ -2074,7 +2076,7 @@ app.whenReady().then(async () => {
       };
       // Its own two layers, so it does not depend on what earlier checks left behind; undone at the end.
       const addBars = () => [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars')
-        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
       addBars();
       await new Promise((done) => setTimeout(done, 80));
       addBars();
@@ -2373,10 +2375,44 @@ app.whenReady().then(async () => {
       const blockBack = await waitFor(() => inField() === inBefore, 40);
       const layerDragUi = blockMoved === true && blockBack === true;
       if (!layerDragUi) console.error('[smoke] layerDragUi: ' + JSON.stringify({ inBefore, after: inField(), blockMoved, blockBack }));
+      // Choosing visuals: a second one swaps rather than stacks, the same one again removes it, and
+      // Shift stacks on purpose.
+      console.log('[smoke] step: pickerUi');
+      document.querySelector('#app [data-action="select-whole-frame"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
+      const visual = (index) => document.querySelectorAll('#app .module-buttons button[data-action="add-layer"]')[index];
+      const layerCount = () => document.querySelectorAll('#app .layer-list .layer-row').length;
+      const pressVisual = async (index, shiftKey) => {
+        visual(index)?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey }));
+        await new Promise((done) => setTimeout(done, 80));
+      };
+      const barsIndex = [...document.querySelectorAll('#app .module-buttons button[data-action="add-layer"]')].findIndex((b) => /bars/i.test(b.textContent));
+      const wavesIndex = [...document.querySelectorAll('#app .module-buttons button[data-action="add-layer"]')].findIndex((b) => /wave/i.test(b.textContent));
+      const pickStart = layerCount();
+      await pressVisual(barsIndex, false);
+      const pickAdded = layerCount() === pickStart + 1 && visual(barsIndex)?.classList.contains('active') === true;
+      await pressVisual(wavesIndex, false);
+      const pickSwapped = layerCount() === pickStart + 1 && visual(wavesIndex)?.classList.contains('active') === true && visual(barsIndex)?.classList.contains('active') === false;
+      await pressVisual(wavesIndex, true);
+      const pickStacked = layerCount() === pickStart + 2;
+      await pressVisual(wavesIndex, false);
+      await new Promise((done) => setTimeout(done, 50));
+      const pickRemoved = layerCount() === pickStart + 1;
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+      await new Promise((done) => setTimeout(done, 80));
+      for (let i = 0; i < 4 && layerCount() !== pickStart; i += 1) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+        await new Promise((done) => setTimeout(done, 80));
+      }
+      const pickerUi = pickAdded && pickSwapped && pickStacked && pickRemoved && layerCount() === pickStart;
+      if (!pickerUi) console.error('[smoke] pickerUi: ' + JSON.stringify({ barsIndex, wavesIndex, pickStart, pickAdded, pickSwapped, pickStacked, pickRemoved, end: layerCount() }));
+
       // Selecting two layers with Ctrl brings their shared actions; a plain click goes back to one.
       console.log('[smoke] step: multiSelectUi');
       const names = [...document.querySelectorAll('#app .layer-list .layer-name')];
       const pressName = (button, ctrlKey) => button?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
+      document.querySelector('#app [data-action="select-whole-frame"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 50));
       pressName(names[0], false);
       await new Promise((done) => setTimeout(done, 50));
       pressName(names[1], true);
@@ -2553,7 +2589,7 @@ app.whenReady().then(async () => {
       // inspector says it masks the orb and offers to show it, and the frame renders without warnings.
       let maskUi = false;
       {
-        const add = (name) => [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === name)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const add = (name) => [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === name)?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
         add('Bars');
         await new Promise((done) => setTimeout(done, 150));
         const barsId = document.querySelector('#app .layer-list .layer-row.selected')?.getAttribute('data-layer');
@@ -2676,7 +2712,7 @@ app.whenReady().then(async () => {
       console.log('[smoke] step: lutUi');
       let lutUi = false;
       {
-        document.querySelector('#app .module-buttons button[data-action="add-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.querySelector('#app .module-buttons button[data-action="add-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
         await new Promise((d) => setTimeout(d, 100));
         const picker = document.querySelector('#app .inspector select[data-action="add-effect"]');
         const hasOption = picker !== null && [...picker.options].some((o) => o.value === 'core.effect.lut');
@@ -2807,6 +2843,7 @@ app.whenReady().then(async () => {
         unicodeFonts,
         beatsUi,
         layerDragUi,
+        pickerUi,
         multiSelectUi,
         shortcutUi,
         batchUi,
