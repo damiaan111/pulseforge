@@ -39,6 +39,7 @@ export interface FramesOptions {
   readonly dither?: boolean;
   /** Motion blur (S10); absent is off. */
   readonly motionBlur?: MotionBlur;
+  readonly supersample?: 1 | 2;
   /** Time each layer on the GPU (S12); the summary comes back as `gpu`. */
   readonly profile?: boolean;
   /** Draft or preview quality (S18); final by default, as an export. */
@@ -124,6 +125,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     ...(options.luts === undefined || options.luts.length === 0 ? {} : { luts: options.luts.map((l) => ({ hash: l.hash, text: l.text })) }),
     dither: options.dither ?? false,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
+    ...(options.supersample === undefined ? {} : { supersample: options.supersample }),
     ...(options.profile === true ? { profile: true } : {}),
     ...(options.quality === undefined ? {} : { quality: options.quality }),
   };

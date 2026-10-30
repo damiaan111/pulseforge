@@ -43,6 +43,8 @@ export function ExportDialog(): React.JSX.Element | null {
   const [toId, setToId] = useState('');
   // Karaoke (S15): the instrumental — every stem but the vocals — as the soundtrack.
   const [karaoke, setKaraoke] = useState(false);
+  // Spatial supersampling (export-spec §9): off by default, since it is four times the GPU work.
+  const [supersample, setSupersample] = useState(false);
   const stemsReady = useStudio((s) => s.stems.state === 'ready');
   const [readiness, setReadiness] = useState<RenderReadiness | null>(null);
   useEffect(() => {
@@ -96,6 +98,7 @@ export function ExportDialog(): React.JSX.Element | null {
         presetId: preset.id,
         outputPath,
         motionBlur: blurOn ? { samples, shutterDegrees: shutter } : null,
+        ...(supersample ? { supersample: 2 as const } : {}),
         range: ranged ? { inTicks: fromTicks, outTicks: toTicks } : null,
         audioMix: karaoke && stemsReady ? 'instrumental' : 'full',
       });
@@ -185,6 +188,14 @@ export function ExportDialog(): React.JSX.Element | null {
             {SHUTTER_ANGLES.map((deg) => <option key={deg} value={deg}>{deg}° shutter</option>)}
           </select>
           {blurOn ? <span className="dim-text">Each frame is rendered {samples} times: about {samples}× the render time.</span> : null}
+        </fieldset>
+
+        <fieldset className="export-blur">
+          <label>
+            <input type="checkbox" data-action="export-supersample" checked={supersample} onChange={(event) => setSupersample(event.target.checked)} />
+            {' '}Supersample 2×
+          </label>
+          {supersample ? <span className="dim-text">Smooths thin lines. Rendered at four times the pixels: slower, and it needs more video memory.</span> : null}
         </fieldset>
 
         <div className="output-row">

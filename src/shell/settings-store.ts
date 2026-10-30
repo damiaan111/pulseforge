@@ -54,6 +54,8 @@ export interface Settings {
   readonly lowDiskWarningGb: number;
   /** Temporary files during separation and rendering; null for `<cache root>/scratch`. */
   readonly scratchDir: string | null;
+  /** Remapped keys by action (src/ui/shortcuts.ts); an action not here keeps its default. */
+  readonly shortcuts: Readonly<Record<string, string>>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -69,6 +71,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cacheCeilingGb: 20,
   lowDiskWarningGb: 5,
   scratchDir: null,
+  shortcuts: {},
 };
 
 type Check = (value: unknown) => string | null;
@@ -95,6 +98,9 @@ const CHECKS: { readonly [K in keyof Settings]: Check } = {
   cacheCeilingGb: number(0, 10_000, ' GB'),
   lowDiskWarningGb: number(0, 1000, ' GB'),
   scratchDir: nullable(absolutePath),
+  shortcuts: (value) => (typeof value === 'object' && value !== null && !Array.isArray(value)
+    && Object.entries(value).length <= 64 && Object.entries(value).every(([action, key]) => /^[A-Za-z]{1,40}$/.test(action) && typeof key === 'string' && key.length > 0 && key.length <= 20)
+    ? null : 'must map actions to keys'),
 };
 
 const KEYS = Object.keys(CHECKS) as (keyof Settings)[];

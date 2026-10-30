@@ -83,6 +83,7 @@ export class PreviewHost {
    * layer says "fonts are still loading" until the default one is in.
    */
   private readonly text = new CanvasTextRasterizer();
+  private loopRegion: { readonly startSeconds: number; readonly endSeconds: number } | null = null;
   private readonly registeredFonts = new Set<string>();
   /**
    * Video frames (M39), read from the preview proxy over IPC. Created with the engine. A frame the
@@ -337,6 +338,12 @@ export class PreviewHost {
   }
 
   /** Playback speed for tapping (lyrics-spec §3). Pitch is preserved by the element. */
+  /** Kept, so a clock made later (a new track) loops too. */
+  setLoop(loop: { readonly startSeconds: number; readonly endSeconds: number } | null): void {
+    this.loopRegion = loop;
+    this.clock?.setLoop(loop);
+  }
+
   setRate(rate: number): void {
     this.rate = Math.min(4, Math.max(0.1, rate));
     this.clock?.setRate(this.rate);
@@ -373,6 +380,7 @@ export class PreviewHost {
       audioDurationTicks: Math.max(0, clipEnd - document.audio.clipInTicks),
     });
     this.clock.setRate(this.rate);
+    this.clock.setLoop(this.loopRegion);
     if (previous !== null) {
       // A new clock starts stopped at 0. Keep the playhead where it was; a clock that was playing
       // is paused, with the element, rather than left "stopped" while the audio plays on.

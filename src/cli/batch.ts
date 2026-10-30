@@ -14,6 +14,7 @@
 //   --template ID        one template for every track (default: each track's best match)
 //   --seed N             the batch seed (default 1); each track draws its own from it and its name
 //   --stems              separate stems first (Demucs on the GPU); stem-driven looks read better
+//   --refine-beats       track the beats with librosa first; for music that speeds up and slows down
 //   --motion-blur        8 subframes at a 180° shutter (export-spec §9)
 //   --instrumental       karaoke versions: the soundtrack without the vocals (S15; implies --stems)
 //   --seconds N          render only the first N seconds of each (a quick look at a batch)
@@ -36,6 +37,7 @@ import { shaderModuleDefinition } from '../engine/modules/shader-module.ts';
 import { EXPORT_PRESETS, findExportPreset, type ExportPreset } from '../export/export-presets.ts';
 import { renderDocument } from '../export/render-document.ts';
 import { DiskSpaceError } from '../export/disk-space.ts';
+import { refineBeats } from '../ml/beats.ts';
 import { separateStems } from '../ml/stems.ts';
 import { SidecarSupervisor, spawnPythonSidecar } from '../ml/supervisor.ts';
 import { scanModules } from '../modules-folder/scan.ts';
@@ -49,13 +51,14 @@ export interface BatchCliOptions {
   readonly templateId: string | null;
   readonly seed: number;
   readonly stems: boolean;
+  readonly refineBeats: boolean;
   readonly motionBlur: MotionBlur | undefined;
   readonly seconds: number | undefined;
   readonly directOnly: boolean;
   readonly instrumental: boolean;
 }
 
-const BOOLEAN_FLAGS = new Set(['--stems', '--motion-blur', '--direct-only', '--instrumental']);
+const BOOLEAN_FLAGS = new Set(['--stems', '--motion-blur', '--direct-only', '--instrumental', '--refine-beats']);
 
 export function parseBatchArgs(argv: readonly string[]): BatchCliOptions {
   const inputs: string[] = [];
@@ -92,6 +95,7 @@ export function parseBatchArgs(argv: readonly string[]): BatchCliOptions {
     seed,
     // Karaoke needs the stems, so asking for it separates them.
     stems: flags.has('stems') || flags.has('instrumental'),
+    refineBeats: flags.has('refine-beats'),
     motionBlur: flags.has('motion-blur') ? MOTION_BLUR_DEFAULT : undefined,
     seconds,
     directOnly: flags.has('direct-only'),
@@ -168,6 +172,9 @@ export async function batch(argv: readonly string[]): Promise<number> {
           modules,
           preset: options.preset,
           templateId: options.templateId,
+          ...(options.refineBeats ? {
+            refineBeats: (pcm: Float32Array, audioHash: string) => refineBeats({ pythonExe: PYTHON_EXE, packageDir: join(ROOT, 'python'), env: pythonEnv(), pcm, audioHash, workDir: join(ROOT, 'out', 'batch-scratch') }),
+          } : {}),
           ...(supervisor === undefined ? {} : {
             separateStems: async (audioPath: string) => {
               await separateStems({

@@ -19,6 +19,8 @@ export interface BatchRequest {
   readonly seed: number;
   /** Separate stems before directing each track. */
   readonly stems: boolean;
+  /** Refine each track's beats (S16) before directing it. Absent: the detected grid. */
+  readonly refineBeats?: boolean;
   readonly motionBlur: MotionBlur | null;
   /** Karaoke (S15): render with the instrumental. Needs stems, so `stems` should be on. Absent: the song. */
   readonly audioMix?: 'full' | 'instrumental';
@@ -43,7 +45,7 @@ export interface BatchStatus {
 }
 
 export interface BatchServiceOptions {
-  readonly directTrack: (track: BatchTrack, options: { readonly preset: ExportPreset; readonly templateId: string | null; readonly stems: boolean }) => Promise<DirectedTrack>;
+  readonly directTrack: (track: BatchTrack, options: { readonly preset: ExportPreset; readonly templateId: string | null; readonly stems: boolean; readonly refineBeats: boolean }) => Promise<DirectedTrack>;
   /** Queues one directed project's render; the queue snapshots the file as it is. */
   readonly enqueue: (request: { readonly projectPath: string; readonly presetId: string; readonly outputPath: string; readonly motionBlur: MotionBlur | null; readonly audioMix: 'full' | 'instrumental' }) => Promise<unknown>;
   readonly templateIds: () => Promise<readonly string[]>;
@@ -92,7 +94,7 @@ export function createBatchService(options: BatchServiceOptions): BatchService {
       }
       setTrack(index, { state: 'directing' });
       try {
-        const directed = await options.directTrack(track, { preset, templateId: request.templateId, stems: request.stems });
+        const directed = await options.directTrack(track, { preset, templateId: request.templateId, stems: request.stems, refineBeats: request.refineBeats === true });
         await options.enqueue({ projectPath: track.projectPath, presetId: preset.id, outputPath: track.outputPath, motionBlur: request.motionBlur, audioMix: request.audioMix ?? 'full' });
         setTrack(index, { state: 'queued', detail: directed.summary, notes: directed.notes });
       } catch (error) {

@@ -105,6 +105,12 @@ export interface EngineOptions {
    * shutter. Export only — the preview never sets it. Absent: one sample at the frame's time.
    */
   readonly motionBlur?: MotionBlur;
+  /**
+   * Spatial supersampling (export-spec §9): 2 renders each frame at twice the size and averages it
+   * down, which fixes the shimmer of thin lines at four times the fragment cost. Export only.
+   * Absent: 1.
+   */
+  readonly supersample?: 1 | 2;
 }
 
 export interface FrameReport {
@@ -252,7 +258,8 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
   const images = new ImageStore(gl);
   const videos = new VideoStore(gl);
   const luts = new LutStore(gl);
-  const compositor = new Compositor(gl, pool);
+  const supersample = options.supersample ?? 1;
+  const compositor = new Compositor(gl, pool, supersample);
   const profiler = new GpuProfiler(gl);
   let quality: RenderQuality = options.quality;
   const instances = new Map<string, { moduleId: string; instance: ModuleInstance }>();
@@ -372,13 +379,18 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
         throw new RangeError(`frameIndex must be a non-negative integer, got ${frameIndex}`);
       }
-      const { width, height, fps } = project.canvas;
-      if (nv12 !== undefined && !nv12Supported(width, height)) {
-        throw new RenderSetupError(`NV12 export needs a width divisible by 4 and an even height, got ${width}×${height}`);
+      const { width: outputWidth, height: outputHeight, fps } = project.canvas;
+      if (nv12 !== undefined && !nv12Supported(outputWidth, outputHeight)) {
+        throw new RenderSetupError(`NV12 export needs a width divisible by 4 and an even height, got ${outputWidth}×${outputHeight}`);
       }
-      if (output === undefined || output.width !== width || output.height !== height) {
+      // Everything is drawn at this size; only the output pass works at the frame's own.
+      const width = outputWidth * supersample;
+      const height = outputHeight * supersample;
+      const longest = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+      if (Math.max(width, height) > longest) throw new RenderSetupError(`Supersampling needs a ${width}×${height} texture, and this GPU's limit is ${longest}`);
+      if (output === undefined || output.width !== outputWidth || output.height !== outputHeight) {
         if (output !== undefined) pool.release(output);
-        output = pool.acquire(width, height, outputFormat);
+        output = pool.acquire(outputWidth, outputHeight, outputFormat);
         for (const { instance } of instances.values()) instance.resize(width, height);
       }
 

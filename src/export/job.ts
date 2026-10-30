@@ -64,6 +64,7 @@ export interface ExportRequest {
   readonly dither?: boolean;
   /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
   readonly motionBlur?: MotionBlur;
+  readonly supersample?: 1 | 2;
   /** Part of the timeline (S9: markers as range bounds); absent renders all of it. */
   readonly range?: RenderRange;
   readonly now: () => number;
@@ -140,6 +141,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     ...(request.text === undefined ? {} : { text: request.text }),
     ...(request.modules === undefined ? {} : { modules: request.modules }),
     ...(request.motionBlur === undefined ? {} : { motionBlur: request.motionBlur }),
+    ...(request.supersample === undefined ? {} : { supersample: request.supersample }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
   for (const [hash, lut] of request.luts ?? []) engine.setLut(hash, lut);
@@ -209,6 +211,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
         combinedSha256: request.hashFrames ? createHash('sha256').update(frameHashes.join('\n')).digest('hex') : undefined,
       },
       motionBlur: request.motionBlur ?? null,
+      supersample: request.supersample ?? 1,
       range: request.range === undefined ? null : { ...request.range, startFrame, frames },
       encode: {
         settings,

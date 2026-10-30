@@ -40,6 +40,8 @@ import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import { detectLyricsFormat, exportLyrics as exportLyricsText, importLyricsFile, type LyricsExportFormat } from '../lyrics/formats.ts';
 import type { TapSession } from '../lyrics/tap.ts';
 import type { BeatRefinementState } from '../analysis/beat-refinement.ts';
+import type { LoopState } from './loop-region.ts';
+import { extendSelection } from './layer-selection.ts';
 import { applyAlignment, importLyrics, lyricsToText, setLyricsText, setTranscribedLyrics } from '../project/lyrics-commands.ts';
 import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
 import { sourceToTimelineSeconds } from '../engine/core/time.ts';
@@ -124,7 +126,12 @@ export interface StudioState {
   redoLabel: string | undefined;
 
   // UI-only, never undoable.
+  /** The layer the inspector edits. */
   selectedLayerId: string | null;
+  /** Everything selected, the inspector's layer among them. May hold ids since undone: check against the document. */
+  selectedLayerIds: readonly string[];
+  /** Ctrl and Shift on a layer; `order` is the list as it is shown. */
+  extendLayerSelection(id: string, mode: 'toggle' | 'range', order: readonly string[]): void;
   /** Which aspect edits are written to (D44). 'base' edits the layer itself. */
   editTarget: EditTarget;
   /** Render scale for the preview, 0.25-1. Lower is grainier, never different (ui-spec §0.4). */
@@ -159,6 +166,9 @@ export interface StudioState {
   importLut(): Promise<AssetRef | null>;
   /** The bundled default typeface; null until loaded at startup. */
   defaultFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
+  /** The preview's loop region (I, O, L), which is not part of the project. */
+  loop: LoopState | null;
+  setLoop(loop: LoopState | null): void;
   /** Stems drawn on the timeline. */
   stemRows: boolean;
   setStemRows(on: boolean): void;
@@ -454,6 +464,11 @@ export const useStudio = create<StudioState>((set, get) => ({
   migratedFrom: null,
 
   selectedLayerId: null,
+  selectedLayerIds: [],
+  extendLayerSelection(id, mode, order) {
+    const next = extendSelection({ primary: get().selectedLayerId, ids: get().selectedLayerIds }, id, mode, order);
+    set({ selectedLayerId: next.primary, selectedLayerIds: next.ids });
+  },
   editTarget: 'base',
   previewScale: 1,
   toast: null,
@@ -475,6 +490,10 @@ export const useStudio = create<StudioState>((set, get) => ({
   luts: new Map(),
   defaultFont: null,
   fallbackFonts: [],
+  loop: null,
+  setLoop(loop) {
+    set({ loop });
+  },
   stemRows: false,
   setStemRows(on) {
     set({ stemRows: on });
@@ -874,7 +893,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         ...(existing === undefined ? [addAsset(asset)] : []),
         addLayer(layer, { index }),
       ]));
-      set({ selectedLayerId: layer.id });
+      set({ selectedLayerId: layer.id, selectedLayerIds: [layer.id] });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Using the library image'), kind: 'bad' } });
     }
@@ -970,7 +989,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 
   select(layerId) {
-    set({ selectedLayerId: layerId });
+    set({ selectedLayerId: layerId, selectedLayerIds: layerId === null ? [] : [layerId] });
   },
 
   setEditTarget(target) {
@@ -1003,6 +1022,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       issues: [],
       migratedFrom: null,
       selectedLayerId: null,
+      selectedLayerIds: [],
       toast: null,
       images: new Map(),
       fonts: new Map(),
@@ -1040,6 +1060,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       issues: loaded.issues,
       migratedFrom: loaded.migratedFrom,
       selectedLayerId: null,
+      selectedLayerIds: [],
       toast: options.recovered !== undefined
         ? { text: options.recovered, kind: 'warn' as const }
         : loaded.migratedFrom === null

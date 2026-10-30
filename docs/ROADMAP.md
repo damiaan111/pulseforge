@@ -50,7 +50,7 @@
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | 4.79 time ranges drag on the timeline; multi-select is not built |
+| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | 4.79 time ranges drag on the timeline; 4.81 multi-select |
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
@@ -70,7 +70,7 @@
 | | Requirement | State | What is left |
 |---|---|---|---|
 | M18 | Lyrics editor: paste, `.lrc`/`.srt` import, per-line times | ✅ | 4.50, 4.53 — paste/type with markers, import and export of five formats, typed times, roles, locks, words, checklist |
-| M19 | Tap-to-sync with beat snapping, vocal-stem waveform, drag-adjust | ✅ | 4.53, 4.54 — tap-to-sync; the timeline lane with the vocal level, drag/resize/ripple/word boundaries, snapping, zoom, keyboard. Not built: marquee select, loop region |
+| M19 | Tap-to-sync with beat snapping, vocal-stem waveform, drag-adjust | ✅ | 4.53, 4.54 — tap-to-sync; the timeline lane with the vocal level, drag/resize/ripple/word boundaries, snapping, zoom, keyboard. 4.81 marquee select and a loop region |
 | M20 | Karaoke word-fill rendering | ✅ | 4.51 — seven fill modes, line window with scroll/crossfade/cut, roles, lyric modulation sources. 4.81 gradient fills. Contrast against the live backdrop is decided against |
 | M26 | WhisperX transcription + alignment on the vocal stem | ✅ | 4.55 — English alignment; other languages' models and `large-v3` are not provisioned |
 
@@ -87,7 +87,7 @@
 |---|---|---|---|---|
 | M23 | Deterministic NVENC render at 1080p60, 4K60, 9:16, 1:1; progress/cancel; A/V sync | ✅ | 4.5, 4.33 | |
 | M24 | Export presets + render queue | ✅ | 4.23, 4.34 | the dialog consults the encoder probe and disables what cannot open, with the reason (STATUS 4.75) |
-| M25 | Preset save/load, project and layer level, portable JSON | ✅ | 4.19, 4.25, 4.44 | presets reference assets by project id, so a preset that uses an image does not bring it to another project |
+| M25 | Preset save/load, project and layer level, portable JSON | ✅ | 4.19, 4.25, 4.44 | presets reference assets by project id (D6), so a preset that uses an image does not bring it to another project |
 | M38 | Layer groups | ✅ | 4.39 | |
 | M39 | Video layers via a deterministic frame cache, proxies | ✅ | 4.41 | cache-size attribution waits for M33 |
 | M40 | Managed asset library: path + hash, missing detection, relink, collect files | ✅ | 4.37 | |
@@ -99,7 +99,7 @@
 | M33 | Cache & disk management: root, breakdown, prune, LRU ceiling, low-disk warning | ✅ | 4.17, 4.41, 4.60 | "per-project" view: the breakdown is per track and video, which is what a project's cache consists of |
 | M34 | Diagnostics: rotating logs, per-render report, environment report, copy diagnostics | ✅ | 4.5, 4.14, 4.61 | per-layer GPU timer queries are S12 (performance HUD) |
 | M35 | Module authoring, `modules/` folder, conformance test | ✅ | 4.42 | see §4 for the deliberate difference from module-spec §12 |
-| M36 | Settings screen incl. setup/repair entry | ✅ | 4.59 | shortcut remapping and GPU choice are shown, not settable (§4) |
+| M36 | Settings screen incl. setup/repair entry | ✅ | 4.59 | 4.81 shortcuts remap; GPU choice is shown, not settable (§4) |
 
 ### Should-haves already touched
 
@@ -108,10 +108,10 @@
 | S1 Keyframe automation | ✅ | 4.63, 4.64 — the auto-director still writes arrangement as `curve` bindings (ROADMAP §4); converting it to keyframes is a follow-up |
 | S7 Masking | ✅ | 4.65 — alpha and luma, invert, feather; stencil modes are alpha and inverted alpha |
 | S6 6-stem model | ✅ | 4.67 — `htdemucs_6s` as an optional model, guitar and piano stems, 1.27× the time of `htdemucs` |
-| S10 Motion blur | ✅ | 4.66 — export dialog and CLI, 2–32 samples, 1–360° shutter, in the render report; spatial SSAA (export-spec §9) is not built |
+| S10 Motion blur | ✅ | 4.66 — export dialog and CLI, 2–32 samples, 1–360° shutter, in the render report; 4.81 spatial supersampling |
 | S2 Custom GLSL layer | ✅ | 4.42 drop-in shader modules; 4.72 Shadertoy dialect: paste with a live check, bare `.glsl` files, `iChannel0` audio; single pass only, no image channels |
 | S8 Preset browser | ✅ | 4.44 |
-| S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; loop region and I/O keys not built |
+| S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; 4.81 loop region and I/O keys |
 | S11 Colour management | ✅ | linear-light, premultiplied compositing and correct output transfer; 4.73 the LUT effect with `.cube` files (3D and 1D), for display or linear input |
 | S13 Batch mode | ✅ | 4.68 — drop tracks or Batch…, `npm run batch`; completion notification, shutdown when done; 4.75 a job that will not fit holds the queue |
 | S15 Karaoke export | ✅ | 4.70 — export dialog, `render --instrumental`, batch; every stem but the vocals, summed; refused without stems |
@@ -175,7 +175,7 @@ it was made; they are collected here so none is a surprise.
 | **The VoxPopuli alignment models (fr, de, es, it) are CC BY-NC 4.0** — non-commercial | PROJECT.md §3 wants open licences | they are what WhisperX uses for these languages. **Decided by the owner 2026-10-30:** they stay, as optional downloads with a notice that needs a tick | STATUS 4.62, 4.80 |
 | The offline rebuild check is **a command and a Settings button, not a CI job** | P1 exit: "passes a networking-disabled end-to-end run in CI" | the repo has no CI; the check runs the same rebuild locally with the network made unusable | STATUS 4.62 |
 | **MilkDrop presets** (PROJECT.md §3 extras) are not provisioned | extras tier | there is no MilkDrop renderer in the app to use them | STATUS 4.62 |
-| The Settings screen **shows the GPU and the keyboard map** rather than letting them be chosen | PROJECT.md §8.16 lists GPU device selection and a shortcut map | Chromium chooses the WebGL device and offers no per-app switch; remapping needs a shortcut registry the studio does not have yet (the reference is accurate) | STATUS 4.59 |
+| The Settings screen **shows the GPU and the keyboard map** rather than letting them be chosen | PROJECT.md §8.16 lists GPU device selection and a shortcut map | Chromium chooses the WebGL device and offers no per-app switch; shortcuts have remapped since 4.81 | STATUS 4.59 |
 | A **`split` harmony** (+90°, −110°) in template palettes | auto-director-spec §4 lists analogous, complementary, triad, duotone | the contact sheet showed a triad's sun lime-green; synthwave's magenta/orange/cyan needs it | STATUS 4.58 |
 | Multiplying bindings are **capped** at ×1.25 / ×1.6 / ×2.5 per band | §5.2: band share of the soft range | on a small base the range share becomes a ×13 factor | STATUS 4.57 |
 | The analysis cache key **includes band names** | data-formats §4.3: a band rename should keep the cache | cached tracks are stored by name, so a rename that hit the cache would silently disable every binding on the band; a rename now costs one re-analysis | STATUS 4.45 |
@@ -204,16 +204,12 @@ effect on a finished video last. Each is noted beside its requirement in §2.
 through the chooser on a current driver (STATUS header); a PC with no NVIDIA card; moving the FFmpeg
 pin before BtbN drops it, around 2028.
 
-**Timeline:** multi-select; marquee select and a loop region in the lyrics lane.
-
-**Export:** spatial supersampling (export-spec §9); presets that bring their images along.
-
-**Auto-director:** convert arrangement curves to keyframes; `derive-from-image` palettes; "Extract as
-template"; beat refinement in `npm run batch`.
+**Auto-director (Could-level in the spec):** `derive-from-image` palettes; "Extract as template";
+palette shifts at a chorus; converting arrangement curves to keyframes.
 
 **Text:** colour emoji, vertical text, Thai word segmentation.
 
-**Settings:** shortcut remapping.
+**Components:** removing one from the app (today: delete its folder under `vendor/`).
 
 **The owner's decisions:** §4, above all whether to keep offering the non-commercial alignment models.
 

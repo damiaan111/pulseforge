@@ -3,7 +3,7 @@
 import { secondsToTicks } from '../../engine/core/time.ts';
 import {
   addLayer, addPaletteColor, duplicateLayer, findLayer, groupLayers, moveLayer, removeLayer,
-  removePaletteColor, setAudio, setLayerFlag, setPaletteColor, setPaletteRole, ungroupLayer,
+  removePaletteColor, sequence, setAudio, setLayerFlag, setPaletteColor, setPaletteRole, ungroupLayer,
 } from '../../project/commands.ts';
 import { PALETTE_ROLES } from '../../project/palette.ts';
 import { createGroupLayer, createModuleLayer } from '../../project/create.ts';
@@ -34,6 +34,8 @@ export function LeftRail(): React.JSX.Element {
   const analysis = useStudio((s) => s.analysis);
   const sections = useStudio((s) => s.sections);
   const selectedLayerId = useStudio((s) => s.selectedLayerId);
+  const selectedLayerIds = useStudio((s) => s.selectedLayerIds);
+  const extendLayerSelection = useStudio((s) => s.extendLayerSelection);
   const select = useStudio((s) => s.select);
   const run = useStudio((s) => s.run);
   const loadAudio = useStudio((s) => s.loadAudio);
@@ -44,6 +46,8 @@ export function LeftRail(): React.JSX.Element {
   // Top first, each group's row above its children (layer-order.ts).
   const layers = displayOrder(document.layers);
   const selectedLayer = selectedLayerId === null ? undefined : findLayer(document, selectedLayerId);
+  // Undo can bring back a document without them.
+  const selectedIds = selectedLayerIds.filter((id) => findLayer(document, id) !== undefined);
 
   async function importAudio(): Promise<void> {
     const path = await window.pulseforge.pickAudio();
@@ -141,13 +145,36 @@ export function LeftRail(): React.JSX.Element {
               key={layer.id}
               layer={layer}
               depth={depth}
-              selected={layer.id === selectedLayerId}
-              onSelect={() => select(layer.id)}
+              selected={selectedIds.includes(layer.id)}
+              onSelect={(event) => {
+                if (event.shiftKey) extendLayerSelection(layer.id, 'range', layers.map((row) => row.layer.id));
+                else if (event.ctrlKey || event.metaKey) extendLayerSelection(layer.id, 'toggle', layers.map((row) => row.layer.id));
+                else select(layer.id);
+              }}
             />
           ))}
         </ul>
       )}
-      {selectedLayerId !== null && (
+      {selectedIds.length > 1 && (
+        <div className="layer-actions" data-testid="multi-layer-actions">
+          <span className="dim">{selectedIds.length} layers</span>
+          <button type="button" data-action="layers-toggle" title="Show or hide them all" onClick={() => {
+            const show = selectedIds.some((id) => findLayer(document, id)?.enabled === false);
+            run(sequence(show ? 'Show layers' : 'Hide layers', selectedIds.map((id) => setLayerFlag(id, 'enabled', show))));
+          }}>Show / hide</button>
+          <button type="button" data-action="layers-group" onClick={() => {
+            const group = createGroupLayer([], { id: newId(), name: 'Group' });
+            run(groupLayers(selectedIds, group));
+            select(group.id);
+          }}>Group</button>
+          <button type="button" data-action="layers-delete" title="Locked layers stay" onClick={() => {
+            const free = selectedIds.filter((id) => findLayer(document, id)?.locked !== true);
+            if (free.length > 0) run(sequence('Delete layers', free.map((id) => removeLayer(id))));
+            select(null);
+          }}>Delete</button>
+        </div>
+      )}
+      {selectedLayerId !== null && selectedIds.length <= 1 && (
         <div className="layer-actions">
           <button type="button" onClick={() => run(duplicateLayer(selectedLayerId, newId))}>Duplicate</button>
           <button
@@ -258,7 +285,7 @@ function LayerRow(props: {
   layer: Layer;
   depth: number;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (event: React.MouseEvent) => void;
 }): React.JSX.Element {
   const { layer, depth, selected, onSelect } = props;
   const run = useStudio((s) => s.run);

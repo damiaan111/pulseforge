@@ -89,6 +89,8 @@ export interface RenderDocumentOptions {
   readonly codec: VideoCodec;
   /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
   readonly motionBlur?: MotionBlur | undefined;
+  /** Spatial supersampling (export-spec §9); absent is 1. */
+  readonly supersample?: 1 | 2 | undefined;
   /** Part of the timeline (S9: between markers); absent renders all of it. */
   readonly range?: RenderRange | undefined;
   /** 'instrumental': the karaoke variant (S15) — every stem but the vocals, summed. Default 'full'. */
@@ -340,6 +342,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     hashFrames: false,
     dither: true,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
+    ...(options.supersample === undefined ? {} : { supersample: options.supersample }),
     ...(options.range === undefined ? {} : { range: options.range }),
     runs: 1,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),

@@ -32,9 +32,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { peaksForRange } from '../../analysis/peaks.ts';
-import { setAudio, setLayerTimeRange } from '../../project/commands.ts';
+import { sequence, setAudio, setLayerTimeRange } from '../../project/commands.ts';
 import type { TimeRange } from '../../project/document.ts';
-import { dragLayerRange, layerDragKind, trimClip, type ClipPlacement, type LayerDragKind } from '../timeline-drag.ts';
+import { setLoopEnd, toggleLoop } from '../loop-region.ts';
+import { actionForKey, keyName } from '../shortcuts.ts';
+import { dragLayerRange, dragLayersTogether, layerDragKind, linesInRange, trimClip, type ClipPlacement, type LayerDragKind } from '../timeline-drag.ts';
 import { lyricTokens, wordSpans } from '../../engine/core/lyrics.ts';
 import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds, timelineToSourceSeconds } from '../../engine/core/time.ts';
 import type { Stem } from '../../engine/core/params.ts';
@@ -136,7 +138,10 @@ export function Timeline(): React.JSX.Element {
   const transport = useStudio((s) => s.transport);
   const selectedLayerId = useStudio((s) => s.selectedLayerId);
   const select = useStudio((s) => s.select);
+  const selectedLayerIds = useStudio((s) => s.selectedLayerIds);
+  const extendLayerSelection = useStudio((s) => s.extendLayerSelection);
   const stemRows = useStudio((s) => s.stemRows);
+  const loop = useStudio((s) => s.loop);
   const soloStem = useStudio((s) => s.soloStem);
   const toggleSolo = useStudio((s) => s.toggleSolo);
   const stemNames = useMemo(() => (stemRows && analysis !== null ? [...analysis.sources.keys()].filter((name) => name !== 'mix') : []), [stemRows, analysis]);
@@ -295,6 +300,13 @@ export function Timeline(): React.JSX.Element {
           ctx.fillRect(left + i, top, 1, Math.max(1, bottom - top));
         }
         ctx.globalAlpha = 1;
+      }
+      if (loop !== null) {
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = loop.on ? 0.14 : 0.05;
+        ctx.fillRect(x(loop.startSeconds), 0, x(loop.endSeconds) - x(loop.startSeconds), WAVE_HEIGHT);
+        ctx.globalAlpha = 1;
+        ctx.fillRect(x(loop.startSeconds), 0, x(loop.endSeconds) - x(loop.startSeconds), 2);
       }
       // The clip's two edges, to trim by dragging (M29).
       ctx.fillStyle = dim;
@@ -478,7 +490,7 @@ export function Timeline(): React.JSX.Element {
       const left = Math.max(PADDING, x(from));
       const right = Math.min(rect.width - PADDING, x(Math.min(duration, to)));
       if (right < left) continue;
-      const selected = layer.id === selectedLayerId;
+      const selected = selectedLayerIds.includes(layer.id);
       ctx.fillStyle = selected ? raised : line;
       ctx.globalAlpha = layer.enabled ? 1 : 0.35;
       ctx.fillRect(left, rowTop, Math.max(2, right - left), ROW_HEIGHT - 4);
@@ -533,7 +545,7 @@ export function Timeline(): React.JSX.Element {
     ctx.lineTo(px, rect.height);
     ctx.stroke();
     ctx.lineWidth = 1;
-  }, [stemNames, soloStem, document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection, markerSelection]);
+  }, [selectedLayerIds, loop, stemNames, soloStem, document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection, markerSelection]);
 
   useEffect(() => {
     draw();
@@ -573,18 +585,24 @@ export function Timeline(): React.JSX.Element {
       const target = event.target as HTMLElement | null;
       const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
       if (typing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-      const key = event.key.toLowerCase();
-      if (key === 'f') setView(fitView(duration));
-      else if (key === 'm') {
+      const action = actionForKey(keyName(event), useStudio.getState().settings?.shortcuts ?? {});
+      if (action === 'fit') setView(fitView(duration));
+      else if (action === 'loopIn' || action === 'loopOut') {
+        const state = useStudio.getState();
+        state.setLoop(setLoopEnd(state.loop, action === 'loopIn' ? 'in' : 'out', state.timelineSeconds, duration));
+      } else if (action === 'loopToggle') {
+        const state = useStudio.getState();
+        state.setLoop(toggleLoop(state.loop));
+      } else if (action === 'marker') {
         // M adds a marker at the playhead (ui-spec §9), selected so it can be named at once.
         event.preventDefault();
         const state = useStudio.getState();
         const id = newId();
         state.run(addMarker(Math.round(state.timelineSeconds * TICKS_PER_SECOND), { id }));
         state.setMarkerSelection(id);
-      } else if (key === '[' || key === ']') {
+      } else if (action === 'previousStop' || action === 'nextStop') {
         event.preventDefault();
-        jumpToStop(key === ']' ? 1 : -1);
+        jumpToStop(action === 'nextStop' ? 1 : -1);
       }
     };
     const onDelete = (event: KeyboardEvent) => {
@@ -614,7 +632,8 @@ export function Timeline(): React.JSX.Element {
   const drag = useRef<DragState | null>(null);
   const markerDrag = useRef<{ readonly id: string; readonly startTicks: number; readonly originX: number; readonly mergeKey: string; moved: boolean } | null>(null);
   const keyDrag = useRef<KeyDragState | null>(null);
-  const layerDrag = useRef<{ readonly layerId: string; readonly kind: LayerDragKind; readonly start: TimeRange; readonly originX: number; moved: boolean } | null>(null);
+  const marquee = useRef<{ readonly fromTicks: number; readonly originX: number } | null>(null);
+  const layerDrag = useRef<{ readonly layerId: string; readonly kind: LayerDragKind; readonly start: TimeRange; readonly originX: number; moved: boolean; readonly others: readonly { readonly id: string; readonly start: TimeRange }[]; readonly mergeKey: string } | null>(null);
   const trimDrag = useRef<{ readonly edge: 'in' | 'out'; readonly start: ClipPlacement; readonly originX: number; moved: boolean } | null>(null);
   const scrubbing = useRef(false);
   const [cursor, setCursor] = useState('pointer');
@@ -697,6 +716,9 @@ export function Timeline(): React.JSX.Element {
       if (hit === null) {
         setLyricsSelection([]);
         previewControls.seek(seconds);
+        // Dragging on from here selects a span of lines; a plain click was only the seek.
+        capture(canvas, event.pointerId);
+        marquee.current = { fromTicks: Math.round(seconds * TICKS_PER_SECOND), originX: px };
         return;
       }
       let selection = lyricsSelection;
@@ -736,11 +758,22 @@ export function Timeline(): React.JSX.Element {
       return;
     }
     if (entry.kind === 'layer') {
-      select(entry.layer.id);
+      const order = layerRows(document).map((layer) => layer.id);
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        extendLayerSelection(entry.layer.id, event.shiftKey ? 'range' : 'toggle', order);
+        return;
+      }
+      // A press on one of several selected layers keeps them, to move together.
+      const together = selectedLayerIds.length > 1 && selectedLayerIds.includes(entry.layer.id);
+      if (!together) select(entry.layer.id);
       const kind = event.button === 0 ? layerGrab(g, entry.layer, px) : null;
       if (kind !== null) {
         capture(canvas, event.pointerId);
-        layerDrag.current = { layerId: entry.layer.id, kind, start: entry.layer.timeRange, originX: px, moved: false };
+        const others = together && kind === 'move'
+          ? selectedLayerIds.map((id) => layerRows(document).find((layer) => layer.id === id)).filter((layer): layer is Layer => layer !== undefined && !layer.locked).map((layer) => ({ id: layer.id, start: layer.timeRange }))
+          : [];
+        dragCount += 1;
+        layerDrag.current = { layerId: entry.layer.id, kind, start: entry.layer.timeRange, originX: px, moved: false, others, mergeKey: `layers-drag:${dragCount}` };
       }
       return;
     }
@@ -776,6 +809,12 @@ export function Timeline(): React.JSX.Element {
       previewControls.seek(Math.min(duration, Math.max(0, secondsAt(g, px))));
       return;
     }
+    if (marquee.current !== null) {
+      if (Math.abs(px - marquee.current.originX) < 3) return;
+      const to = Math.round(Math.min(duration, Math.max(0, secondsAt(g, px))) * TICKS_PER_SECOND);
+      setLyricsSelection(linesInRange(document.lyrics.lines, marquee.current.fromTicks, to));
+      return;
+    }
     const trim = trimDrag.current;
     if (trim !== null) {
       if (!trim.moved && Math.abs(px - trim.originX) < 3) return;
@@ -795,6 +834,11 @@ export function Timeline(): React.JSX.Element {
         const anchor = block.kind === 'out' ? block.start.outTicks ?? durationTicks : block.start.inTicks;
         const best = nearestTarget(anchor + delta, snapTargetsFor(), SNAP_PX / pxPerTick);
         if (best !== null) delta = best - anchor;
+      }
+      if (block.others.length > 1) {
+        const ranges = dragLayersTogether(block.others.map((other) => other.start), delta, durationTicks);
+        run({ ...sequence('Move layers', block.others.map((other, i) => setLayerTimeRange(other.id, ranges[i]!.inTicks, ranges[i]!.outTicks))), mergeKey: block.mergeKey }, { seal: false });
+        return;
       }
       const range = dragLayerRange(block.start, block.kind, delta, durationTicks);
       run(setLayerTimeRange(block.layerId, range.inTicks, range.outTicks), { seal: false });
@@ -884,6 +928,7 @@ export function Timeline(): React.JSX.Element {
   function onPointerUp(event: React.PointerEvent<HTMLCanvasElement>): void {
     if (canvasRef.current?.hasPointerCapture(event.pointerId) === true) canvasRef.current.releasePointerCapture(event.pointerId);
     scrubbing.current = false;
+    marquee.current = null;
     if (trimDrag.current !== null || layerDrag.current !== null) {
       if (trimDrag.current?.moved === true || layerDrag.current?.moved === true) history.seal();
       trimDrag.current = null;

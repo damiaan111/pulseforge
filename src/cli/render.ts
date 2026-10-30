@@ -21,6 +21,7 @@
 //   --motion-blur                average 8 subframes across a 180° shutter (export-spec §9)
 //   --blur-samples N             subframes per frame, 2–32 (implies --motion-blur)
 //   --shutter DEG                shutter angle, 1–360 (implies --motion-blur)
+//   --supersample                render at twice the size and average down; smooths thin lines
 //   --instrumental               karaoke: the soundtrack is every stem but the vocals (S15; needs
 //                                the track's stems separated)
 //   --from X / --to X            render part of the timeline: X is a marker's name, or a time
@@ -56,6 +57,7 @@ export interface Options {
   readonly noCache: boolean;
   readonly seconds: number | undefined;
   readonly motionBlur: MotionBlur | undefined;
+  readonly supersample: boolean;
   /** Marker names or times, resolved against the project once it is read. */
   readonly from: string | undefined;
   readonly to: string | undefined;
@@ -64,7 +66,7 @@ export interface Options {
 }
 
 /** Flags that stand alone. Everything else consumes the next token as its value. */
-const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache', '--motion-blur', '--instrumental']);
+const BOOLEAN_FLAGS = new Set(['--quiet', '--no-cache', '--motion-blur', '--instrumental', '--supersample']);
 
 export function parseArgs(argv: readonly string[]): Options {
   const positional: string[] = [];
@@ -137,6 +139,7 @@ export function parseArgs(argv: readonly string[]): Options {
     audioOverride: flags.get('audio'),
     seconds,
     motionBlur,
+    supersample: flags.has('supersample'),
     from: flags.get('from'),
     to: flags.get('to'),
     instrumental: flags.has('instrumental'),
@@ -209,6 +212,7 @@ export async function render(argv: readonly string[]): Promise<void> {
       seconds: options.seconds,
       codec: options.codec,
       motionBlur: options.motionBlur,
+      supersample: options.supersample ? 2 : undefined,
       outputPath: options.outputPath,
       workDir: join(ROOT, 'out', 'render'),
       cacheRoot: join(ROOT, 'cache'),

@@ -46,6 +46,8 @@ export interface RenderRequest {
   readonly outputPath: string;
   /** Motion blur (S10); absent or null is off. */
   readonly motionBlur?: MotionBlur | null;
+  /** Spatial supersampling (export-spec §9); absent is off. */
+  readonly supersample?: 1 | 2;
   /** Part of the timeline (S9); absent or null renders all of it. */
   readonly range?: JobRange | null;
   /** 'instrumental': a karaoke render (S15). Absent: the song. */
@@ -103,6 +105,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           size: preset.size ?? undefined,
           codec: preset.codec,
           motionBlur: job.motionBlur ?? undefined,
+          supersample: job.supersample,
           range: job.range ?? undefined,
           audioMix: job.audioMix ?? 'full',
           outputPath: job.outputPath,
@@ -161,10 +164,11 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         aspect: aspectBucket(size.width, size.height),
         presetName: preset.id,
         motionBlur: request.motionBlur ?? null,
+        ...(request.supersample === 2 ? { supersample: 2 as const } : {}),
         range: request.range ?? null,
         ...(request.audioMix === undefined ? {} : { audioMix: request.audioMix }),
         outputPath: request.outputPath,
-        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}`,
+        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.supersample === 2 ? ' · 2× supersampled' : ''}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}`,
       });
       kick();
       return job;

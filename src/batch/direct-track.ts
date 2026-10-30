@@ -3,6 +3,7 @@
 // the project beside the videos. Plain Node, so the studio's main process and `npm run batch` run
 // the same code.
 
+import type { BeatRefinement } from '../analysis/beat-refinement.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
@@ -30,6 +31,8 @@ export interface DirectTrackOptions {
   readonly templateId: string | null;
   /** Separates stems before directing (stem-driven templates read better); absent skips it. */
   readonly separateStems?: (audioPath: string) => Promise<void>;
+  /** Tracks the beats with librosa (S16) before directing, so the cuts land on them; absent skips it. */
+  readonly refineBeats?: (pcm: Float32Array, audioHash: string) => Promise<BeatRefinement>;
   readonly appVersion?: string;
 }
 
@@ -54,8 +57,16 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
     }
   }
 
-  const settings = DEFAULT_ANALYSIS_SETTINGS;
   const decoded = await decodeMono48k(options.ffmpegExe, track.audioPath);
+  let settings = DEFAULT_ANALYSIS_SETTINGS;
+  if (options.refineBeats !== undefined) {
+    try {
+      settings = { ...settings, beatRefinement: await options.refineBeats(decoded.pcm, decoded.pcmSha256) };
+    } catch (error) {
+      // As with stems: the detected grid still makes a video.
+      notes.push(`Beats were not refined (${error instanceof Error ? error.message : String(error)}); directed from the detected grid.`);
+    }
+  }
   const cache = new AnalysisCache({ root: options.cacheRoot });
   const result = await analyzeCached(decoded.pcm, cache, { ...cacheOptionsFor(settings), audioHash: decoded.pcmSha256 });
   const durationSeconds = decoded.pcm.length / 48_000;
@@ -66,7 +77,7 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
     ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
     ...(options.preset.size === null ? {} : { canvas: options.preset.size }),
   });
-  const document: ProjectDocument = { ...base, audio: { ...base.audio, path: track.audioPath, durationTicks: decoded.pcm.length } };
+  const document: ProjectDocument = { ...base, analysisSettings: { ...base.analysisSettings, beatRefinement: settings.beatRefinement }, audio: { ...base.audio, path: track.audioPath, durationTicks: decoded.pcm.length } };
 
   const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections });
   const vocals = result.analysis.sources.get('vocals')?.features.get('rms');

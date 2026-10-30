@@ -30,6 +30,7 @@ export function BatchDialog(): React.JSX.Element | null {
   const [templateId, setTemplateId] = useState<string>('');
   const [seed, setSeed] = useState(1);
   const [stems, setStems] = useState(false);
+  const [refine, setRefine] = useState(false);
   const [motionBlur, setMotionBlur] = useState(false);
   const [karaoke, setKaraoke] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,7 +56,7 @@ export function BatchDialog(): React.JSX.Element | null {
     setBusy(true);
     try {
       const status = await window.pulseforge.startBatch({
-        tracks, outDir, presetId: preset.id, templateId: templateId === '' ? null : templateId, seed, stems: stems || karaoke,
+        tracks, outDir, presetId: preset.id, templateId: templateId === '' ? null : templateId, seed, stems: stems || karaoke, refineBeats: refine,
         motionBlur: motionBlur ? MOTION_BLUR_DEFAULT : null,
         audioMix: karaoke ? 'instrumental' : 'full',
       });
@@ -120,6 +121,10 @@ export function BatchDialog(): React.JSX.Element | null {
           <label>
             <input type="checkbox" checked={stems || karaoke} disabled={karaoke} onChange={(e) => setStems(e.target.checked)} />
             {' '}Separate stems first <span className="dim-text">(about 20–40 s per track on the GPU; stem-driven looks read better)</span>
+          </label>
+          <label>
+            <input type="checkbox" data-action="batch-refine-beats" checked={refine} onChange={(e) => setRefine(e.target.checked)} />
+            {' '}Refine beats <span className="dim-text">(about 8 s per track; for music that speeds up and slows down)</span>
           </label>
           <label>
             <input type="checkbox" data-action="batch-karaoke" checked={karaoke} onChange={(e) => setKaraoke(e.target.checked)} />

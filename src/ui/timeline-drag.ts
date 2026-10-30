@@ -41,6 +41,12 @@ export function dragLayerRange(start: Pick<TimeRange, 'inTicks' | 'outTicks'>, k
   return { inTicks: start.inTicks + shift, outTicks: start.outTicks + shift };
 }
 
+/** Several selected layers moved as one: the earliest stops at zero, and the gaps between them hold. */
+export function dragLayersTogether(starts: readonly Pick<TimeRange, 'inTicks' | 'outTicks'>[], delta: number, durationTicks: number): { inTicks: number; outTicks: number | null }[] {
+  const shift = Math.max(delta, -Math.min(...starts.map((start) => start.inTicks)));
+  return starts.map((start) => dragLayerRange(start, 'move', shift, durationTicks));
+}
+
 export interface ClipPlacement {
   readonly leadInTicks: number;
   readonly clipInTicks: number;
@@ -64,4 +70,11 @@ export function trimClip(start: ClipPlacement, edge: 'in' | 'out', delta: number
   // Limited by the start of the file, the start of the timeline and the other edge.
   const applied = Math.max(-start.clipInTicks, -start.leadInTicks, Math.min(delta, out - MIN_CLIP_TICKS - start.clipInTicks));
   return { leadInTicks: start.leadInTicks + applied, clipInTicks: start.clipInTicks + applied, clipOutTicks: start.clipOutTicks };
+}
+
+/** The lines a marquee from `a` to `b` touches, in document order. A line with no time is on no timeline. */
+export function linesInRange(lines: readonly { readonly id: string; readonly startTicks: number | null; readonly endTicks: number | null }[], a: number, b: number): string[] {
+  const from = Math.min(a, b);
+  const to = Math.max(a, b);
+  return lines.filter((line) => line.startTicks !== null && line.endTicks !== null && line.startTicks < to && line.endTicks > from).map((line) => line.id);
 }

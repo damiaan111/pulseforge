@@ -20,17 +20,16 @@ import { ComponentChooser } from './ComponentChooser.tsx';
 import { EXPORT_PRESETS } from '../../export/export-presets.ts';
 import type { SettingsInfo, UserSettings } from '../../shell/ipc.ts';
 import { useStudio } from '../store.ts';
+import { SHORTCUT_ACTIONS, keyLabel, keyName, keysFor, remap, type ShortcutMap } from '../shortcuts.ts';
 import { StorageSection } from './StorageSection.tsx';
 
-const SHORTCUTS: readonly (readonly [string, string])[] = [
-  ['Space / K', 'Play or pause'],
-  ['Home', 'Back to the start'],
+/** The keys that do not move: Windows' own, and the ones that mean something only inside a panel. */
+const FIXED_SHORTCUTS: readonly (readonly [string, string])[] = [
   ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
   ['Ctrl+S', 'Save'],
   ['Ctrl+E', 'Export'],
   ['Ctrl+,', 'Settings'],
   ['Esc', 'Close the topmost panel or dialog'],
-  ['F (timeline)', 'Fit the whole timeline'],
   ['↑ / ↓ (lyrics)', 'Previous / next line'],
   ['I / O (lyrics)', 'Line starts / ends at the playhead'],
   ['[ / ] (lyrics)', 'Nudge selected lines 10 ms (Shift: 100 ms)'],
@@ -170,14 +169,57 @@ export function SettingsDialog(): React.JSX.Element | null {
 
           <section>
             <h3>Keyboard</h3>
+            <ShortcutEditor map={settings.shortcuts} save={(shortcuts) => void save({ shortcuts })} />
             <table className="shortcuts">
-              <tbody>{SHORTCUTS.map(([keys, what]) => <tr key={keys}><td><kbd>{keys}</kbd></td><td>{what}</td></tr>)}</tbody>
+              <tbody>{FIXED_SHORTCUTS.map(([keys, what]) => <tr key={keys}><td><kbd>{keys}</kbd></td><td>{what}</td></tr>)}</tbody>
             </table>
-            <p className="dim note">A reference: remapping is not built yet.</p>
           </section>
         </div>
       </div>
     </div>
+  );
+}
+
+/** Press a key on an action to give it that key. Taking a key from another action says so by showing it. */
+function ShortcutEditor(props: { readonly map: ShortcutMap; readonly save: (map: ShortcutMap) => void }): React.JSX.Element {
+  const { map, save } = props;
+  const [listening, setListening] = useState<string | null>(null);
+  useEffect(() => {
+    if (listening === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      // Capture, so the key does not also do what it did before.
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') {
+        setListening(null);
+        return;
+      }
+      const key = keyName(event);
+      if (key === null || event.ctrlKey || event.altKey || event.metaKey) return;
+      save(remap(map, listening, key));
+      setListening(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [listening, map, save]);
+  return (
+    <>
+      <table className="shortcuts" data-testid="shortcut-editor">
+        <tbody>
+          {SHORTCUT_ACTIONS.map((action) => (
+            <tr key={action.id}>
+              <td>
+                <button type="button" data-action={`shortcut-${action.id}`} title="Press a new key; Esc keeps this one" onClick={() => setListening(action.id)}>
+                  {listening === action.id ? 'Press a key…' : keysFor(action, map).map(keyLabel).join(' / ')}
+                </button>
+              </td>
+              <td>{action.label}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {Object.keys(map).length > 0 ? <button type="button" data-action="shortcuts-reset" onClick={() => save({})}>Back to the defaults</button> : null}
+    </>
   );
 }
 

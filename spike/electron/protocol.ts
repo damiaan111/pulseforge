@@ -85,6 +85,8 @@ export interface ExportConfig {
   dither: boolean;
   /** Motion blur (S10); absent is off. */
   motionBlur?: MotionBlur;
+  /** Spatial supersampling (export-spec §9); absent is 1. */
+  supersample?: 1 | 2;
   /** Part of the timeline (S9); absent is all of it. */
   range?: RenderRange;
   outputPath: string;
@@ -127,6 +129,8 @@ export interface FramesConfig {
   dither: boolean;
   /** Motion blur (S10); absent is off. */
   motionBlur?: MotionBlur;
+  /** Spatial supersampling (export-spec §9); absent is 1. */
+  supersample?: 1 | 2;
   /** Time each layer on the GPU (S12) and return the summary. */
   profile?: boolean;
   /** 'final' unless asked: 'draft' renders as the studio's draft mode does (S18). */

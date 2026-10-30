@@ -58,6 +58,8 @@ export interface RenderJob {
   /** Motion blur (S10, export-spec §9). Absent or null is off — every job queued before it existed. */
   readonly motionBlur?: MotionBlur | null;
   /** 'instrumental' for a karaoke render (S15). Absent or 'full': the song — every earlier job. */
+  /** Spatial supersampling (export-spec §9). Absent: 1, every job queued before it existed. */
+  readonly supersample?: 1 | 2;
   readonly audioMix?: 'full' | 'instrumental';
   readonly outputPath: string;
   readonly status: JobStatus;
@@ -77,6 +79,7 @@ export interface EnqueueRequest {
   readonly presetName: string;
   readonly range?: JobRange | null;
   readonly motionBlur?: MotionBlur | null;
+  readonly supersample?: 1 | 2;
   readonly audioMix?: 'full' | 'instrumental';
   readonly outputPath: string;
 }
@@ -205,6 +208,7 @@ export class RenderQueue {
       presetName: request.presetName,
       range: request.range ?? null,
       motionBlur: request.motionBlur ?? null,
+      ...(request.supersample === 2 ? { supersample: 2 as const } : {}),
       ...(request.audioMix === 'instrumental' ? { audioMix: 'instrumental' as const } : {}),
       outputPath: request.outputPath,
       status: 'queued',

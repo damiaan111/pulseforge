@@ -1,5 +1,6 @@
 // Transport (ui-spec §1, §9): play/pause, timecode, and the honest preview-fps readout.
 
+import { actionForKey, keyName } from '../shortcuts.ts';
 import { useEffect } from 'react';
 
 import { ticksToSeconds } from '../../engine/core/time.ts';
@@ -22,14 +23,15 @@ export function TransportBar(): React.JSX.Element {
       const typing = target !== null
         && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
       if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.key === ' ' || event.key.toLowerCase() === 'k') {
+      const action = actionForKey(keyName(event), useStudio.getState().settings?.shortcuts ?? {});
+      if (action === 'play') {
         event.preventDefault();
         // Space on a focused button would also *press* it on key-up — after clicking "Bars",
         // Space played the preview and added another bars layer. Dropping focus prevents that.
         if (target?.tagName === 'BUTTON') target.blur();
         if (previewControls.transport() === 'playing') previewControls.pause();
         else previewControls.play();
-      } else if (event.key === 'Home') {
+      } else if (action === 'start') {
         event.preventDefault();
         previewControls.seek(0);
       }

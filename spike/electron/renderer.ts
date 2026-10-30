@@ -102,7 +102,7 @@ function moduleSet(sources: readonly ShaderModuleSource[] | undefined) {
     : [...BUILTIN_MODULES, ...sources.map(shaderModuleDefinition)];
 }
 
-function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[], motionBlur?: MotionBlur, quality: 'draft' | 'preview' | 'final' = 'final'): Engine {
+function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[], motionBlur?: MotionBlur, quality: 'draft' | 'preview' | 'final' = 'final', supersample?: 1 | 2): Engine {
   const modules = moduleSet(sources);
   return createEngine(createContext(), {
     quality,
@@ -110,6 +110,7 @@ function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonl
     ...(text === undefined ? {} : { text }),
     ...(modules === undefined ? {} : { modules }),
     ...(motionBlur === undefined ? {} : { motionBlur }),
+    ...(supersample === undefined ? {} : { supersample }),
   });
 }
 
@@ -208,7 +209,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
   try {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
-    const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur, config.quality ?? 'final');
+    const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur, config.quality ?? 'final', config.supersample);
     if (config.profile === true) engine.setProfiling(true);
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     for (const lut of config.luts ?? []) engine.setLut(lut.hash, parseCube(lut.text));

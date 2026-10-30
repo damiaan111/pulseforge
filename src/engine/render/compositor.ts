@@ -243,6 +243,18 @@ const SHADER_BLENDS: readonly BlendMode[] = [
   'difference', 'exclusion', 'color-dodge', 'color-burn',
 ];
 
+/** Every 2×2 block of a frame rendered at twice the size, by texel (export-spec §9). */
+const DOWNSAMPLE_FRAG = `#version 300 es
+precision highp float;
+uniform highp sampler2D u_src;
+out vec4 outColor;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy) * 2;
+  outColor = 0.25 * (texelFetch(u_src, p, 0) + texelFetch(u_src, p + ivec2(1, 0), 0)
+    + texelFetch(u_src, p + ivec2(0, 1), 0) + texelFetch(u_src, p + ivec2(1, 1), 0));
+}
+`;
+
 const OUTPUT_FRAG = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
@@ -309,6 +321,7 @@ export class Compositor {
   private readonly featherUniforms: { src: WebGLUniformLocation; step: WebGLUniformLocation };
   private readonly accumulateProgram: WebGLProgram;
   private readonly accumulateUniforms: { sum: WebGLUniformLocation; src: WebGLUniformLocation; weight: WebGLUniformLocation };
+  private readonly downsampleProgram: WebGLProgram;
   private readonly outputProgram: WebGLProgram;
   private readonly outputUniforms: {
     composite: WebGLUniformLocation;
@@ -320,9 +333,13 @@ export class Compositor {
     levels: WebGLUniformLocation;
   };
 
-  constructor(gl: WebGL2RenderingContext, pool: TargetPool) {
+  /** Spatial supersampling (export-spec §9): the frame is composited this many times larger per side. */
+  private readonly scale: number;
+
+  constructor(gl: WebGL2RenderingContext, pool: TargetPool, supersample = 1) {
     this.gl = gl;
     this.pool = pool;
+    this.scale = supersample;
     this.vao = gl.createVertexArray();
     this.layerProgram = createProgram(gl, 'compositor.layer', FULLSCREEN_VERT, LAYER_FRAG);
     this.layerUniforms = {
@@ -359,6 +376,7 @@ export class Compositor {
       src: uniformLocation(gl, this.accumulateProgram, 'u_src'),
       weight: uniformLocation(gl, this.accumulateProgram, 'u_weight'),
     };
+    this.downsampleProgram = createProgram(gl, 'compositor.downsample', FULLSCREEN_VERT, DOWNSAMPLE_FRAG);
     this.outputProgram = createProgram(gl, 'compositor.output', FULLSCREEN_VERT, OUTPUT_FRAG);
     this.outputUniforms = {
       composite: uniformLocation(gl, this.outputProgram, 'u_composite'),
@@ -383,9 +401,32 @@ export class Compositor {
     frame: { readonly frameIndex: number; readonly noiseSeed: number },
     globalEffects: readonly EffectPass[] = [],
   ): void {
-    const composite = this.linear(output.width, output.height, background, layers, globalEffects);
+    const composite = this.downsampled(this.linear(output.width * this.scale, output.height * this.scale, background, layers, globalEffects), 'rgba16f');
     this.writeOutput(composite, output, options, frame);
     this.pool.release(composite);
+  }
+
+  /**
+   * The average of every 2×2 block, in linear light: before the tone curve, so a thin bright line
+   * softens as light does. By texel, not filtering, because the motion-blur sum is RGBA32F, which
+   * WebGL2 cannot filter. Releases what it is given. At 1× it is the identity, and costs nothing.
+   */
+  private downsampled(source: RenderTarget, format: 'rgba16f' | 'rgba32f'): RenderTarget {
+    if (this.scale === 1) return source;
+    const gl = this.gl;
+    const width = source.width / this.scale;
+    const height = source.height / this.scale;
+    const target = this.pool.acquire(width, height, format);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    resetState(gl, width, height);
+    gl.useProgram(this.downsampleProgram);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, source.texture);
+    drawFullscreenTriangle(gl, this.vao);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.useProgram(null);
+    this.pool.release(source);
+    return target;
   }
 
   /**
@@ -401,7 +442,8 @@ export class Compositor {
     frame: { readonly frameIndex: number; readonly noiseSeed: number },
   ): void {
     const gl = this.gl;
-    const { width, height } = output;
+    const width = output.width * this.scale;
+    const height = output.height * this.scale;
     let sum = this.pool.acquire(width, height, 'rgba32f');
     let next = this.pool.acquire(width, height, 'rgba32f');
     gl.bindFramebuffer(gl.FRAMEBUFFER, sum.framebuffer);
@@ -429,8 +471,9 @@ export class Compositor {
       this.pool.release(composite);
       [sum, next] = [next, sum];
     }
-    this.writeOutput(sum, output, options, frame);
-    this.pool.release(sum);
+    const finished = this.downsampled(sum, 'rgba32f');
+    this.writeOutput(finished, output, options, frame);
+    this.pool.release(finished);
     this.pool.release(next);
   }
 
@@ -628,6 +671,7 @@ export class Compositor {
     this.gl.deleteProgram(this.blendProgram);
     this.gl.deleteProgram(this.accumulateProgram);
     this.gl.deleteProgram(this.outputProgram);
+    this.gl.deleteProgram(this.downsampleProgram);
     this.gl.deleteVertexArray(this.vao);
   }
 }

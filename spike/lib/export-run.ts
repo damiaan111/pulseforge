@@ -54,6 +54,7 @@ export interface ExportRunOptions {
   readonly dither: boolean;
   /** Motion blur (S10); absent is off. */
   readonly motionBlur?: MotionBlur | undefined;
+  readonly supersample?: 1 | 2 | undefined;
   /** Part of the timeline (S9); absent is all of it. */
   readonly range?: RenderRange | undefined;
   readonly runs: number;
@@ -130,6 +131,7 @@ export async function runExportSpike(options: ExportRunOptions): Promise<ExportR
       ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
       dither: options.dither,
       ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
+      ...(options.supersample === undefined ? {} : { supersample: options.supersample }),
       ...(options.range === undefined ? {} : { range: options.range }),
       outputPath,
       scratchDir: join(options.workDir, `${options.name}-scratch-${run}`),

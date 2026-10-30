@@ -1430,6 +1430,9 @@ function registerBatchHandlers(renders: RenderService, onChange: (status: BatchS
         preset: options.preset,
         templateId: options.templateId,
         appVersion: packageVersion(),
+        ...(options.refineBeats ? {
+          refineBeats: (pcm: Float32Array, audioHash: string) => refineBeats({ pythonExe: PYTHON_EXE, packageDir: join(ROOT, 'python'), env: pythonEnv(), pcm, audioHash, workDir: scratchPath() }),
+        } : {}),
         ...(options.stems ? {
           separateStems: async (audioPath: string) => {
             if (!existsSync(join(MODELS, 'demucs', 'htdemucs.yaml'))) throw new Error('the stems part of setup is not installed');
@@ -1531,6 +1534,7 @@ function registerRenderHandlers(renders: RenderService): void {
     if (range != null && (typeof range !== 'object' || !Number.isSafeInteger(range.inTicks) || !Number.isSafeInteger(range.outTicks) || range.inTicks < 0 || range.outTicks <= range.inTicks)) {
       throw new Error('enqueueRender: the range must be whole ticks with 0 ≤ in < out');
     }
+    if (request.supersample !== undefined && request.supersample !== 1 && request.supersample !== 2) throw new Error('enqueueRender: supersample must be 1 or 2');
     const blur = request.motionBlur;
     if (blur != null && (typeof blur !== 'object' || motionBlurProblems(blur).length > 0)) {
       throw new Error(`enqueueRender: ${typeof blur === 'object' ? motionBlurProblems(blur).join('; ') : 'motionBlur must be an object'}`);
@@ -2369,6 +2373,33 @@ app.whenReady().then(async () => {
       const blockBack = await waitFor(() => inField() === inBefore, 40);
       const layerDragUi = blockMoved === true && blockBack === true;
       if (!layerDragUi) console.error('[smoke] layerDragUi: ' + JSON.stringify({ inBefore, after: inField(), blockMoved, blockBack }));
+      // Selecting two layers with Ctrl brings their shared actions; a plain click goes back to one.
+      console.log('[smoke] step: multiSelectUi');
+      const names = [...document.querySelectorAll('#app .layer-list .layer-name')];
+      const pressName = (button, ctrlKey) => button?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey }));
+      pressName(names[0], false);
+      await new Promise((done) => setTimeout(done, 50));
+      pressName(names[1], true);
+      const manyShown = await waitFor(() => document.querySelector('#app [data-testid="multi-layer-actions"]') !== null, 40);
+      pressName(names[0], false);
+      const oneAgain = await waitFor(() => document.querySelector('#app [data-testid="multi-layer-actions"]') === null, 40);
+      const multiSelectUi = names.length >= 2 && manyShown === true && oneAgain === true;
+      if (!multiSelectUi) console.error('[smoke] multiSelectUi: ' + JSON.stringify({ rows: names.length, manyShown, oneAgain }));
+
+      // Remapping a key: the next key pressed is the action's, and the table says so.
+      console.log('[smoke] step: shortcutUi');
+      document.querySelector('#app header [data-action="settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await waitFor(() => document.querySelector('#app [data-action="shortcut-fit"]') !== null, 60);
+      document.querySelector('#app [data-action="shortcut-fit"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise((done) => setTimeout(done, 80));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+      const remapped = await waitFor(() => document.querySelector('#app [data-action="shortcut-fit"]')?.textContent === 'J', 60);
+      document.querySelector('#app [data-action="shortcuts-reset"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const restored = await waitFor(() => document.querySelector('#app [data-action="shortcut-fit"]')?.textContent === 'F', 60);
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await waitFor(() => document.querySelector('#app [data-testid="settings-dialog"]') === null, 40);
+      const shortcutUi = remapped === true && restored === true;
+      if (!shortcutUi) console.error('[smoke] shortcutUi: ' + JSON.stringify({ remapped, restored }));
       console.log('[smoke] step: settingsUi');
       let settingsUi = false;
       {
@@ -2776,6 +2807,8 @@ app.whenReady().then(async () => {
         unicodeFonts,
         beatsUi,
         layerDragUi,
+        multiSelectUi,
+        shortcutUi,
         batchUi,
         markerUi,
         perfHud,

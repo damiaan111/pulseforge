@@ -4431,6 +4431,31 @@ choice to make: without one, strangers may read it but not legally reuse it.
 
 **Not verified:** stem rows and solo in the app, since this driver cannot separate stems. They typecheck.
 
+**Not a gap: presets that bring their images.** D6 settles that presets reference assets and never
+embed them, so ROADMAP §2's note describes the design.
+
+- **Beat refinement in a batch:** a tick in the Batch dialog and `--refine-beats`, so the auto-director
+  cuts on the refined grid. A failure is a note and the track goes on with the detected beats.
+- **Loop region:** I and O set its ends at the playhead, L turns it on and off. It drives the clock's
+  existing loop, draws over the waveform, and is neither saved nor undone.
+- **Multi-select:** Ctrl and Shift in the layer list and on timeline blocks. The inspector still edits
+  one layer. Shown, hidden, grouped or deleted together (locked ones stay), and dragged together on the
+  timeline, the earliest stopping at zero so the gaps hold.
+- **Marquee in the lyrics lane:** dragging from empty space selects the lines it touches.
+- **Spatial supersampling** (export-spec §9): Supersample 2× in the export dialog, `--supersample` on
+  the CLI, in the render report. Everything is drawn at twice the size; `Compositor.downsampled` averages
+  each 2×2 block by texel, in linear light before the tone curve, which also works on motion blur's
+  RGBA32F sum, which WebGL2 cannot filter. A frame past the GPU's texture limit is refused by name.
+- **Shortcut remapping:** the Keyboard section in Settings. `src/ui/shortcuts.ts` is the one table, and
+  a key does one thing: taking one from another action leaves that action its other default, or None.
+  The transport and timeline keys are remappable; Ctrl combinations and the lyrics editor's are not.
+
+**Verified here.** 1266 of 1277 tests, the 11 failures being the driver's; golden 29/29, so all of this
+is off by default in the pixels; smoke 41/42, `multiSelectUi` and `shortcutUi` among them, `settingsUi`
+the driver's. 2 GPU tests of supersampling: same picture, deterministic, under motion blur.
+**Not verified:** a supersampled real encode; the loop in the app, beyond the rules and the clock's own
+tests; beat refinement in a real batch.
+
 **Decided against: contrast against the live backdrop** (lyrics-spec §7). The engine draws every layer
 first and composites them in one pass, so a layer cannot see what is behind it, and changing that for
 one feature is not worth it. The default shadow meets the spec's "shadow or plate", and the director

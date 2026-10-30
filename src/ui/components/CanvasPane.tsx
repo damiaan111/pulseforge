@@ -40,6 +40,7 @@ export const previewControls = {
   /** The playhead now, unsnapped: what a lyric tap measures against. */
   positionNow: () => activeHost?.positionNow() ?? 0,
   setRate: (rate: number) => activeHost?.setRate(rate),
+  setLoop: (loop: { readonly startSeconds: number; readonly endSeconds: number } | null) => activeHost?.setLoop(loop),
   playbackRate: () => activeHost?.playbackRate ?? 1,
 };
 
@@ -110,6 +111,11 @@ export function CanvasPane(): React.JSX.Element {
   useEffect(() => {
     hostRef.current?.setDraft(draft);
   }, [draft]);
+
+  const loop = useStudio((s) => s.loop);
+  useEffect(() => {
+    hostRef.current?.setLoop(loop?.on === true ? loop : null);
+  }, [loop]);
 
   // Soloing a stem swaps the file under the audio element, which starts over: it picks up where the
   // song was, playing or not. The stems run the song's length, so the time means the same thing.
