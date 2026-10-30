@@ -203,6 +203,9 @@ it was made; they are collected here so none is a surprise.
 Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
 effect on a finished video last. Each is noted beside its requirement in §2.
 
+**Lyrics:** transcribed line breaks follow Whisper's segments, and text over a busy MilkDrop preset can be hard to
+read (STATUS 4.86).
+
 **Before a public release:** a PC with no NVIDIA card has not been tried, only this one with NVENC unusable;
 stems and lyrics through the chooser from a fresh clone (done with the setup command, not the chooser); moving
 the FFmpeg pin before BtbN drops it, around 2028.

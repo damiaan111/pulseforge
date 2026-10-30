@@ -159,6 +159,22 @@ describe('tempo and the beat grid', () => {
     }
   });
 
+  it('does not drift when the tempo falls between two whole frames', () => {
+    // 85.01 bpm is 169.39 frames a beat. A whole-frame period is 94 ms out by the end of 80 s.
+    const period = (60 / 85.01) * ANALYSIS_RATE;
+    const onset = new Float32Array(80 * ANALYSIS_RATE);
+    for (let k = 0; ; k += 1) {
+      const i = Math.round(30 + k * period);
+      if (i >= onset.length) break;
+      onset[i] = 1;
+    }
+    const grid = detectTempo(onset, 80, { rate: ANALYSIS_RATE });
+    expect(grid.bpm).toBeCloseTo(85.01, 0);
+    const last = grid.beats[grid.beats.length - 1] as number;
+    const truth = (30 + Math.round((last * ANALYSIS_RATE - 30) / period) * period) / ANALYSIS_RATE;
+    expect(Math.abs(last - truth)).toBeLessThan(0.015);
+  });
+
   it('honours an explicit BPM instead of detecting', () => {
     const grid = detectTempo(new Float32Array(2400), 10, { rate: ANALYSIS_RATE, bpmOverride: 128 });
     expect(grid.bpm).toBe(128);

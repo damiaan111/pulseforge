@@ -14,8 +14,9 @@ import { createFft, hannWindow } from './fft.ts';
  * Part of the cache key (data-formats §4.3): bump whenever results change, or a stale cache
  * survives a bug fix and produces "it's still doing the old thing" for an afternoon.
  * v2 adds the scalar feature tracks (rms, peak, onset, centroid, flux, stereoWidth).
+ * v4: the beat grid's period is fitted to the onsets, not rounded to a whole frame.
  */
-export const ANALYSIS_VERSION = 3;
+export const ANALYSIS_VERSION = 4;
 export const ANALYSIS_SAMPLE_RATE = 48_000;
 
 export interface BandDefinition {

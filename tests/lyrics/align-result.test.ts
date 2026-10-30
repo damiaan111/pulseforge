@@ -35,7 +35,15 @@ describe('alignedLineFrom', () => {
   it('rejects a line that mostly failed, came out of order, or has no length', () => {
     expect(alignedLineFrom('l', 'a b c', [w('a', 1, 1.1), w('b', null, null), w('c', null, null)], options)).toMatchObject({ ok: false, reason: expect.stringContaining('only 1 of 3') });
     expect(alignedLineFrom('l', 'a b', [w('a', 2, 2.2), w('b', 1, 1.2)], options)).toMatchObject({ ok: false, reason: 'words came out of order' });
-    expect(alignedLineFrom('l', 'a b', [w('a', 1, 1), w('b', 1.2, 1.4)], options)).toMatchObject({ ok: false, reason: expect.stringContaining('no length') });
+    expect(alignedLineFrom('l', 'stay here', [w('stay', 1, 1), w('here', 1.2, 1.4)], options)).toMatchObject({ ok: false, reason: expect.stringContaining('no length') });
+  });
+
+  it('keeps a line whose one-letter word came out shorter than the aligner can measure', () => {
+    const middle = alignedLineFrom('l', 'got a man', [w('got', 1, 1.3), w('a', 1.3, 1.3), w('man', 1.3, 1.6)], options);
+    expect(middle.ok && middle.line.words[1]).toMatchObject({ startTicks: T(1.3), endTicks: T(1.36) });
+    expect(middle.ok && middle.line.words[2]).toMatchObject({ startTicks: T(1.36), endTicks: T(1.6) });
+    const last = alignedLineFrom('l', 'but I', [w('but', 1, 1.3), w('I', 1.3, 1.3)], options);
+    expect(last.ok && last.line.endTicks).toBe(T(1.36));
   });
 
   it('rejects a line landing where no singing was detected', () => {

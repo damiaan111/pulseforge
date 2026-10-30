@@ -9,9 +9,9 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification, 2026-10-30, driver 621.01: `npm run check` 1316 of 1316 with
-> nothing skipped; golden 29/29 identical; smoke 46/46 with a real queued render and an auto-directed
-> batch render; `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
+> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1328 of 1328 with
+> nothing skipped; golden 29/29 identical; smoke 45/45 (46/46 with a real queued render and an
+> auto-directed batch render, the day before); `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -186,6 +186,7 @@
 | 4.83 | MilkDrop, through Butterchurn |
 | 4.84 | The generated presets retired; the auto-director uses MilkDrop |
 | 4.85 | Exporting without NVENC |
+| 4.86 | Two real songs, start to finish: three fixes |
 
 ---
 
@@ -4632,6 +4633,39 @@ with the instrumental soundtrack, 29 s for 10 s of video including separation.
 **Tests.** `tests/export/software-encoder.test.ts` makes real files. Tests needing NVENC or CUDA now skip where
 the machine cannot do them (`tests/ml/cuda.ts`), so `npm run check` is green on any PC. That means a green run
 says nothing about those paths: read the skip count.
+
+### 4.86 Two real songs, start to finish: three fixes
+
+**The test.** Two songs with singing (79 s and 131 s) through stems, transcription, pasted-text alignment, the
+director with lyrics, two random effects, and full 1080p60 renders: six videos, all verified. Measured apart from
+the app, from the drum and vocal stems and the finished files.
+
+**Sound against picture: exact.** Audio in each MP4 lines up with the source at 0 ms, frame counts match the
+length, and frames taken at a word's midpoint show that word lit.
+
+**Fixed.**
+- **The beat grid drifted.** The period was a whole number of 1/240 s frames: 170 bpm doubled is 169.4, rounded to
+  169. Drum hits walked 120 ms off by the end of one song and 160 ms off by the end of the other. `fitGrid` now fits
+  a fractional period to the whole track: 0 ms drift on the first song, 10 ms across the second. It leaves alone a
+  clip too short to drift (a 6 s reference track, which it otherwise nudged by noise) and any track that sits on a
+  whole frame, so all 29 golden frames are unchanged. `ANALYSIS_VERSION` is 4, so old caches re-analyse.
+- **Long lines lost letters in Lyric Focus.** Lines wrapped at 84% of the canvas and the layer then scaled by 1.35,
+  114% in all. `maxWidth` is now 0.7, and `tests/director/lyrics-fit.test.ts` holds every built-in template to it.
+- **A sung "I" or "a" lost its line's word timing.** The aligner can give a one-letter word no length, and the sanity
+  pass threw out the line: 3 of 79, and left untimed altogether when the text was pasted. Such a word now takes
+  60 ms from the next one. A longer word of no length is still refused, as lyrics-spec §4 says.
+  (The spec reads as refusing any zero-length word; this narrows it for one-letter words.)
+
+**Measured after.** All 81 lines timed, by both routes; the two routes agree to the millisecond. Median line start
+against a vocal onset measured from the stem: 50 ms and -3 ms, on the 43 lines with a clean onset; a few sit
+300 ms or more off, which that measure cannot tell from a soft start.
+
+**Not fixed, for the owner to judge.** Transcribed text has errors and is meant to be corrected. Line breaks follow
+Whisper's segments, so some run two phrases together or end on a stray word ("but you show up You say you're not
+drunk"). Lyrics over a busy MilkDrop preset can be hard to read, worse with heavy effects like kaleidoscope. Grain
+makes files large: 658 MB against 130 MB for one song. **Wider tempo question:** 76 bpm on the second song against
+librosa's 101: the detected grid sits closer to the drum hits (76% within 30 ms against 55%), so it stays. No ear
+has judged either.
 
 ## 5. Measured results
 

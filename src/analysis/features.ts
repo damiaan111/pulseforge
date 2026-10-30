@@ -243,24 +243,69 @@ export function detectTempo(onsetStrength: Float32Array, durationSeconds: number
   }
   if (bestLag === 0 || bestScore <= 0) return { bpm: 0, beats: [], confidence: 0 };
 
-  const bpm = (60 * rate) / bestLag;
   // How much the winning lag stands out from the average — a flat correlation means the
   // material has no steady pulse, and saying so beats reporting a confident wrong tempo.
   const mean = total / (maxLag - minLag + 1);
   const confidence = mean > 0 ? Math.min(1, Math.max(0, 1 - mean / bestScore)) : 0;
 
-  let bestPhase = 0;
-  let bestPhaseScore = -1;
-  for (let phase = 0; phase < bestLag; phase += 1) {
-    let score = 0;
-    for (let i = phase; i < onsetStrength.length; i += bestLag) score += onsetStrength[i] ?? 0;
-    if (score > bestPhaseScore) {
-      bestPhaseScore = score;
-      bestPhase = phase;
+  const { period, phase } = fitGrid(onsetStrength, bestLag, rate);
+  const bpm = (60 * rate) / period;
+  return { bpm, beats: layOutBeats(bpm, phase / rate, durationSeconds), confidence };
+}
+
+/** How far either side of the winning lag the fit looks, and how finely, in frames of the envelope. */
+const GRID_FIT_REACH = 1;
+const GRID_FIT_STEP = 0.02;
+const GRID_FIT_GAIN = 1.03;
+/** Half a frame a beat, added up over a clip this short, stays under this: nobody sees it. */
+const GRID_FIT_MIN_DRIFT_SECONDS = 0.03;
+
+/**
+ * Period and phase, together, against the whole track. The lag is a whole number of frames, so on
+ * its own it is up to half a frame off: 170 bpm doubled is 169.4 frames at 240 Hz and the lag says
+ * 169, which is 120 ms late or early by the end of an 80 s song. The onsets hold the real period, so
+ * this slides a comb of fractional periods over them. A hit counts within a frame, so close periods
+ * tie on a short track: only a clearly better fit replaces the whole number, a track that sits
+ * exactly on it stays exactly on it, and a clip too short to drift is not fitted at all.
+ */
+function fitGrid(onsetStrength: Float32Array, lag: number, rate: number): { period: number; phase: number } {
+  const score = (period: number, phase: number): number => {
+    let sum = 0;
+    for (let k = 0; ; k += 1) {
+      const i = Math.round(phase + k * period);
+      if (i >= onsetStrength.length) return sum;
+      // A hit can fall either side of the rounded frame.
+      sum += Math.max(onsetStrength[i] ?? 0, onsetStrength[i - 1] ?? 0, onsetStrength[i + 1] ?? 0);
+    }
+  };
+  // The whole number's phase is the frame the onsets land on exactly.
+  let best = { period: lag, phase: 0 };
+  let exactScore = -1;
+  let bestScore = -1;
+  for (let phase = 0; phase < lag; phase += 1) {
+    let exact = 0;
+    for (let i = phase; i < onsetStrength.length; i += lag) exact += onsetStrength[i] ?? 0;
+    if (exact > exactScore) {
+      exactScore = exact;
+      best = { period: lag, phase };
+    }
+    bestScore = Math.max(bestScore, score(lag, phase));
+  }
+  if ((onsetStrength.length / lag) * 0.5 < GRID_FIT_MIN_DRIFT_SECONDS * rate) return best;
+  bestScore *= GRID_FIT_GAIN;
+  const steps = Math.round(GRID_FIT_REACH / GRID_FIT_STEP);
+  for (let step = -steps; step <= steps; step += 1) {
+    if (step === 0) continue;
+    const period = lag + step * GRID_FIT_STEP;
+    for (let phase = 0; phase < period; phase += 1) {
+      const s = score(period, phase);
+      if (s > bestScore) {
+        bestScore = s;
+        best = { period, phase };
+      }
     }
   }
-
-  return { bpm, beats: layOutBeats(bpm, bestPhase / rate, durationSeconds), confidence };
+  return best;
 }
 
 /**

@@ -37,6 +37,7 @@ export interface ResultOptions {
 }
 
 const MIN_WORD_SECONDS = 0.02;
+const ONE_LETTER_SECONDS = 0.06;
 
 /**
  * Whitespace runs of `text` → lyric tokens: the index of the token each run belongs to. A run with
@@ -112,6 +113,13 @@ export function alignedLineFrom(lineId: string, text: string, words: readonly Al
 
   for (let k = 0; k < spans.length; k += 1) {
     const span = spans[k] as { start: number; end: number };
+    // A sung "I" or "a" can be shorter than the aligner's frame, which is not broken output: it gets
+    // a sliver of its own, taken from the word after it.
+    if (weight(k) === 1 && span.end - span.start < MIN_WORD_SECONDS) {
+      span.end = span.start + ONE_LETTER_SECONDS;
+      const next = spans[k + 1];
+      if (next !== undefined) next.start = Math.max(next.start as number, span.end);
+    }
     if (span.end - span.start < MIN_WORD_SECONDS) return { ok: false, lineId, reason: `“${(tokens[k] as { text: string }).text}” came out with no length` };
     if (k > 0 && span.start < (spans[k - 1] as { start: number }).start) return { ok: false, lineId, reason: 'words came out of order' };
   }
