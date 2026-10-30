@@ -32,6 +32,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { peaksForRange } from '../../analysis/peaks.ts';
+import { setAudio, setLayerTimeRange } from '../../project/commands.ts';
+import type { TimeRange } from '../../project/document.ts';
+import { dragLayerRange, layerDragKind, trimClip, type ClipPlacement, type LayerDragKind } from '../timeline-drag.ts';
 import { lyricTokens, wordSpans } from '../../engine/core/lyrics.ts';
 import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { onsetPeaks } from '../../lyrics/tap.ts';
@@ -66,6 +69,9 @@ const SNAP_PX = 8;
 
 type Timed = LyricLine & { readonly startTicks: number; readonly endTicks: number };
 const isTimed = (line: LyricLine): line is Timed => line.startTicks !== null && line.endTicks !== null;
+
+/** How close to an edge a press takes the edge. */
+const EDGE_GRAB_PX = 6;
 
 interface Geometry {
   readonly width: number;
@@ -282,6 +288,12 @@ export function Timeline(): React.JSX.Element {
           ctx.fillRect(left + i, top, 1, Math.max(1, bottom - top));
         }
         ctx.globalAlpha = 1;
+      }
+      // The clip's two edges, to trim by dragging (M29).
+      ctx.fillStyle = dim;
+      for (const edge of [leadIn, leadIn + Math.max(0, clipEnd - clipStart)]) {
+        const ex = x(edge);
+        if (ex >= PADDING - 2 && ex <= rect.width - PADDING + 2) ctx.fillRect(ex - 1, 0, 2, WAVE_HEIGHT);
       }
     } else {
       ctx.strokeStyle = line;
@@ -572,6 +584,8 @@ export function Timeline(): React.JSX.Element {
   const drag = useRef<DragState | null>(null);
   const markerDrag = useRef<{ readonly id: string; readonly startTicks: number; readonly originX: number; readonly mergeKey: string; moved: boolean } | null>(null);
   const keyDrag = useRef<KeyDragState | null>(null);
+  const layerDrag = useRef<{ readonly layerId: string; readonly kind: LayerDragKind; readonly start: TimeRange; readonly originX: number; moved: boolean } | null>(null);
+  const trimDrag = useRef<{ readonly edge: 'in' | 'out'; readonly start: ClipPlacement; readonly originX: number; moved: boolean } | null>(null);
   const scrubbing = useRef(false);
   const [cursor, setCursor] = useState('pointer');
 
@@ -581,6 +595,23 @@ export function Timeline(): React.JSX.Element {
     if (hasLyricsLane && y <= LANES_TOP + LYRIC_HEIGHT + 2) return 'lyrics';
     return 'layers';
   }
+
+  const rowAt = (y: number) => timelineRows(document)[Math.floor((y - (LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0))) / ROW_HEIGHT)];
+
+  /** The clip edge under a point on the waveform. */
+  const clipEdgeAt = (g: Geometry, px: number): 'in' | 'out' | null => {
+    if (peaks === null) return null;
+    if (Math.abs(px - xOf(g, leadIn)) <= EDGE_GRAB_PX) return 'in';
+    return Math.abs(px - xOf(g, leadIn + Math.max(0, clipEnd - clipStart))) <= EDGE_GRAB_PX ? 'out' : null;
+  };
+
+  /** What a press on a layer's row would drag; a locked layer stays put. */
+  const layerGrab = (g: Geometry, layer: Layer, px: number): LayerDragKind | null => {
+    if (layer.locked) return null;
+    const from = xOf(g, ticksToSeconds(layer.timeRange.inTicks));
+    const to = xOf(g, layer.timeRange.outTicks === null ? duration : ticksToSeconds(layer.timeRange.outTicks));
+    return layerDragKind(px, from, to, EDGE_GRAB_PX);
+  };
 
   const flagAt = (px: number) => {
     // The last drawn wins, as it is on top.
@@ -605,6 +636,11 @@ export function Timeline(): React.JSX.Element {
 
     if (lane === 'wave') {
       capture(canvas, event.pointerId);
+      const edge = event.button === 0 ? clipEdgeAt(g, px) : null;
+      if (edge !== null) {
+        trimDrag.current = { edge, start: { ...document.audio }, originX: px, moved: false };
+        return;
+      }
       scrubbing.current = true;
       previewControls.seek(seconds);
       return;
@@ -661,12 +697,15 @@ export function Timeline(): React.JSX.Element {
       return;
     }
     // Below the lanes, the click picks a layer row — or, on a keyframe row, a key.
-    const rowsTop = LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
-    const index = Math.floor((y - rowsTop) / ROW_HEIGHT);
-    const entry = timelineRows(document)[index];
+    const entry = rowAt(y);
     if (entry === undefined) return;
     if (entry.kind === 'layer') {
       select(entry.layer.id);
+      const kind = event.button === 0 ? layerGrab(g, entry.layer, px) : null;
+      if (kind !== null) {
+        capture(canvas, event.pointerId);
+        layerDrag.current = { layerId: entry.layer.id, kind, start: entry.layer.timeRange, originX: px, moved: false };
+      }
       return;
     }
     if (entry.layer !== null) select(entry.layer.id);
@@ -699,6 +738,30 @@ export function Timeline(): React.JSX.Element {
     const px = event.clientX - rect.left;
     if (scrubbing.current) {
       previewControls.seek(Math.min(duration, Math.max(0, secondsAt(g, px))));
+      return;
+    }
+    const trim = trimDrag.current;
+    if (trim !== null) {
+      if (!trim.moved && Math.abs(px - trim.originX) < 3) return;
+      trim.moved = true;
+      const pxPerTick = (g.width - PADDING * 2) / (g.view.span * TICKS_PER_SECOND);
+      run(setAudio(trimClip(trim.start, trim.edge, Math.round((px - trim.originX) / pxPerTick))), { seal: false });
+      return;
+    }
+    const block = layerDrag.current;
+    if (block !== null) {
+      if (!block.moved && Math.abs(px - block.originX) < 3) return;
+      block.moved = true;
+      const pxPerTick = (g.width - PADDING * 2) / (g.view.span * TICKS_PER_SECOND);
+      let delta = Math.round((px - block.originX) / pxPerTick);
+      const durationTicks = Math.round(duration * TICKS_PER_SECOND);
+      if (!event.shiftKey) {
+        const anchor = block.kind === 'out' ? block.start.outTicks ?? durationTicks : block.start.inTicks;
+        const best = nearestTarget(anchor + delta, snapTargetsFor(), SNAP_PX / pxPerTick);
+        if (best !== null) delta = best - anchor;
+      }
+      const range = dragLayerRange(block.start, block.kind, delta, durationTicks);
+      run(setLayerTimeRange(block.layerId, range.inTicks, range.outTicks), { seal: false });
       return;
     }
     const flag = markerDrag.current;
@@ -766,7 +829,13 @@ export function Timeline(): React.JSX.Element {
     }
     // Hover: say what a press would grab.
     const hoverLane = laneAt(event.clientY - rect.top);
-    if (hoverLane === 'lyrics') {
+    if (hoverLane === 'wave') {
+      setCursor(clipEdgeAt(g, px) === null ? 'pointer' : 'ew-resize');
+    } else if (hoverLane === 'layers') {
+      const row = rowAt(event.clientY - rect.top);
+      const grab = row?.kind === 'layer' ? layerGrab(g, row.layer, px) : null;
+      setCursor(grab === null ? 'pointer' : grab === 'move' ? 'grab' : 'ew-resize');
+    } else if (hoverLane === 'lyrics') {
       const hit = hitLyric(document.lyrics, g, px, lyricsSelection);
       setCursor(hit === null ? 'pointer' : hit.kind === 'move' ? 'grab' : 'ew-resize');
     } else if (hoverLane === 'markers') {
@@ -779,6 +848,12 @@ export function Timeline(): React.JSX.Element {
   function onPointerUp(event: React.PointerEvent<HTMLCanvasElement>): void {
     if (canvasRef.current?.hasPointerCapture(event.pointerId) === true) canvasRef.current.releasePointerCapture(event.pointerId);
     scrubbing.current = false;
+    if (trimDrag.current !== null || layerDrag.current !== null) {
+      if (trimDrag.current?.moved === true || layerDrag.current?.moved === true) history.seal();
+      trimDrag.current = null;
+      layerDrag.current = null;
+      return;
+    }
     const flag = markerDrag.current;
     if (flag !== null) {
       markerDrag.current = null;
@@ -854,6 +929,7 @@ export function Timeline(): React.JSX.Element {
         ref={canvasRef}
         className="timeline"
         data-testid="timeline"
+        data-rows-top={LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0)}
         style={{ height, cursor }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

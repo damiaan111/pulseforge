@@ -5,12 +5,14 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-09-26.** P0, **P1**, P2, P3, P4, **P6 (lyrics), P7 (the auto-director) and operability are complete** (P1: core,
+> **Last updated: 2026-10-30.** P0–P8 are complete: **every Must-have and Should-have is done** (P1: core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification: `npm run check` 1177 tests, `npm run golden` 29/29 identical,
-> `--smoke` 37/37 (38/38 with the queued render), `npm run setup -- --verify` and `--rebuild-check` pass.
+> any aspect. Last full verification, 2026-10-30, on the machine described below: golden 29/29
+> identical; smoke 39/40, the failure being `settingsUi` on setup's preconditions; `npm run check`
+> 1231 of 1242, the 11 failures being the driver's. On the owner's fixed machine, before that driver
+> changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
 > project's own bands (§4.45); ten separable blend modes, layer solo/lock/reorder/drag and time
@@ -179,6 +181,7 @@
 | 4.76 | Unicode text (P8 step 14) — S17 |
 | 4.77 | Beat refinement (P8 step 15) — S16, D28 |
 | 4.78 | The stall watchdog (P8 step 16) — export-spec §14 |
+| 4.79 | Dragging on the timeline (P8 step 17) — M9, M29 |
 
 ---
 
@@ -4338,6 +4341,22 @@ the job fails with the log's tail, leaving the queue to carry on.
 **Verified here:** the timer logic in two tests. **Not verified:** a real hung child; the hang has not
 come back to be caught. If it does, a test now fails at 120 s with the child's last words, which is
 the evidence missing so far.
+
+### 4.79 Dragging on the timeline (P8 step 17) — M9, M29
+
+Layer blocks and the audio clip's edges now drag on the timeline, the gaps M9 and M29 had noted.
+
+- **A layer block:** the middle moves it, an edge within 6 px moves that edge. Moves snap to beats,
+  sections, markers and the playhead (Shift off), as everything else on the timeline does. A locked
+  layer stays put. "To the end" stays that way when moved, and dragging an out point past the end
+  gives it back. A move stops at zero rather than shortening the block.
+- **The clip:** the two lines at the ends of the waveform trim it. **The sound stays where it is on
+  the timeline**: trimming the start moves the lead-in by the same amount, so what is left is not slid
+  earlier. The Clip panel's Trim in field does not do this: it changes `clipInTicks` alone.
+- `src/ui/timeline-drag.ts` holds the rules, pure; one drag is one undo step.
+
+**Verified here.** 10 tests of the rules; smoke `layerDragUi` drags a block with real pointer events
+and undoes it. **Not verified in the app:** the clip edges, which have the tests only.
 
 ## 5. Measured results
 

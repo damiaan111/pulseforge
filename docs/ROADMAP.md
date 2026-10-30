@@ -50,7 +50,7 @@
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | time ranges are edited in the inspector; dragging them on the timeline, and multi-select, are not built |
+| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | 4.79 time ranges drag on the timeline; multi-select is not built |
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
@@ -59,7 +59,7 @@
 | M15 | Logo/watermark with reactive pulse | ✅ | 4.40 | |
 | M16 | Text layer with styling and animation | ✅ | 4.38 | |
 | M17 | Palette: reskin in one action | ✅ | 4.32 | |
-| M29 | Audio clip model: trim, fades with curves, lead-in/out, timeline→source mapping | ✅ | 4.7, 4.16, 4.47 | edited in the Clip panel; dragging clip edges on the timeline is not built |
+| M29 | Audio clip model: trim, fades with curves, lead-in/out, timeline→source mapping | ✅ | 4.7, 4.16, 4.47 | edited in the Clip panel, and 4.79 by dragging the clip's edges on the timeline |
 | M30 | Layout & aspect: anchors, scale references, per-aspect overrides, switcher, multi-aspect export | ✅ | 4.8, 4.27, 4.34 | |
 | M31 | Preview clock: audio master, drop never drift, scrub, dropped-frame indicator | ✅ | 4.16, 4.27 | |
 | M32 | Deterministic text rasterisation with per-word metrics, missing-font reporting | ✅ | 4.38 | |
@@ -202,9 +202,9 @@ effect on a finished video last. Each is noted beside its requirement in §2.
 
 **Needs the machine fixed first** (STATUS header): update the NVIDIA driver to 580 or newer and put the
 repo at a path without spaces, then run `npm run setup`, `npm run check` and a real render. Until then
-real encodes, GPU stems and lyrics, and the new setup steps as a whole are unverified here.
+real encodes, GPU stems and lyrics, and the new setup steps run as a whole are unverified here.
 
-**Timeline:** drag layer time ranges and clip edges; multi-select; marquee select and a loop region
+**Timeline:** multi-select; marquee select and a loop region
 in the lyrics lane; per-stem waveform rows; stem solo in the preview.
 
 **Lyrics:** contrast enforcement against the backdrop; gradient fills; `large-v3` and other languages

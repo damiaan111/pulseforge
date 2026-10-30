@@ -2302,6 +2302,23 @@ app.whenReady().then(async () => {
       beatStates.push(await waitFor(() => beatState() === 'none', 400));
       const beatsUi = beatStates.every((step) => step === true);
       if (!beatsUi) console.error('[smoke] beatsUi steps ' + JSON.stringify(beatStates) + ' state ' + beatState());
+      // Dragging a layer's block on the timeline (M9): its start moves, and one undo puts it back.
+      console.log('[smoke] step: layerDragUi');
+      const rowTimeline = document.querySelector('#app [data-testid="timeline"]');
+      const rowBox = rowTimeline.getBoundingClientRect();
+      const inField = () => document.querySelector('#app [data-action="layer-in"]')?.value;
+      const rowAt = { clientX: rowBox.left + rowBox.width / 2, clientY: rowBox.top + Number(rowTimeline.dataset.rowsTop) + 5, pointerId: 1, bubbles: true };
+      rowTimeline.dispatchEvent(new PointerEvent('pointerdown', rowAt));
+      await new Promise((done) => setTimeout(done, 100));
+      const inBefore = inField();
+      rowTimeline.dispatchEvent(new PointerEvent('pointermove', { ...rowAt, clientX: rowAt.clientX + 12, shiftKey: true }));
+      rowTimeline.dispatchEvent(new PointerEvent('pointermove', { ...rowAt, clientX: rowAt.clientX + 40, shiftKey: true }));
+      rowTimeline.dispatchEvent(new PointerEvent('pointerup', { ...rowAt, clientX: rowAt.clientX + 40 }));
+      const blockMoved = inBefore !== undefined && await waitFor(() => inField() !== inBefore, 40);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', ctrlKey: true, bubbles: true }));
+      const blockBack = await waitFor(() => inField() === inBefore, 40);
+      const layerDragUi = blockMoved === true && blockBack === true;
+      if (!layerDragUi) console.error('[smoke] layerDragUi: ' + JSON.stringify({ inBefore, after: inField(), blockMoved, blockBack }));
       console.log('[smoke] step: settingsUi');
       let settingsUi = false;
       {
@@ -2708,6 +2725,7 @@ app.whenReady().then(async () => {
         exportDialog,
         unicodeFonts,
         beatsUi,
+        layerDragUi,
         batchUi,
         markerUi,
         perfHud,
