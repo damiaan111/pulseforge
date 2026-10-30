@@ -10,8 +10,8 @@
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
 > any aspect. Last full verification, 2026-10-30, on the machine described below: golden 29/29
-> identical; smoke 42/43, the failure being `settingsUi` on the driver precondition; `npm run check`
-> 1276 of 1287, the 11 failures being the driver's. On the owner's fixed machine, before that driver
+> identical; smoke 43/44, the failure being `settingsUi` on the driver precondition; `npm run check`
+> 1298 of 1310 (1 skipped), the 11 failures being the driver's. On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -185,6 +185,7 @@
 | 4.80 | The launcher and the component chooser — the public release |
 | 4.81 | Polish: modulation, lyrics, stems — ROADMAP §6 |
 | 4.82 | Choosing visuals, and the licence |
+| 4.83 | MilkDrop, through Butterchurn |
 
 ---
 
@@ -4490,6 +4491,70 @@ are the driver's. Older smoke steps relied on "always adds" and now Shift-click.
 
 **Licence:** MIT, by the owner's decision, in `LICENSE` and `package.json`. It covers this project's
 code. What setup downloads keeps its own licences, listed in `vendor/LICENSES.md`.
+
+### 4.83 MilkDrop, through Butterchurn — the owner's request for real visuals
+
+**Why.** The owner tried the app: the built-in presets were generated and did not look good enough for
+strangers. C15 had put MilkDrop last, as "not a target look" and "determinism-hostile". The owner's
+request settles the first; the second is what this section answers.
+
+**What it does.** A new layer, MilkDrop (`core.visualizer.milkdrop`), and a MilkDrop tab in the Presets
+panel: 1,754 presets by the community, with search and a picture on each card. Cards behave as every
+visual now does: marked in use, off on a second click, another swaps it, Shift stacks. It sits with
+the other visualizers, so it takes opacity, masks, effects and modulation of Brightness.
+
+**How it fits.**
+- **Engine boundary.** Butterchurn is a browser library with its own WebGL2 context, so it stays outside
+  `src/engine/`, as glyph rasterisation does: `core/milkdrop.ts` is the interface, `src/milkdrop/renderer.ts`
+  the host. The module copies the host's canvas into a texture and decodes it to linear light.
+- **Determinism.** All of Butterchurn's randomness is `Math.random`, replaced for the length of each call
+  into it by a generator seeded per layer (Variation). The clock is a fixed `1/fps` per frame.
+- **Frames build on each other.** On a final render a frame is reached by stepping there from the start,
+  so a range or a late layer costs replay time. The preview jumps, and settles in a quarter of a second
+  (export-spec §8's checkpoints are not built: replay alone meets the contract, more slowly).
+  The stall watchdog would stop a replay that ran silent past 120 s; nothing has come close, and it
+  would take a layer starting over ten minutes in at 4K.
+- **Motion blur** sees one picture per frame: the preset's own feedback already smears.
+- **Real audio.** Every other track measures the audio; Butterchurn takes its own FFT and draws its
+  waveforms from samples. The analysis now keeps a `waveform` feature at 22,050 Hz, so `ANALYSIS_VERSION`
+  went up and each song is analysed again once, and it takes about 16 MB for a three-minute song.
+- **The security policy stays strict.** Butterchurn compiles preset maths with `new Function`, which the
+  studio's policy forbids, but skips that for presets that already hold functions. So setup
+  (`setup/steps/milkdrop.ts`) writes each preset as a script, parsed at setup, and the studio loads them
+  by `<script>` from `vendor/milkdrop/js`. Only that generated set ever loads: a project names a preset
+  and never carries one. This is running third-party code from a pinned package.
+- **Presets are a component**, in the chooser and `--components milkdrop`, from npm by SHA-256. The package
+  is MIT, but its presets are many artists' work, and that licence may not speak for them. Butterchurn
+  itself is an ordinary dependency.
+
+**Measured here.** Outside the engine: 40 presets, 240 frames, byte-identical within a run and across two
+separate runs, 4 ms a frame on average and 9.4 at worst, at 320×180. Through the engine: frames asked for
+forwards, backwards and shuffled are identical. 1,754 of 1,754 presets converted and parsed. On a real song, 24
+presets 15 s in, no warnings: 18 rich pictures, 3 very dim, 3 fully black. Why those 3 are black has not been
+looked into; a preset may need more of the track, or may not work in Butterchurn. The cards show it.
+
+**A real encode.** The first build had a bug no test could see: `job.ts` handed the engine a `milkdropDir` it
+does not take, through a conditional spread, which TypeScript does not check, so every export had an empty
+layer while the preview looked right. The export now gets the host itself. Checked by swapping NVENC for
+FFmpeg's software H.264 for one run, then swapped back: 90 distinct frames, no warnings, a real picture out of
+the MP4; without the host, 1 distinct frame and the warning. `milkdrop-gpu.test.ts` now exports a layer, and
+skips itself only while the driver cannot encode.
+
+**The hang behind the "flaky test" (§4.78), found.** Every test file calls `bundleElectron()`, which rewrote
+`renderer.js` while renders from other files were loading it. A half-read script logged `Unexpected end of
+input`, the page died, and nothing reported back until the watchdog fired 120 s later. Bundling now writes
+only what changed, and swaps it in with a rename; a script that dies on load fails the render at once. Full
+runs went from about 165 s to 76 s, and five in a row have no stall.
+
+Each render also has its own profile folder now, made and removed by `spike/harness.ts`, since Electron
+logged `Corrupt Index file` when renders shared one. That turned out not to be the hang, and the first try
+made things far worse: deleting the folder from inside the render threw on the way out, and the error dialog
+held every render open (115 failures in one run, and 362 folders left behind, 2.4 GB). The parent removes it
+now, even after a crash or a kill. Draft mode's cost test now times its renders one at a time, with retries.
+
+**Not built:** the auto-director does not use MilkDrop, and the old generated presets are still there. **Not
+verified:** an NVENC encode of a MilkDrop layer, because of the driver; 1080p and 4K cost per frame; the preview
+playing with a song, beyond frames and the smoke check, which has no audio at that point.
 
 ## 5. Measured results
 

@@ -13,6 +13,9 @@ import { ipcRenderer } from 'electron';
 import { parseCube } from '../../src/engine/core/lut.ts';
 import type { MotionBlur } from '../../src/engine/core/time.ts';
 import { createEngine, type Engine } from '../../src/engine/engine.ts';
+import { walkRenderModules, type RenderProject } from '../../src/engine/core/project.ts';
+import { MILKDROP_MODULE } from '../../src/engine/modules/milkdrop.ts';
+import { loadButterchurn, MilkdropRenderer } from '../../src/milkdrop/renderer.ts';
 import { hash32 } from '../../src/engine/core/prng.ts';
 import type { AnalysisSet } from '../../src/engine/core/analysis.ts';
 import type { DecodedImage } from '../../src/engine/core/image.ts';
@@ -102,7 +105,24 @@ function moduleSet(sources: readonly ShaderModuleSource[] | undefined) {
     : [...BUILTIN_MODULES, ...sources.map(shaderModuleDefinition)];
 }
 
-function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[], motionBlur?: MotionBlur, quality: 'draft' | 'preview' | 'final' = 'final', supersample?: 1 | 2): Engine {
+/** The MilkDrop host with every preset this project names loaded, or undefined when it names none. */
+async function loadMilkdrop(dir: string | undefined, project: RenderProject): Promise<MilkdropRenderer | undefined> {
+  const names = new Set<string>();
+  for (const layer of walkRenderModules(project.layers)) {
+    const preset = layer.params['preset'];
+    if (layer.module === MILKDROP_MODULE && typeof preset === 'string') names.add(preset);
+  }
+  if (dir === undefined || names.size === 0) return undefined;
+  await loadButterchurn();
+  const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as { name: string; file: string }[];
+  for (const entry of index) {
+    // This window runs no untrusted content, and these are setup's own files, from a pinned package.
+    if (names.has(entry.name)) (0, eval)(readFileSync(join(dir, entry.file), 'utf8'));
+  }
+  return new MilkdropRenderer();
+}
+
+function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonly ShaderModuleSource[], motionBlur?: MotionBlur, quality: 'draft' | 'preview' | 'final' = 'final', supersample?: 1 | 2, milkdrop?: MilkdropRenderer): Engine {
   const modules = moduleSet(sources);
   return createEngine(createContext(), {
     quality,
@@ -111,6 +131,7 @@ function newEngine(dither = true, text?: CanvasTextRasterizer, sources?: readonl
     ...(modules === undefined ? {} : { modules }),
     ...(motionBlur === undefined ? {} : { motionBlur }),
     ...(supersample === undefined ? {} : { supersample }),
+    ...(milkdrop === undefined ? {} : { milkdrop }),
   });
 }
 
@@ -209,7 +230,7 @@ async function runFrames(config: FramesConfig): Promise<SpikeFramesResult> {
   try {
     const { analysis } = decodeAnalysis(readFileSync(config.analysisFile));
     mkdirSync(config.rawDir, { recursive: true });
-    const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur, config.quality ?? 'final', config.supersample);
+    const engine = newEngine(config.dither, await loadText(config.text), config.modules, config.motionBlur, config.quality ?? 'final', config.supersample, await loadMilkdrop(config.milkdropDir, config.project));
     if (config.profile === true) engine.setProfiling(true);
     for (const [hash, image] of loadImages(config.images)) engine.setImage(hash, image);
     for (const lut of config.luts ?? []) engine.setLut(lut.hash, parseCube(lut.text));
@@ -271,6 +292,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
     // The engine the export builds is not ours, so the feeder is attached through `prepareFrame`
     // once `runExport` has made it (below); videos need the engine to register their sequences.
     let feeder: VideoFrameFeeder | undefined;
+    const milkdrop = await loadMilkdrop(config.milkdropDir, config.project);
     const result = await runExport({
       gl: createContext(),
       onEngine: (engine) => {
@@ -283,6 +305,7 @@ async function runExportMode(config: ExportConfig): Promise<SpikeExportResult> {
       analysis,
       dither: config.dither,
       ...(config.motionBlur === undefined ? {} : { motionBlur: config.motionBlur }),
+      ...(milkdrop === undefined ? {} : { milkdrop }),
       ...(config.range === undefined ? {} : { range: config.range }),
       audio: {
         source: { kind: 'file', path: config.audioPath, ffmpegExe: config.ffmpegExe },

@@ -21,12 +21,13 @@
 //  - **A strict CSP** on top, so an injected script tag has nowhere to load from either.
 
 import { execFile, spawn, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
@@ -890,6 +891,11 @@ function registerHandlers(): void {
   // Setup and repair from the studio (M36, ui-spec §8): the same `npm run setup` a terminal runs,
   // under Electron's own Node, its output streamed to the Settings screen. One run at a time.
   let setupChild: ReturnType<typeof spawn> | null = null;
+  ipcMain.handle(IPC.milkdropIndex, async () => {
+    const file = join(MILKDROP_JS_DIR, 'index.json');
+    if (!existsSync(file)) return null;
+    return { baseUrl: pathToFileURL(MILKDROP_JS_DIR).href, presets: JSON.parse(await readFile(file, 'utf8')) as { name: string; file: string }[] };
+  });
   ipcMain.handle(IPC.componentsInfo, async (): Promise<ComponentsInfo> => ({
     components: COMPONENTS.map((component) => ({ ...component, installed: componentInstalled(component.id) })),
     driver: await nvidiaDriver(),
@@ -904,7 +910,7 @@ function registerHandlers(): void {
     const chosen = (request as { components?: unknown }).components;
     const args = request.mode === 'verify' ? ['--verify', '--components', installed.join(',')]
       : request.mode === 'rebuild-check' ? ['--rebuild-check']
-      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats'].includes(request.tier) ? ['--components', request.tier]
+      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats', 'milkdrop'].includes(request.tier) ? ['--components', request.tier]
         : request.mode === 'components' && Array.isArray(chosen) && chosen.every((id) => typeof id === 'string')
           ? ['--components', resolveChoice(chosen as string[]).components.map((c) => c.id).join(','), ...((request as { acceptNonCommercial?: unknown }).acceptNonCommercial === true ? ['--accept-non-commercial'] : [])]
           : null;
@@ -2407,6 +2413,25 @@ app.whenReady().then(async () => {
       const pickerUi = pickAdded && pickSwapped && pickStacked && pickRemoved && layerCount() === pickStart;
       if (!pickerUi) console.error('[smoke] pickerUi: ' + JSON.stringify({ barsIndex, wavesIndex, pickStart, pickAdded, pickSwapped, pickStacked, pickRemoved, end: layerCount() }));
 
+      // The MilkDrop library, in the real page: its strict policy must still let a preset's script
+      // load, the card must make a picture, and a click must put a layer in and take it out.
+      console.log('[smoke] step: milkdropUi');
+      document.querySelector('#app [data-action="select-whole-frame"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      document.querySelector('#app [data-action="preset-scope-milkdrop"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const mdCards = await waitFor(() => document.querySelectorAll('#app [data-action="apply-milkdrop"]').length > 0, 100);
+      const mdPicture = await waitFor(() => document.querySelector('#app [data-testid="milkdrop-grid"] img') !== null, 300);
+      const mdLayers = () => [...document.querySelectorAll('#app .layer-list .layer-row .meta')].filter((m) => m.textContent === 'core.visualizer.milkdrop').length;
+      document.querySelector('#app [data-action="apply-milkdrop"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const mdAdded = await waitFor(() => mdLayers() === 1, 40);
+      await new Promise((done) => setTimeout(done, 400));
+      const mdCanvasError = document.querySelector('#app .canvas-error')?.textContent ?? null;
+      const mdScript = typeof globalThis.__pfMilkdrop === 'object';
+      document.querySelector('#app [data-action="apply-milkdrop"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const mdRemoved = await waitFor(() => mdLayers() === 0, 40);
+      document.querySelector('#app [data-action="preset-scope-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const milkdropUi = mdCards === true && mdPicture === true && mdAdded === true && mdScript && mdCanvasError === null && mdRemoved === true;
+      if (!milkdropUi) console.error('[smoke] milkdropUi: ' + JSON.stringify({ mdCards, mdPicture, mdAdded, mdScript, mdCanvasError, mdRemoved }));
+
       // Selecting two layers with Ctrl brings their shared actions; a plain click goes back to one.
       console.log('[smoke] step: multiSelectUi');
       const names = [...document.querySelectorAll('#app .layer-list .layer-name')];
@@ -2845,6 +2870,7 @@ app.whenReady().then(async () => {
         layerDragUi,
         pickerUi,
         multiSelectUi,
+        milkdropUi,
         shortcutUi,
         batchUi,
         markerUi,
@@ -2973,6 +2999,21 @@ app.whenReady().then(async () => {
       console.log(`[smoke] wrote ${shot}`);
     } catch (error) {
       console.error(`[smoke] could not capture the window: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // What MilkDrop looks like in the studio, playing, for a person to read.
+    try {
+      await window.webContents.executeJavaScript(`(async () => {
+        document.querySelector('#app [data-action="preset-scope-milkdrop"]')?.click();
+        await new Promise((done) => setTimeout(done, 1500));
+        document.querySelectorAll('#app [data-action="apply-milkdrop"]')[3]?.click();
+        await new Promise((done) => setTimeout(done, 400));
+        document.querySelector('#app .transport button[title="Play"]')?.click();
+        await new Promise((done) => setTimeout(done, 3000));
+      })()`);
+      await writeFile(join(dirname(shot), 'smoke-milkdrop.png'), (await window.webContents.capturePage()).toPNG());
+    } catch (error) {
+      console.error(`[smoke] could not capture MilkDrop: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     // `PULSEFORGE_UI_TOUR=1`: screenshots of the states a single capture never shows — dialogs,

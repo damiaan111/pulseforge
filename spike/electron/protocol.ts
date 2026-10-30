@@ -35,6 +35,9 @@ export interface VideoSequenceFile {
   frameCount: number;
 }
 
+/** Where setup's MilkDrop preset scripts are, for a render whose project uses one. */
+export type MilkdropDir = string;
+
 /** Fonts for a render: the default, and the project's font assets. */
 export interface FontsConfig {
   default: FontFileRef;
@@ -87,6 +90,7 @@ export interface ExportConfig {
   motionBlur?: MotionBlur;
   /** Spatial supersampling (export-spec §9); absent is 1. */
   supersample?: 1 | 2;
+  milkdropDir?: MilkdropDir;
   /** Part of the timeline (S9); absent is all of it. */
   range?: RenderRange;
   outputPath: string;
@@ -131,6 +135,7 @@ export interface FramesConfig {
   motionBlur?: MotionBlur;
   /** Spatial supersampling (export-spec §9); absent is 1. */
   supersample?: 1 | 2;
+  milkdropDir?: MilkdropDir;
   /** Time each layer on the GPU (S12) and return the summary. */
   profile?: boolean;
   /** 'final' unless asked: 'draft' renders as the studio's draft mode does (S18). */

@@ -38,7 +38,7 @@ import { rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { loadDocument } from '../project/load.ts';
 import { timelineDurationTicks, toRenderProject, type SnapshotNote } from '../project/snapshot.ts';
 import type { DocumentIssue } from '../project/parse.ts';
-import { FFMPEG_EXE, FFPROBE_EXE, MODULES_DIR } from '../../setup/lib/paths.ts';
+import { FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODULES_DIR } from '../../setup/lib/paths.ts';
 import { scanModules } from '../modules-folder/scan.ts';
 import { BUILTIN_MODULES } from '../engine/engine.ts';
 import type { ImageFile, VideoSequenceFile } from '../../spike/electron/protocol.ts';
@@ -343,6 +343,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     dither: true,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
     ...(options.supersample === undefined ? {} : { supersample: options.supersample }),
+    ...(existsSync(join(MILKDROP_JS_DIR, 'index.json')) ? { milkdropDir: MILKDROP_JS_DIR } : {}),
     ...(options.range === undefined ? {} : { range: options.range }),
     runs: 1,
     ...(options.signal !== undefined ? { signal: options.signal } : {}),

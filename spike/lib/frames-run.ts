@@ -18,7 +18,7 @@ import type { DecodedImage } from '../../src/engine/core/image.ts';
 import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import { existsSync } from 'node:fs';
 import { defaultFontFile, fallbackFontFiles } from '../../src/assets/fonts.ts';
-import { DEFAULT_FONT_FILE } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, MILKDROP_JS_DIR } from '../../setup/lib/paths.ts';
 import type { FontFileRef, FramesConfig, ImageFile, SpikeFramesResult, VideoSequenceFile } from '../electron/protocol.ts';
 import { SPIKE_OUT, runElectron } from '../harness.ts';
 import { synthesizeTestTrack } from '../test-signal.ts';
@@ -126,6 +126,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     dither: options.dither ?? false,
     ...(options.motionBlur === undefined ? {} : { motionBlur: options.motionBlur }),
     ...(options.supersample === undefined ? {} : { supersample: options.supersample }),
+    ...(existsSync(join(MILKDROP_JS_DIR, 'index.json')) ? { milkdropDir: MILKDROP_JS_DIR } : {}),
     ...(options.profile === true ? { profile: true } : {}),
     ...(options.quality === undefined ? {} : { quality: options.quality }),
   };

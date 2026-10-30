@@ -5,13 +5,14 @@
 // something, and draw the *same* something twice. That last one is the determinism contract at
 // module level (module-spec §11 check 1) — the check that keeps export reproducible.
 
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import { BUILTIN_MODULES } from '../../src/engine/engine.ts';
 import type { RenderProject } from '../../src/engine/core/project.ts';
 import { rational } from '../../src/engine/core/time.ts';
+import { MILKDROP_JS_DIR } from '../../setup/lib/paths.ts';
 import { bundleElectron } from '../../spike/harness.ts';
 import { renderFrames, type RenderedFrame } from '../../spike/lib/frames-run.ts';
 
@@ -20,7 +21,8 @@ const available = existsSync(ELECTRON);
 
 const VISUALIZERS = BUILTIN_MODULES
   .filter((m) => m.manifest.kind === 'visualizer')
-  .map((m) => m.manifest.id);
+  .map((m) => m.manifest.id)
+  .filter((id) => id !== 'core.visualizer.milkdrop' || existsSync(join(MILKDROP_JS_DIR, 'index.json')));
 
 function projectFor(moduleId: string): RenderProject {
   return {
@@ -29,8 +31,14 @@ function projectFor(moduleId: string): RenderProject {
     durationTicks: 48_000 * 2,
     canvas: { width: 320, height: 180, fps: rational(60), background: '#000000' },
     audio: { leadInTicks: 0, clipInTicks: 0 },
-    layers: [{ id: 'v', module: moduleId, enabled: true, opacity: 1, blend: 'normal', params: {} }],
+    layers: [{ id: 'v', module: moduleId, enabled: true, opacity: 1, blend: 'normal', params: moduleId === 'core.visualizer.milkdrop' ? { preset: milkdropPreset() } : {} }],
   };
+}
+
+/** MilkDrop draws nothing until a preset is chosen, and presets are an optional download. */
+function milkdropPreset(): string {
+  const presets = JSON.parse(readFileSync(join(MILKDROP_JS_DIR, 'index.json'), 'utf8')) as { name: string }[];
+  return presets[Math.floor(presets.length * 0.3)]?.name ?? '';
 }
 
 const lit = (frame: RenderedFrame): number => {

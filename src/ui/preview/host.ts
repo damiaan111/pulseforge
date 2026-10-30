@@ -19,6 +19,8 @@ import { VideoFrameFeeder } from '../../video/frame-feeder.ts';
 import type { RenderProject } from '../../engine/core/project.ts';
 import { frameCount, frameTimeSeconds, secondsToTicks, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
 import { createEngine, type Engine } from '../../engine/engine.ts';
+import { MilkdropRenderer } from '../../milkdrop/renderer.ts';
+import { loadPreset } from '../milkdrop.ts';
 import type { ModuleDefinition } from '../../engine/core/module.ts';
 import type { ModulationIssue } from '../../engine/core/modulation.ts';
 import type { ParamValue } from '../../engine/core/params.ts';
@@ -83,6 +85,7 @@ export class PreviewHost {
    * layer says "fonts are still loading" until the default one is in.
    */
   private readonly text = new CanvasTextRasterizer();
+  private readonly milkdrop = new MilkdropRenderer();
   private loopRegion: { readonly startSeconds: number; readonly endSeconds: number } | null = null;
   private readonly registeredFonts = new Set<string>();
   /**
@@ -131,6 +134,7 @@ export class PreviewHost {
       this.engine = createEngine(this.gl, {
         quality: 'preview',
         text: this.text,
+        milkdrop: this.milkdrop,
         // flipY off: the blit to screen wants GL's own bottom-up orientation. Export flips,
         // because video wants rows top-down.
         output: { transfer: 'srgb', dither: true, flipY: false, bitDepth: 8 },
@@ -337,13 +341,23 @@ export class PreviewHost {
     this.audio.pause();
   }
 
-  /** Playback speed for tapping (lyrics-spec §3). Pitch is preserved by the element. */
+  /** Loads the MilkDrop presets a document uses, and draws again as each lands. */
+  needMilkdrop(names: Iterable<string>): void {
+    for (const name of names) {
+      if (this.milkdrop.hasPreset(name)) continue;
+      void loadPreset(name).then((found) => {
+        if (found) this.needsRedraw = true;
+      });
+    }
+  }
+
   /** Kept, so a clock made later (a new track) loops too. */
   setLoop(loop: { readonly startSeconds: number; readonly endSeconds: number } | null): void {
     this.loopRegion = loop;
     this.clock?.setLoop(loop);
   }
 
+  /** Playback speed for tapping (lyrics-spec §3). Pitch is preserved by the element. */
   setRate(rate: number): void {
     this.rate = Math.min(4, Math.max(0.1, rate));
     this.clock?.setRate(this.rate);
@@ -498,6 +512,7 @@ export class PreviewHost {
       this.stills = createEngine(this.gl, {
         quality: 'final',
         text: this.text,
+        milkdrop: this.milkdrop,
         output: { transfer: 'srgb', dither: false, flipY: true, bitDepth: 8 },
       });
       this.stills.addModules(this.userModules);

@@ -55,6 +55,7 @@ const api: PulseforgeApi = {
   revealLogs: () => ipcRenderer.invoke(IPC.revealLogs) as Promise<void>,
   copyDiagnostics: (options) => ipcRenderer.invoke(IPC.copyDiagnostics, options ?? {}) as ReturnType<PulseforgeApi['copyDiagnostics']>,
   revealPath: (which) => ipcRenderer.invoke(IPC.revealPath, which) as Promise<void>,
+  milkdropIndex: () => ipcRenderer.invoke(IPC.milkdropIndex) as ReturnType<PulseforgeApi['milkdropIndex']>,
   componentsInfo: () => ipcRenderer.invoke(IPC.componentsInfo) as ReturnType<PulseforgeApi['componentsInfo']>,
   runSetup: (request) => ipcRenderer.invoke(IPC.setupRun, request) as ReturnType<PulseforgeApi['runSetup']>,
   cancelSetup: () => ipcRenderer.invoke(IPC.setupCancel) as Promise<void>,

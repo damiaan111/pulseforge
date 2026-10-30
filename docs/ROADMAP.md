@@ -166,6 +166,7 @@ it was made; they are collected here so none is a surprise.
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
 | The markers lane sits **under the waveform**; **[ / ] also stop at section boundaries**; timeline markers are **separate from the lyrics' `[Chorus]` section markers** | ui-spec §3 lists a Markers track without placing it | the waveform stays the scrub strip; the keys work before any marker exists; lyrics own their structure | STATUS 4.69 |
+| **MilkDrop is in** (C15 was last in line), through Butterchurn; its presets run as code from a pinned package; no checkpoints, a final render replays from frame 0 | PROJECT.md C15: not a target look, determinism-hostile; export-spec §8 asks for checkpoints | the owner asked for well-made visuals; seeding `Math.random` and a fixed step made it byte-identical; replay meets the contract at the cost of time on a late start | STATUS 4.83 |
 | **librosa only**, no madmom; refinement is **stored in the project** and **offered, not automatic** | D28 and PROJECT.md S16 name both tools and "an optional pass" | madmom has no Windows wheels, and the lock is wheels only; a render must not need Python; for music on a click the built-in grid is only as good as its tempo, but refining is still an edit to the project | STATUS 4.77 |
 | **Emoji are monochrome**, and one CJK font (Japanese forms) serves Chinese and Korean | PROJECT.md S17 lists emoji and non-Latin scripts without saying how | text effects work from coverage masks, which colour bitmaps do not have; a project can choose its own font, which goes first | STATUS 4.76 |
 | The **vignette now darkens and keeps alpha** (it used to fade the edges to transparent) | module-spec §6 says only "darkens toward the edges" | a LUT after it graded see-through corners; on a layer, darkening is what "vignette" means | STATUS 4.73 |
@@ -204,24 +205,11 @@ effect on a finished video last. Each is noted beside its requirement in §2.
 through the chooser on a current driver (STATUS header); a PC with no NVIDIA card; moving the FFmpeg
 pin before BtbN drops it, around 2028.
 
-**Next, by the owner's request (2026-10-30): real visuals from open-source libraries,** because the
-built-in presets are generated and do not look good enough for strangers. Researched, not integrated:
-- **Butterchurn** (MilkDrop in WebGL2, MIT, 2.6.7) with **butterchurn-presets** (MIT package, about 1,750
-  presets). The strongest fit. This overrides C15's "not a target look". All its randomness is
-  `Math.random`, its clock can be passed to `render({ elapsedTime })`, and audio can be passed as
-  `audioLevels`. **Spike, 2026-10-30, approved by the owner:** with `Math.random` seeded, 40 presets across
-  the library, 240 frames each at 320×180, were byte-identical within a run and across two separate
-  runs, at 4 ms a frame on average and 9.4 at worst. Synthetic audio, this machine, outside the engine, and
-  6 of the 40 were near black on it. Both packages are installed but nothing uses them yet. Open design points: it has its own WebGL2 context (copy
-  its canvas into the engine), each frame feeds on the last (replay from frame 0 on a seek, export-spec
-  §8), the host must supply it (`src/engine/` cannot import it, as with `TextRasterizer`), and it wants
-  real audio samples, which the analysis does not carry. The package's MIT line does not settle who
-  owns each artist's preset, so they should stay a separately chosen download, not in this repo.
-- **Vidvox ISF-Files** (MIT, 371 files): a standard format, close to the Shadertoy dialect (S2), so a
-  small job. Mostly video effects and generators rather than audio visualizers.
-- **Ruled out:** Hydra (AGPL would bind the whole app). **Unchecked:** LYGIA and gl-transitions, whose
-  licences GitHub does not identify. Shadertoy's site default is non-commercial, so nothing is bundled
-  from it without checking each shader.
+**Visuals (the owner's request, 2026-10-30):** MilkDrop is in (STATUS 4.83). Left: the auto-director using
+it, retiring the generated presets, and looking into why some presets stay black. Vidvox ISF-Files (MIT,
+371 files, close to the Shadertoy dialect) is the next source, mostly video effects. Hydra is ruled out
+(AGPL would bind the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site
+default is non-commercial, so nothing is bundled from it without checking each shader.
 
 **Auto-director (Could-level in the spec):** `derive-from-image` palettes; "Extract as template";
 palette shifts at a chorus; converting arrangement curves to keyframes.

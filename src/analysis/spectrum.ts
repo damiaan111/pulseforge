@@ -15,7 +15,7 @@ import { createFft, hannWindow } from './fft.ts';
  * survives a bug fix and produces "it's still doing the old thing" for an afternoon.
  * v2 adds the scalar feature tracks (rms, peak, onset, centroid, flux, stereoWidth).
  */
-export const ANALYSIS_VERSION = 2;
+export const ANALYSIS_VERSION = 3;
 export const ANALYSIS_SAMPLE_RATE = 48_000;
 
 export interface BandDefinition {

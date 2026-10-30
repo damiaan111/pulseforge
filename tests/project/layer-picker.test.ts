@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILTIN_MODULES } from '../../src/engine/engine.ts';
 import { addLayer, setLayerFlag } from '../../src/project/commands.ts';
 import { createBinding, createDocument, createModuleLayer } from '../../src/project/create.ts';
-import { layerPick, pickLayer, presetLayer, type KindLookup } from '../../src/project/layer-picker.ts';
+import { layerPick, milkdropLayer, pickLayer, pickMilkdrop, presetLayer, type KindLookup } from '../../src/project/layer-picker.ts';
 import type { ProjectDocument } from '../../src/project/document.ts';
 
 const kindOf: KindLookup = (id) => BUILTIN_MODULES.find((m) => m.manifest.id === id)?.manifest.kind;
@@ -85,3 +85,42 @@ describe('which preset is in use', () => {
     expect(presetLayer(document, { name: 'other', moduleId: BARS })).toBeUndefined();
   });
 });
+
+describe('a MilkDrop card', () => {
+  const MILKDROP = 'core.visualizer.milkdrop';
+  const empty = createDocument({ name: 'Song' });
+
+  it('adds a layer showing the preset, named after it', () => {
+    const result = pickMilkdrop(empty, null, 'Geiss - Chrome', kindOf, false, newId);
+    const after = result.command.apply(empty);
+    expect(after.layers).toHaveLength(1);
+    expect(after.layers[0]).toMatchObject({ module: MILKDROP, name: 'Geiss - Chrome', id: result.select });
+    expect(milkdropLayer(after, 'Geiss - Chrome')?.params['preset']).toBe('Geiss - Chrome');
+  });
+
+  it('swaps the preset on the selected MilkDrop layer, keeping the layer', () => {
+    const one = pickMilkdrop(empty, null, 'One', kindOf, false, newId);
+    const first = one.command.apply(empty);
+    const two = pickMilkdrop(first, one.select, 'Two', kindOf, false, newId);
+    const after = two.command.apply(first);
+    expect(after.layers).toHaveLength(1);
+    expect(after.layers[0]?.id).toBe(one.select);
+    expect(milkdropLayer(after, 'One')).toBeUndefined();
+    expect(milkdropLayer(after, 'Two')).toBeDefined();
+  });
+
+  it('takes the place of another visual, and never of a background', () => {
+    const bars = withLayer(BARS);
+    expect(pickMilkdrop(bars, 'L', 'One', kindOf, false, newId).command.apply(bars).layers).toHaveLength(1);
+    const background = withLayer(BACKGROUND);
+    expect(pickMilkdrop(background, 'L', 'One', kindOf, false, newId).command.apply(background).layers).toHaveLength(2);
+  });
+
+  it('turns off when clicked again, and stacks with Shift', () => {
+    const one = pickMilkdrop(empty, null, 'One', kindOf, false, newId);
+    const first = one.command.apply(empty);
+    expect(pickMilkdrop(first, one.select, 'One', kindOf, false, newId).command.apply(first).layers).toHaveLength(0);
+    expect(pickMilkdrop(first, one.select, 'Two', kindOf, true, newId).command.apply(first).layers).toHaveLength(2);
+  });
+});
+

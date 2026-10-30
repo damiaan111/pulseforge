@@ -104,6 +104,7 @@ export const IPC = {
   renderPickOutput: 'pf:render:pick-output',
   renderEnqueue: 'pf:render:enqueue',
   componentsInfo: 'pf:setup:components',
+  milkdropIndex: 'pf:milkdrop:index',
   renderReadiness: 'pf:render:readiness',
   renderList: 'pf:render:list',
   renderCancel: 'pf:render:cancel',
@@ -464,6 +465,8 @@ export interface ComponentsInfo {
 }
 
 export interface PulseforgeApi {
+  /** The installed MilkDrop library, and the URL its scripts load from; null when not installed. */
+  milkdropIndex(): Promise<{ readonly baseUrl: string; readonly presets: readonly { readonly name: string; readonly file: string }[] } | null>;
   /** What can be installed, and what this PC can run. */
   componentsInfo(): Promise<ComponentsInfo>;
   /**
@@ -550,7 +553,7 @@ export interface PulseforgeApi {
   /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */
   revealPath(which: 'userData' | 'settings'): Promise<void>;
   /** Runs `npm run setup -- --verify` or `--tier <tier>`; output arrives through `onSetupOutput`. */
-  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'components'; readonly components: readonly string[]; readonly acceptNonCommercial: boolean } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' | 'beats' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
+  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'components'; readonly components: readonly string[]; readonly acceptNonCommercial: boolean } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
   cancelSetup(): Promise<void>;
   onSetupOutput(listener: (line: string) => void): () => void;
   /** Shows an open dialog for a lyrics file (.lrc, .srt, .vtt, .ttml, .txt). Null when cancelled. */

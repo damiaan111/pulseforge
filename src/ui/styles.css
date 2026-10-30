@@ -722,3 +722,4 @@ kbd { font: 11px Consolas, monospace; padding: 1px 5px; border: 1px solid var(--
 .preset-card.in-use { border-color: var(--accent); }
 .preset-check { color: var(--accent); font-weight: 600; }
 .module-buttons button.active { background: var(--panel-raised); }
+.preset-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }

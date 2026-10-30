@@ -116,6 +116,7 @@ in all. Then Pulseforge opens and asks what you want:
 | Stem separation | Vocals, drums, bass and the rest, so visuals can react to each. Karaoke export. | about 3.6 GB |
 | Lyric transcription and timing | Writes down the lyrics and times them word by word, in English. | about 6.4 GB |
 | Beat refinement | Follows a tempo that moves. Runs on the CPU. | about 280 MB |
+| MilkDrop presets | About 1,750 audio visuals made by the MilkDrop community. | about 2 MB |
 | Optional models | Finer stems, six stems, a larger transcription model, word timing for French, German, Spanish and Italian. | 0.05–3 GB each |
 
 Tick what you want and press **Install**. It can be stopped and resumed, and every file is checked
@@ -361,6 +362,10 @@ MIT: see [LICENSE](LICENSE). Do what you want with it.
 That covers Pulseforge's own code. What the launcher downloads comes with its own licences, listed
 in `vendor/LICENSES.md` after setup. In particular, the French, German, Spanish and Italian alignment
 models are non-commercial (CC BY-NC 4.0), so they are never installed unless you choose them.
+
+MilkDrop runs through [Butterchurn](https://github.com/jberg/butterchurn) (MIT). The presets are the work
+of many MilkDrop artists: the package that collects them is MIT, but that may not speak for each author,
+so check before using them commercially.
 
 ## Notes
 

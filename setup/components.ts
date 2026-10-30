@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  DEMUCS_HTDEMUCS, EXTRA_ARTEFACTS, FALLBACK_FONTS, FFMPEG, FONT_INTER, LYRICS_MODELS, PYTHON, PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS,
+  DEMUCS_HTDEMUCS, EXTRA_ARTEFACTS, FALLBACK_FONTS, FFMPEG, FONT_INTER, LYRICS_MODELS, MILKDROP_PRESETS, PYTHON, PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS,
   PYTHON_PACKAGES_LYRICS, UV, type ExtraId, type Tier,
 } from './manifest.ts';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, MODELS, VENDOR } from './lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, MILKDROP_JS_DIR, MODELS, VENDOR } from './lib/paths.ts';
 
 // What a person chooses from (the first-run chooser, Settings, `--components`), as opposed to the
 // tiers and steps that are how those choices get installed. One list, so the chooser, the command
@@ -89,6 +89,17 @@ export const COMPONENTS: readonly Component[] = [
     minDriver: null,
     nonCommercial: false,
   },
+  {
+    id: 'milkdrop',
+    title: 'MilkDrop presets',
+    summary: 'About 1,750 audio visuals made by the MilkDrop community, from fractals to liquid metal.',
+    group: 'feature',
+    bytes: MILKDROP_PRESETS.sizeBytes,
+    license: MILKDROP_PRESETS.license,
+    requires: [],
+    minDriver: null,
+    nonCommercial: false,
+  },
   ...(Object.keys(EXTRA_TEXT) as ExtraId[]).map((id): Component => ({
     id,
     title: EXTRA_TEXT[id].title,
@@ -134,6 +145,7 @@ export function componentInstalled(id: string, exists: (path: string) => boolean
   if (id === 'stems') return marker('.pulseforge-env.json') && exists(join(MODELS, 'demucs', DEMUCS_HTDEMUCS.fileName));
   if (id === 'lyrics') return marker('.pulseforge-lyrics-env.json') && LYRICS_MODELS.every((file) => exists(join(VENDOR, file.installDir, file.fileName)));
   if (id === 'beats') return marker('.pulseforge-beats-env.json');
+  if (id === 'milkdrop') return exists(join(MILKDROP_JS_DIR, 'index.json'));
   const files = EXTRA_ARTEFACTS[id as ExtraId];
   return files !== undefined && files.every((file) => exists(join(VENDOR, file.installDir, file.fileName)));
 }

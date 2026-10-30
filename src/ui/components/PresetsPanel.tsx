@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { MilkdropPanel } from './MilkdropPanel.tsx';
 import { findLayer, removeLayer } from '../../project/commands.ts';
 import { presetLayer } from '../../project/layer-picker.ts';
 import { newId } from '../../project/ids.ts';
@@ -23,7 +24,7 @@ import { manifestLookup, useModules } from '../modules.ts';
 import { cachedThumbnail, pendingThumbnail, thumbnailUrl } from '../preset-thumbnails.ts';
 import { history, useStudio } from '../store.ts';
 
-type ScopeFilter = 'all' | 'layer' | 'project';
+type ScopeFilter = 'all' | 'layer' | 'project' | 'milkdrop';
 
 const TAGS_SHOWN = 10;
 
@@ -51,7 +52,7 @@ export function PresetsPanel(): React.JSX.Element {
     const found = searchPresets(entries, {
       text,
       ...(tags.length === 0 ? {} : { tags }),
-      ...(scope === 'all' ? {} : { scope }),
+      ...(scope === 'all' || scope === 'milkdrop' ? {} : { scope }),
     });
     // Favourites first, then by name: the ones you reach for most are at the top.
     return [...found]
@@ -86,14 +87,15 @@ export function PresetsPanel(): React.JSX.Element {
         onChange={(event) => setText(event.target.value)}
       />
       <div className="presets-filters">
-        {(['all', 'layer', 'project'] as const).map((value) => (
-          <button key={value} type="button" className={scope === value ? 'active' : ''} onClick={() => setScope(value)}>
-            {value === 'all' ? 'All' : value === 'layer' ? 'Layers' : 'Projects'}
+        {(['all', 'layer', 'project', 'milkdrop'] as const).map((value) => (
+          <button key={value} type="button" className={scope === value ? 'active' : ''} data-action={`preset-scope-${value}`} onClick={() => setScope(value)}>
+            {value === 'all' ? 'All' : value === 'layer' ? 'Layers' : value === 'project' ? 'Projects' : 'MilkDrop'}
           </button>
         ))}
         <button type="button" className={starredOnly ? 'active' : ''} title="Favourites only" onClick={() => setStarredOnly(!starredOnly)}>★</button>
       </div>
-      {topTags.length > 0 && (
+      {scope === 'milkdrop' ? <MilkdropPanel text={text} /> : null}
+      {scope !== 'milkdrop' && topTags.length > 0 && (
         <div className="tag-chips">
           {topTags.map((tag) => {
             const on = tags.includes(tag);
@@ -111,12 +113,12 @@ export function PresetsPanel(): React.JSX.Element {
         </div>
       )}
 
-      {presets === null ? <p className="dim">Reading presets…</p> : null}
-      {presets !== null && shown.length === 0 ? (
+      {presets === null && scope !== 'milkdrop' ? <p className="dim">Reading presets…</p> : null}
+      {presets !== null && shown.length === 0 && scope !== 'milkdrop' ? (
         <p className="empty">{entries.length === 0 ? 'No presets yet. Save a layer or the project to start a library.' : 'Nothing matches.'}</p>
       ) : null}
       <ul className="preset-grid">
-        {shown.map((entry) => (
+        {(scope === 'milkdrop' ? [] : shown).map((entry) => (
           <PresetCard
             key={`${entry.scope}/${entry.slug}`}
             entry={entry}

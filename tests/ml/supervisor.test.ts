@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LineSplitter, parseInbound, SIDECAR_PROTOCOL_VERSION } from '../../src/ml/protocol.ts';
 import {
@@ -253,9 +253,8 @@ describe('SidecarSupervisor', () => {
     await supervisor.request('health');
     expect(supervisor.state).toBe('ready');
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
     // Torch holds VRAM while loaded, and the renderer needs it (M28).
-    expect(supervisor.state).toBe('stopped');
+    await vi.waitFor(() => expect(supervisor.state).toBe('stopped'), { timeout: 5_000 });
     expect(states).toContain('stopping');
 
     // And it comes back on demand.

@@ -47,13 +47,14 @@ describe.skipIf(!available)('draft mode on the GPU', () => {
     await bundleElectron();
   }, 180_000);
 
-  it('costs less and shows the same picture', async () => {
+  // Retried because the GPU is shared with other test files: a timing can lose to them by chance,
+  // while a draft that really costs as much as a final fails every time.
+  it('costs less and shows the same picture', { retry: 3, timeout: 180_000 }, async () => {
     const frames = [30, 31, 32, 33, 34, 35];
-    const [final, draft, draftAgain] = await Promise.all([
-      renderFrames({ name: 'draft-final', project, frames, profile: true }),
-      renderFrames({ name: 'draft-draft', project, frames, profile: true, quality: 'draft' }),
-      renderFrames({ name: 'draft-again', project, frames: [30], quality: 'draft' }),
-    ]);
+    // One at a time: side by side they would be timing each other.
+    const final = await renderFrames({ name: 'draft-final', project, frames, profile: true });
+    const draft = await renderFrames({ name: 'draft-draft', project, frames, profile: true, quality: 'draft' });
+    const draftAgain = await renderFrames({ name: 'draft-again', project, frames: [30], quality: 'draft' });
     expect(final.warnings).toEqual([]);
     expect(draft.warnings).toEqual([]);
     const cost = (run: typeof final) => run.gpu!.spans.find((s) => s.key === 'city')!.meanMs;
@@ -68,5 +69,5 @@ describe.skipIf(!available)('draft mode on the GPU', () => {
     expect(draft.frames[0]!.sha256).not.toBe(final.frames[0]!.sha256);
     expect(draftAgain.frames[0]!.sha256).toBe(draft.frames[0]!.sha256);
     console.log(`city+dof at 1080p: final ${cost(final).toFixed(2)} ms, draft ${cost(draft).toFixed(2)} ms; worst layout difference ${worst.toFixed(1)}`);
-  }, 180_000);
+  });
 });

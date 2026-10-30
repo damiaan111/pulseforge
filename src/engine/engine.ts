@@ -31,6 +31,8 @@ import { ImageStore } from './render/images.ts';
 import { backgroundModule } from './modules/background.ts';
 import type { DecodedImage } from './core/image.ts';
 import type { TextRasterizer } from './core/text.ts';
+import type { MilkdropHost } from './core/milkdrop.ts';
+import { milkdropModule } from './modules/milkdrop.ts';
 import { lyricsModule } from './modules/lyrics.ts';
 import { textModule } from './modules/text.ts';
 import { logoModule } from './modules/logo.ts';
@@ -72,7 +74,7 @@ export const BUILTIN_MODULES: readonly ModuleDefinition[] = [
   // Sources (M14), text (M16), visualizers (M11), 3D scenes (M37), then effects (M12), then the test modules the validator uses.
   backgroundModule, textModule, lyricsModule, logoModule, videoModule,
   barsModule, radialModule, curveModule, orbModule, spectrogramModule,
-  gridModule, wavesModule, tunnelModule, blobsModule, particlesModule,
+  gridModule, wavesModule, tunnelModule, blobsModule, particlesModule, milkdropModule,
   // 3D scenes (M37).
   shapesModule, terrainModule, cityModule,
   bloomModule, vignetteModule, blurModule, gradeModule, chromaticModule,
@@ -100,6 +102,8 @@ export interface EngineOptions {
   readonly modules?: readonly ModuleDefinition[];
   /** Glyph rasterisation for text layers (core/text.ts). Without it, text layers report and draw nothing. */
   readonly text?: TextRasterizer;
+  /** Runs MilkDrop presets (core/milkdrop.ts). Without it, those layers report and draw nothing. */
+  readonly milkdrop?: MilkdropHost;
   /**
    * Motion blur (S10, export-spec §9): every frame is the average of `samples` subframes across the
    * shutter. Export only — the preview never sets it. Absent: one sample at the frame's time.
@@ -428,6 +432,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
             return ref === undefined || ref.kind !== 'video' ? undefined : videos.get(ref.hash);
           },
           text: options.text,
+          milkdrop: options.milkdrop,
           lyrics: project.lyrics,
           lut: (assetId: string) => {
             if (assetId === '') return { missing: 'no LUT chosen' };

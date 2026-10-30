@@ -2,8 +2,9 @@
 
 import { STALL_TIMEOUT_MS, stallWatch } from '../src/export/stall.ts';
 import { spawn } from 'node:child_process';
-import { rmSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build, type BuildOptions } from 'esbuild';
 import electronPath from 'electron';
@@ -17,12 +18,36 @@ export function fail(what: string, fix: readonly string[]): never {
   process.exit(1);
 }
 
+/**
+ * Puts `text` at `path` so that a reader sees the old file or the new one, never part of either.
+ * Every test file bundles, while renders from other test files are loading these: a half-written
+ * script is a page that dies without a word, and a render that waits for the watchdog. Renaming
+ * over a file another process has open can fail for a moment on Windows, hence the retries.
+ */
+async function replaceFile(path: string, text: string): Promise<void> {
+  if (await readFile(path, 'utf8').then((old) => old === text, () => false)) return;
+  const temporary = `${path}.${process.pid}.tmp`;
+  await writeFile(temporary, text);
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rename(temporary, path);
+      return;
+    } catch (error) {
+      if (attempt === 20) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+}
+
 export async function bundleElectron(): Promise<void> {
   await mkdir(SPIKE_OUT, { recursive: true });
-  const common: BuildOptions = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'], sourcemap: 'linked', logLevel: 'error' };
-  await build({ ...common, entryPoints: [join(ROOT, 'spike', 'electron', 'main.ts')], outfile: join(SPIKE_OUT, 'main.cjs') });
-  await build({ ...common, entryPoints: [join(ROOT, 'spike', 'electron', 'renderer.ts')], outfile: join(SPIKE_OUT, 'renderer.js') });
-  await writeFile(join(SPIKE_OUT, 'index.html'), '<!doctype html><meta charset="utf-8"><title>pulseforge spike</title><script src="renderer.js"></script>\n');
+  const common: BuildOptions = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'], sourcemap: 'linked', logLevel: 'error', write: false };
+  const built = await Promise.all([
+    build({ ...common, entryPoints: [join(ROOT, 'spike', 'electron', 'main.ts')], outfile: join(SPIKE_OUT, 'main.cjs') }),
+    build({ ...common, entryPoints: [join(ROOT, 'spike', 'electron', 'renderer.ts')], outfile: join(SPIKE_OUT, 'renderer.js') }),
+  ]);
+  for (const { outputFiles } of built) for (const file of outputFiles ?? []) await replaceFile(file.path, file.text);
+  await replaceFile(join(SPIKE_OUT, 'index.html'), '<!doctype html><meta charset="utf-8"><title>pulseforge spike</title><script src="renderer.js"></script>\n');
 }
 
 /**
@@ -47,8 +72,13 @@ export function runElectron<T>(
     } catch {
       // unwritable directory: the spawn below fails with a clearer message
     }
+    // A profile of its own. Electron's default is one folder per app name, so renders running side
+    // by side, or beside the studio, fought over one set of caches: runs logged a corrupt cache
+    // index and some of them stopped responding.
+    const profile = mkdtempSync(join(tmpdir(), 'pulseforge-render-'));
+    const removeProfile = () => rm(profile, { recursive: true, force: true, maxRetries: 5 }).catch(() => undefined);
     const child = spawn(electronBinary(), [join(SPIKE_OUT, 'main.cjs')], {
-      env: { ...process.env, PULSEFORGE_SPIKE_CONFIG: JSON.stringify(config), ELECTRON_ENABLE_LOGGING: '1' },
+      env: { ...process.env, PULSEFORGE_SPIKE_CONFIG: JSON.stringify(config), PULSEFORGE_SPIKE_PROFILE: profile, ELECTRON_ENABLE_LOGGING: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -78,11 +108,13 @@ export function runElectron<T>(
     });
     child.on('error', (error) => {
       watch.stop();
+      void removeProfile();
       reject(error);
     });
     child.on('close', async () => {
       watch.stop();
       signal?.removeEventListener('abort', onAbort);
+      await removeProfile();
       if (stalled) {
         reject(new Error(`The render stopped responding: nothing from it for ${STALL_TIMEOUT_MS / 1000} s, so it was stopped.\n${log.trim().split('\n').slice(-15).join('\n')}`));
         return;

@@ -12,6 +12,7 @@
 /** How much a frame may approximate (S18). Export is always 'final'. */
 export type RenderQuality = 'draft' | 'preview' | 'final';
 
+import type { MilkdropHost } from './milkdrop.ts';
 import type { LutTexture } from '../render/lut-store.ts';
 import type { AnalysisSet } from './analysis.ts';
 import type { RenderLyrics } from './lyrics.ts';
@@ -130,6 +131,8 @@ export interface RenderContext {
   readonly layer: { readonly inSeconds: number; readonly outSeconds: number | null };
   /** Glyph rasterisation, when the host supplied it (core/text.ts). Undefined: text cannot be drawn. */
   readonly text: TextRasterizer | undefined;
+  /** The MilkDrop renderer, when the host supplied it (core/milkdrop.ts). */
+  readonly milkdrop: MilkdropHost | undefined;
   /** The project's timed lyrics (core/lyrics.ts), for lyrics layers; undefined when it has none. */
   readonly lyrics: RenderLyrics | undefined;
   /**

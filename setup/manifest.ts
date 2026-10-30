@@ -5,9 +5,9 @@
 // Checksums come from each project's published checksum files, not from our own
 // downloads — except where noted.
 
-export type Tier = 'core' | 'stems' | 'lyrics' | 'beats' | 'extras';
+export type Tier = 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' | 'extras';
 /** What a plain `npm run setup` installs. */
-export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics', 'beats'];
+export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics', 'beats', 'milkdrop'];
 /**
  * Installed only when asked for (D8: fast by default, quality one click away): `--tier extras`,
  * optionally narrowed with `--extras <list>`. The studio's Settings installs them one at a time.
@@ -203,6 +203,26 @@ export const FALLBACK_FONTS: readonly FileArtefact[] = [
   },
 ];
 
+/**
+ * The MilkDrop preset library, from npm. The package is MIT, but its presets are the work of many
+ * artists, which that licence may not speak for: hence a separate choice, never part of this repo.
+ */
+export const MILKDROP_PRESETS: ArchiveArtefact = {
+  kind: 'archive',
+  id: 'milkdrop-presets',
+  name: 'Butterchurn presets',
+  version: '2.4.7',
+  tier: 'milkdrop',
+  url: 'https://registry.npmjs.org/butterchurn-presets/-/butterchurn-presets-2.4.7.tgz',
+  fileName: 'butterchurn-presets-2.4.7.tgz',
+  sha256: 'd9c067b354e4ed87b3a1dace1dc59c9d64e6a99300a82d5fa086f696e35204a7',
+  sizeBytes: 1_774_321,
+  license: 'MIT (the package); each preset by its own author',
+  installDir: 'milkdrop/package',
+  stripTopLevelDir: true,
+  expectFile: 'package.json',
+};
+
 // ---------------------------------------------------------------------------
 // Lyrics tier (P6, M26): transcription and forced alignment
 // ---------------------------------------------------------------------------
@@ -373,7 +393,7 @@ export const EXTRA_ARTEFACTS: Readonly<Record<ExtraId, readonly FileArtefact[]>>
   'align-it': [ALIGN_MODELS.it],
 };
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, ...FALLBACK_FONTS, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, ...FALLBACK_FONTS, MILKDROP_PRESETS, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
 
 export const PYTHON_PACKAGES = {
   tier: 'stems' as Tier,
@@ -421,5 +441,6 @@ export const REQUIRED_FREE_BYTES: Readonly<Record<Tier, number>> = {
   stems: 16 * 1024 ** 3,
   lyrics: 5 * 1024 ** 3,
   beats: 1 * 1024 ** 3,
+  milkdrop: 0.1 * 1024 ** 3,
   extras: 7 * 1024 ** 3,
 };

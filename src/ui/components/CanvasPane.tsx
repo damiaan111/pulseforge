@@ -4,6 +4,7 @@
 // The preview host owns the loop; this component only creates it, feeds it the document, and
 // shows what it reports. Nothing here runs per frame.
 
+import { walkLayers } from '../../project/document.ts';
 import { useEffect, useRef, useState } from 'react';
 
 import { setCanvas } from '../../project/commands.ts';
@@ -151,6 +152,11 @@ export function CanvasPane(): React.JSX.Element {
 
   useEffect(() => {
     hostRef.current?.setDocument(document, analysis);
+    const presets: string[] = [];
+    for (const { layer } of walkLayers(document.layers)) {
+      if (layer.kind === 'module' && typeof layer.params['preset'] === 'string' && layer.module === 'core.visualizer.milkdrop') presets.push(layer.params['preset']);
+    }
+    hostRef.current?.needMilkdrop(presets);
   }, [document, analysis]);
 
   useEffect(() => {

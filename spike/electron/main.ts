@@ -6,6 +6,11 @@ import { join } from 'node:path';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import type { SpikeConfig } from './protocol.ts';
 
+// A profile of its own, made and removed by whoever spawned this process: it cannot delete a
+// folder it still has open, and an exception on the way out leaves it waiting on an error dialog.
+const profile = process.env['PULSEFORGE_SPIKE_PROFILE'];
+if (profile !== undefined) app.setPath('userData', profile);
+
 // Pin the ANGLE backend so results are comparable across runs and recorded in the report.
 app.commandLine.appendSwitch('use-angle', 'd3d11');
 app.commandLine.appendSwitch('force_high_performance_gpu');
@@ -39,6 +44,10 @@ void app.whenReady().then(async () => {
     },
   });
   window.webContents.on('render-process-gone', (_event, details) => fail(`renderer process gone: ${details.reason}`));
+  // A script that dies as it loads sends nothing, and would otherwise wait for the stall watchdog.
+  window.webContents.on('console-message', (details) => {
+    if (details.level === 'error' && details.message.startsWith('Uncaught')) fail(`renderer script failed: ${details.message}`);
+  });
   ipcMain.once('spike-config', (event) => {
     event.returnValue = config;
   });

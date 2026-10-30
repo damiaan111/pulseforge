@@ -11,6 +11,7 @@
 
 import { ANALYSIS_RATE, type AnalysisSet, type AnalysisTrack, type SourceAnalysis } from '../engine/core/analysis.ts';
 import type { Stem } from '../engine/core/params.ts';
+import { WAVEFORM_RATE } from '../engine/core/milkdrop.ts';
 import { beatPulse, detectTempo, type BeatGrid } from './features.ts';
 import {
   ANALYSIS_SAMPLE_RATE, DEFAULT_SPECTRUM_SETTINGS, analysisFrameCount, computeSourceAnalysis,
@@ -34,6 +35,24 @@ export interface AnalyzeResult {
   readonly onsetTimes: readonly number[];
 }
 
+/**
+ * The song itself at `WAVEFORM_RATE`, for what wants real samples: MilkDrop draws its waveforms from
+ * them and takes its own FFT. Every other track is a measurement of the audio; this is the audio.
+ * Each output sample averages the inputs it covers, so the treble folds down gently.
+ */
+export function resampleWaveform(pcm: Float32Array): Float32Array {
+  const ratio = ANALYSIS_SAMPLE_RATE / WAVEFORM_RATE;
+  const out = new Float32Array(Math.floor((pcm.length * WAVEFORM_RATE) / ANALYSIS_SAMPLE_RATE));
+  for (let i = 0; i < out.length; i += 1) {
+    const from = Math.floor(i * ratio);
+    const to = Math.max(from + 1, Math.floor((i + 1) * ratio));
+    let sum = 0;
+    for (let j = from; j < to; j += 1) sum += pcm[j] as number;
+    out[i] = sum / (to - from);
+  }
+  return out;
+}
+
 /** Mono (or mono + right channel) PCM at 48 kHz → every track the modulation system can read. */
 export function analyzeMix(pcm: Float32Array, options: AnalyzeOptions = {}): AnalyzeResult {
   const settings = options.settings ?? DEFAULT_SPECTRUM_SETTINGS;
@@ -54,6 +73,7 @@ export function analyzeMix(pcm: Float32Array, options: AnalyzeOptions = {}): Ana
   // as `rms` — the grid does not need a special case anywhere downstream.
   const features = new Map<string, AnalysisTrack>(source.features);
   features.set('beat', { rate: ANALYSIS_RATE, channels: 1, data: beatPulse(beatGrid, ANALYSIS_RATE, frames) });
+  features.set('waveform', { rate: WAVEFORM_RATE, channels: 1, data: resampleWaveform(pcm) });
 
   const analysed: SourceAnalysis = { spectrum: source.spectrum, bands: source.bands, features };
   const sources = new Map<Stem, SourceAnalysis>([['mix', analysed]]);

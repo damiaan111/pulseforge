@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
 import type { Lut3D } from '../engine/core/lut.ts';
+import type { MilkdropHost } from '../engine/core/milkdrop.ts';
 import type { TextRasterizer } from '../engine/core/text.ts';
 import type { ModuleDefinition } from '../engine/core/module.ts';
 import { walkRenderModules, type RenderProject } from '../engine/core/project.ts';
@@ -65,6 +66,8 @@ export interface ExportRequest {
   /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
   readonly motionBlur?: MotionBlur;
   readonly supersample?: 1 | 2;
+  /** Runs MilkDrop layers; a project with none needs no host. */
+  readonly milkdrop?: MilkdropHost;
   /** Part of the timeline (S9: markers as range bounds); absent renders all of it. */
   readonly range?: RenderRange;
   readonly now: () => number;
@@ -142,6 +145,7 @@ export async function runExport(request: ExportRequest): Promise<ExportResult> {
     ...(request.modules === undefined ? {} : { modules: request.modules }),
     ...(request.motionBlur === undefined ? {} : { motionBlur: request.motionBlur }),
     ...(request.supersample === undefined ? {} : { supersample: request.supersample }),
+    ...(request.milkdrop === undefined ? {} : { milkdrop: request.milkdrop }),
   });
   for (const [hash, image] of request.images ?? []) engine.setImage(hash, image);
   for (const [hash, lut] of request.luts ?? []) engine.setLut(hash, lut);

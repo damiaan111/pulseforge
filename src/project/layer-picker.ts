@@ -81,3 +81,39 @@ export function presetLayer(document: ProjectDocument, preset: { readonly name: 
   }
   return undefined;
 }
+
+const MILKDROP_MODULE = 'core.visualizer.milkdrop';
+
+/** The layer showing a MilkDrop preset, if any. */
+export function milkdropLayer(document: ProjectDocument, preset: string): ModuleLayer | undefined {
+  for (const { layer } of walkLayers(document.layers)) {
+    if (layer.kind === 'module' && layer.module === MILKDROP_MODULE && layer.params['preset'] === preset) return layer;
+  }
+  return undefined;
+}
+
+/** A click on a MilkDrop card: the same rules as `pickLayer`, with the preset as the choice. */
+export function pickMilkdrop(document: ProjectDocument, selectedLayerId: string | null, preset: string, kindOf: KindLookup, stack: boolean, newId: () => string): PickResult {
+  const inUse = stack ? undefined : milkdropLayer(document, preset);
+  if (inUse !== undefined && !inUse.locked) return { command: { ...removeLayer(inUse.id), label: `Remove ${preset}` }, select: null, note: null };
+
+  const selected = target(document, selectedLayerId);
+  if (!stack && selected?.module === MILKDROP_MODULE) {
+    const layer: ModuleLayer = { ...selected, name: preset, params: { ...selected.params, preset } };
+    return { command: replaceLayer(selected.id, layer, `Use ${preset}`), select: selected.id, note: null };
+  }
+  const result = pickLayer(document, selectedLayerId, MILKDROP_MODULE, kindOf, stack, newId);
+  const named = (layer: Layer): Layer => (layer.kind === 'module' && layer.module === MILKDROP_MODULE ? { ...layer, name: preset, params: { ...layer.params, preset } } : layer);
+  const id = result.select;
+  return {
+    ...result,
+    command: {
+      label: `Use ${preset}`,
+      apply: (current) => {
+        const next = result.command.apply(current);
+        return { ...next, layers: next.layers.map((layer) => (layer.id === id ? named(layer) : layer)) };
+      },
+    },
+  };
+}
+
