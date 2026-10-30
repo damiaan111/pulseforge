@@ -18,6 +18,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { AnalysisCache } from '../analysis/cache.ts';
 import type { MotionBlur } from '../engine/core/time.ts';
 import { rangeFrames, type RenderRange } from './range.ts';
+import { diskSpaceError, estimateOutputBytes, isDiskFullFailure, spaceProblem } from './disk-space.ts';
+import { freeBytesAt } from '../node/free-bytes.ts';
 import { InstrumentalError, buildInstrumental } from './instrumental.ts';
 import { loadLutAssets } from '../assets/luts.ts';
 
@@ -109,6 +111,8 @@ export interface RenderDocumentOptions {
   readonly noCache?: boolean | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly onProgress?: ((progress: RenderProgress) => void) | undefined;
+  /** Reads the free space at a path; injected by tests. Default: the real drive. */
+  readonly freeBytes?: ((path: string) => Promise<number | null>) | undefined;
   /** Human-readable running commentary. The CLI prints it; the studio ignores it. */
   readonly log?: ((line: string) => void) | undefined;
 }
@@ -203,6 +207,13 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   } catch (error) {
     throw new RenderDocumentError(`The render range does not fit this timeline: ${(error as Error).message}.`, ['Choose a start before the end, inside the timeline']);
   }
+  // The disk is checked before any of the slow work below, and for a job in a queue at the moment
+  // it starts, when the jobs before it have written their files (export-spec §14).
+  const encodeSettings = defaultEncodeSettings(options.codec);
+  const neededBytes = estimateOutputBytes({ ...canvas, frames, fps: fps.num / fps.den, audioBitrateKbps: encodeSettings.audioBitrateKbps });
+  const noRoom = spaceProblem(options.outputPath, neededBytes, await (options.freeBytes ?? freeBytesAt)(options.outputPath));
+  if (noRoom !== null) throw diskSpaceError(noRoom);
+
   say(`Rendering ${project.layers.length} layer(s) at ${canvas.width}×${canvas.height} (${aspect}) `
     + `${fps.num / fps.den} fps, ${frames} frames${options.range === undefined ? '' : ` from ${(options.range.inTicks / TICKS_PER_SECOND).toFixed(2)} s`}, ${options.codec}`);
 
@@ -316,7 +327,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     ...(lutAssets.luts.length > 0 ? { luts: lutAssets.luts } : {}),
     videos,
     modules: [...scanned.modules],
-    settings: defaultEncodeSettings(options.codec),
+    settings: encodeSettings,
     outputPath: options.outputPath,
     // Sync readback: measured faster than the PBO ring through ANGLE (D50).
     readbackMode: 'sync',
@@ -334,6 +345,8 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     },
   }).catch(async (error: unknown) => {
     await discardPartial();
+    // The disk filled anyway, or something else filled it during the render.
+    if (error instanceof Error && isDiskFullFailure(error.message)) throw diskSpaceError(`${error.message} The partial file was removed.`);
     throw error;
   }).finally(() => Promise.all([
     ...images.map((image) => rm(image.file, { force: true })),

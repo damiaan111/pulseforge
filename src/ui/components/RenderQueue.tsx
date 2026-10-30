@@ -10,7 +10,7 @@ const FINISHED: readonly JobStatus[] = ['done', 'failed', 'cancelled', 'interrup
 const STATUS_TEXT: Readonly<Record<JobStatus, string>> = {
   queued: 'Queued',
   running: 'Rendering',
-  paused: 'Paused',
+  paused: 'Paused — not enough disk space',
   done: 'Done',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -47,6 +47,9 @@ function Job({ job }: { job: RenderJob }): React.JSX.Element {
         {!finished ? <button type="button" data-action="render-cancel" onClick={() => void act(() => api.cancelRender(job.id))}>Cancel</button> : null}
         {job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted'
           ? <button type="button" onClick={() => void act(() => api.retryRender(job.id))}>Retry</button>
+          : null}
+        {job.status === 'paused'
+          ? <button type="button" data-action="render-resume" title="Checks the disk again and carries on with the queue" onClick={() => void act(() => api.retryRender(job.id))}>Resume</button>
           : null}
         {job.status === 'done' ? <button type="button" onClick={() => void act(() => api.revealRender(job.outputPath))}>Show file</button> : null}
         {job.status === 'failed'

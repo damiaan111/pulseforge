@@ -31,6 +31,8 @@ export class EncoderError extends Error {
 
 /** Known FFmpeg/NVENC failure signatures → a cause a person can act on (export-spec §14). */
 export function diagnoseEncoderFailure(stderr: string): string | undefined {
+  const driver = /minimum required Nvidia driver for nvenc is ([\d.]+)/i.exec(stderr)?.[1];
+  if (driver !== undefined) return `The NVIDIA driver is too old for NVENC: this FFmpeg needs version ${driver.replace(/\.0$/, '')} or newer. Update it from nvidia.com or GeForce Experience.`;
   const rules: Array<[RegExp, string]> = [
     [/No capable devices found|OpenEncodeSessionEx failed|Cannot load nvcuda|nvEncodeAPI/i, 'NVENC could not start: the NVIDIA driver is missing, too old, or the GPU is unavailable (another app holding all encoder sessions, or remote desktop).'],
     [/Unknown encoder/i, 'This FFmpeg build does not include the requested encoder. Run `npm run setup -- --verify`.'],
@@ -77,18 +79,27 @@ export function startEncoder(ffmpegExe: string, args: readonly string[]): Encode
   // EPIPE on stdin surfaces through write callbacks; keep it from becoming an uncaught error.
   child.stdin.on('error', () => {});
 
+  // The broken pipe says only that FFmpeg went away; why is on its stderr, complete once it has
+  // closed. A process that lost its stdin and stays up is killed, so this always settles.
+  const failed = async (): Promise<EncoderError> => {
+    const kill = setTimeout(() => child.kill(), 3000);
+    const exit = await closed;
+    clearTimeout(kill);
+    return new EncoderError(`FFmpeg failed (exit ${exit.code}): ${exit.diagnosis ?? exit.stderrTail.split('\n').pop() ?? 'no output'}`, exit);
+  };
+
   const sink: PumpSink = {
     write(frame) {
       return new Promise((resolve, reject) => {
         if (exited || spawnError !== undefined) {
-          reject(new EncoderError('FFmpeg exited before all frames were written', { code: child.exitCode, stderrTail: stderr.slice(-4000), diagnosis: diagnoseEncoderFailure(stderr) }));
+          void failed().then(reject);
           return;
         }
         // The callback fires once the bytes are handed to the OS pipe, so the pump only
         // reuses a buffer after FFmpeg has taken it: that is the backpressure.
         child.stdin.write(frame, (error) => {
           if (error === null || error === undefined) resolve();
-          else reject(new EncoderError(`writing to FFmpeg failed: ${error.message}`, { code: child.exitCode, stderrTail: stderr.slice(-4000), diagnosis: diagnoseEncoderFailure(stderr) }));
+          else void failed().then(reject);
         });
       });
     },

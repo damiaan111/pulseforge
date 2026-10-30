@@ -45,7 +45,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult, type LutFile, type LutLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob, type RenderReadiness,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -70,6 +70,8 @@ import { pythonEnv } from '../../setup/lib/env.ts';
 import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
+import { probeCodecs, type CodecSupport } from '../export/encoder-probe.ts';
+import { freeBytesAt } from '../node/free-bytes.ts';
 import { RenderRequestError, createRenderService, type RenderRequest, type RenderService } from './render-service.ts';
 import { BatchRequestError, completionWatcher, createBatchService, type BatchRequest, type BatchService, type BatchStatus } from './batch-service.ts';
 import { directTrack } from '../batch/direct-track.ts';
@@ -1429,6 +1431,15 @@ function registerRenderHandlers(renders: RenderService): void {
     return result.canceled || result.filePath === undefined ? null : result.filePath;
   });
 
+  // A working answer is kept for the session; a failed one is asked again, so a driver updated
+  // with the app open is noticed when the dialog next opens.
+  let codecs: CodecSupport | null = null;
+  ipcMain.handle(IPC.renderReadiness, async (_event, outputPath: unknown): Promise<RenderReadiness> => {
+    if (codecs === null || !codecs.h264.available || !codecs.hevc.available) {
+      codecs = existsSync(FFMPEG_EXE) ? await probeCodecs(FFMPEG_EXE) : null;
+    }
+    return { codecs, freeBytes: typeof outputPath === 'string' ? await freeBytesAt(outputPath) : null };
+  });
   ipcMain.handle(IPC.renderEnqueue, async (_event, request: RenderRequest) => {
     // Validated here, not trusted: the renderer could in principle be running a drop-in module.
     if (typeof request?.text !== 'string' || typeof request.presetId !== 'string' || typeof request.outputPath !== 'string'
@@ -2420,6 +2431,8 @@ app.whenReady().then(async () => {
       document.querySelector('#app header button[data-action="export"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
       const presets = document.querySelectorAll('#app .export-dialog input[data-action="export-preset"]').length;
+      const sizeShown = /Up to [0-9]/.test(document.querySelector('#app .export-dialog [data-testid="export-size"]')?.textContent ?? '');
+      if (!sizeShown) console.error('[smoke] exportDialog: no size estimate');
       // Karaoke (S15): the audio choice is there, and offers the instrumental only once stems are ready.
       const audioSelect = document.querySelector('#app .export-dialog [data-action="export-audio"]');
       const audioChoice = audioSelect !== null && [...audioSelect.options].some((o) => o.value === 'instrumental')
@@ -2435,7 +2448,7 @@ app.whenReady().then(async () => {
       if (!blurToggles) console.error('[smoke] exportDialog: the motion-blur toggle did not enable its choices');
       document.querySelector('#app .modal-backdrop')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((done) => setTimeout(done, 50));
-      const exportDialog = presets >= 6 && blurToggles && audioChoice && document.querySelector('#app .export-dialog') === null;
+      const exportDialog = presets >= 6 && sizeShown && blurToggles && audioChoice && document.querySelector('#app .export-dialog') === null;
 
       console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('markers:' + (document.querySelector('#app .recovery-dialog') !== null));
       // Markers (S9): M adds one at the playhead (one undo step), a double-click in the markers lane

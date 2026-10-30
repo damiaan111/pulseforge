@@ -97,6 +97,7 @@ export const IPC = {
   environment: 'pf:app:environment',
   renderPickOutput: 'pf:render:pick-output',
   renderEnqueue: 'pf:render:enqueue',
+  renderReadiness: 'pf:render:readiness',
   renderList: 'pf:render:list',
   renderCancel: 'pf:render:cancel',
   renderRetry: 'pf:render:retry',
@@ -435,6 +436,13 @@ export interface EnvironmentReport {
  * What `contextBridge` exposes on `window.pulseforge`. Deliberately small: every entry is a
  * capability the renderer would otherwise not have, so the list is the security review.
  */
+export interface RenderReadiness {
+  /** Null when the encoders have not been checked: FFmpeg is missing. */
+  readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null }>> | null;
+  /** On the output file's drive; null with no output chosen, or when it cannot be read. */
+  readonly freeBytes: number | null;
+}
+
 export interface PulseforgeApi {
   /**
    * The project named on the command line (`pulseforge song.pvproj`), or by a double-click
@@ -587,6 +595,8 @@ export interface PulseforgeApi {
 
   /** Shows a save dialog for a render's output. Resolves to null when the user cancels. */
   pickRenderOutput(suggestedName: string): Promise<string | null>;
+  /** Can this machine encode, and how much room is there where the file would go (export-spec §14). */
+  renderReadiness(outputPath: string | null): Promise<RenderReadiness>;
   /** Snapshots the document as it is now and queues it (export-spec §12). */
   enqueueRender(request: RenderRequest): Promise<RenderJob>;
   listRenders(): Promise<readonly RenderJob[]>;

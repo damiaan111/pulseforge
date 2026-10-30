@@ -61,7 +61,7 @@ export interface RenderService {
   clearFinished(): Promise<void>;
   /** Cancels whatever is running and waits for it — for app shutdown. */
   stop(): Promise<void>;
-  /** Resolves when nothing is queued or running. */
+  /** Resolves when nothing is queued or running, or the queue is held for disk space. */
   idle(): Promise<void>;
 }
 
@@ -179,9 +179,9 @@ export async function createRenderService(options: RenderServiceOptions): Promis
     clearFinished: () => queue.clearFinished(),
     stop: () => queue.stop(),
     async idle() {
-      while (queue.pending.length > 0) {
+      while (queue.pending.length > 0 && !queue.isHeld) {
         await queue.drain();
-        if (queue.pending.length > 0) await new Promise((resolve) => setTimeout(resolve, 50));
+        if (queue.pending.length > 0 && !queue.isHeld) await new Promise((resolve) => setTimeout(resolve, 50));
       }
     },
   };

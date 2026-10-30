@@ -67,8 +67,19 @@
 > frame with any `.cube` file. And draft mode (S18, §4.74): the preview at 640 px with the expensive
 > effects approximated, for smooth editing on heavy projects.
 >
+> And the free-space check before a render (§4.75): the export dialog shows the most a render can
+> write, a job that will not fit waits with the queue held behind it, and the dialog refuses a codec
+> this GPU and driver cannot open, with the reason.
+>
+> **This machine, 2026-10-30:** the NVIDIA driver is **560.94** and the repo is at
+> **`D:\Claude - Projexz\pulseforge`**. The driver is too old for FFmpeg's NVENC (570+) and the pinned
+> torch (580+), so real renders and GPU stems and lyrics do not run, and setup's preconditions refuse
+> both the driver and the space in the path. `npm run check` shows 11 failures, all from the driver:
+> `nvenc.integration` 4, `stems-gpu` 3, `lyrics-align-gpu` 3, `sidecar` 1. The smoke check's
+> `settingsUi` fails on the same preconditions. Golden frames are unaffected (29/29).
+>
 > **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — librosa (S16) and
-> Unicode fonts (S17) — and the free-space check before a render.
+> Unicode fonts (S17).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -4144,6 +4155,46 @@ recognisably the final frame.
 - The UI tour adds `17-draft` (draft with the HUD open).
 
 ---
+
+### 4.75 The free-space check and encoder readiness (P8 step 13) — export-spec §14
+
+**What it does.** Before a render starts, the most it could write is compared with the free space on
+the output's drive.
+- `src/export/disk-space.ts`: `estimateOutputBytes` is pixels × frames × **0.6 bits per pixel**, plus
+  the audio and 64 MB. Constant-quality encoding has no bitrate to multiply, so 0.6 is the ceiling
+  measured across the 30 render reports in `out/`: 0.59 at the busiest, 0.34 for a 1080p particle scene.
+- `src/node/free-bytes.ts`: `freeBytesAt` walks up to the nearest folder that exists, so an output
+  folder that has not been made yet still has an answer. Unreadable means "no check", not a refusal.
+- `renderDocument` checks after the frame count is known and before any video extraction, so all
+  three callers (studio queue, `npm run render`, `npm run batch`) get it, and a queued job is checked
+  when it starts, after the jobs ahead of it have written their files.
+
+**Pause, not fail.** A `DiskSpaceError` puts the job in `paused`, with the message, and holds the
+queue: every later job needs the same drive, so failing them one by one would waste the night. The
+drawer shows "Paused — not enough disk space" and a **Resume** button that checks again. A held job
+survives a restart and can be cancelled. Every other failure still ends only its own job. The
+completion watcher counts a paused job as busy, so "shut down when done" does not fire over it.
+`npm run batch` stops at the first shortage and records the remaining tracks as not rendered; their
+projects are saved. A disk that fills during the render anyway (`isDiskFullFailure`) takes the same
+path after the partial file is removed.
+
+**Encoder readiness.** This came from the driver above. `encoder-probe.ts` existed but the dialog
+never consulted it (a gap under M24), so a machine that could not encode found out from a failed job.
+- `probeCodecs` opens one candidate for each codec the presets use; the `renderReadiness` IPC returns
+  that and the free space. A good answer is kept for the session, a bad one is asked again each time
+  the dialog opens, so an updated driver is noticed.
+- The dialog disables presets whose codec cannot open, says why in `export-encoder-problem`, shows
+  "Up to 2.2 GB; 240 GB free on that drive", and refuses to queue what will not fit.
+- `diagnoseEncoderFailure` reads FFmpeg's "minimum required Nvidia driver" line and names the version.
+- **A broken pipe used to hide the cause**: a write to a dead FFmpeg reported `write EOF` with the
+  diagnosis in a field nobody printed. `failed()` now waits for the process to close and reports it.
+
+**Verified here.** 11 tests (`tests/export/disk-space.test.ts`) including hold, resume, restart and
+"other failures still fail". The real failure on this machine now reads *The NVIDIA driver is too old
+for NVENC: this FFmpeg needs version 570 or newer*.
+
+**Not verified:** a real render reaching the check and going on to encode, because of the driver.
+The dialog's refusal states have not been seen on screen; the smoke check asserts the estimate only.
 
 ## 5. Measured results
 

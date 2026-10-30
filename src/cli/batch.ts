@@ -35,6 +35,7 @@ import { BUILTIN_MODULES } from '../engine/engine.ts';
 import { shaderModuleDefinition } from '../engine/modules/shader-module.ts';
 import { EXPORT_PRESETS, findExportPreset, type ExportPreset } from '../export/export-presets.ts';
 import { renderDocument } from '../export/render-document.ts';
+import { DiskSpaceError } from '../export/disk-space.ts';
 import { separateStems } from '../ml/stems.ts';
 import { SidecarSupervisor, spawnPythonSidecar } from '../ml/supervisor.ts';
 import { scanModules } from '../modules-folder/scan.ts';
@@ -216,6 +217,16 @@ export async function batch(argv: readonly string[]): Promise<number> {
         outcome.status = 'failed';
         outcome.error = error instanceof Error ? error.message : String(error);
         console.error(`  ✖ ${outcome.track.name}: ${outcome.error}`);
+        // The rest need the same drive; their projects are saved, so a run with room can render them.
+        if (error instanceof DiskSpaceError) {
+          for (const left of outcomes.slice(index + 1)) {
+            if (left.status === 'directed') {
+              left.status = 'failed';
+              left.error = 'Not rendered: the drive ran out of space on an earlier track.';
+            }
+          }
+          break;
+        }
       }
     }
   }

@@ -4,6 +4,9 @@
 
 import { spawn } from 'node:child_process';
 
+import { diagnoseEncoderFailure } from './encoder.ts';
+import type { VideoCodec } from './ffmpeg-args.ts';
+
 export interface EncoderCapability {
   readonly id: string;
   readonly label: string;
@@ -35,10 +38,24 @@ function tryEncoder(ffmpegExe: string, candidate: Candidate): Promise<EncoderCap
     child.stderr.on('data', (c: Buffer) => (stderr += c.toString()));
     child.on('error', (error) => resolve({ id: candidate.id, label: candidate.label, available: false, reason: error.message }));
     child.on('close', (code) => {
-      const reason = code === 0 ? undefined : (stderr.trim().split(/\r?\n/).find((l) => /error|not|unsupported|failed/i.test(l)) ?? `exit ${code}`);
+      const reason = code === 0 ? undefined : (diagnoseEncoderFailure(stderr) ?? stderr.trim().split(/\r?\n/).find((l) => /error|not|unsupported|failed/i.test(l)) ?? `exit ${code}`);
       resolve({ id: candidate.id, label: candidate.label, available: code === 0, reason });
     });
   });
+}
+
+/** What the export presets use, one candidate each (export-spec §14: hide it before it can be chosen). */
+const PRESET_CANDIDATES: Readonly<Record<VideoCodec, string>> = { h264: 'h264-8-420', hevc: 'hevc-10-420' };
+
+export type CodecSupport = Readonly<Record<VideoCodec, { readonly available: boolean; readonly reason: string | null }>>;
+
+/** Whether this GPU and driver can encode each codec the presets use. */
+export async function probeCodecs(ffmpegExe: string): Promise<CodecSupport> {
+  const one = async (id: string) => {
+    const result = await tryEncoder(ffmpegExe, CANDIDATES.find((candidate) => candidate.id === id) as Candidate);
+    return { available: result.available, reason: result.reason ?? null };
+  };
+  return { h264: await one(PRESET_CANDIDATES.h264), hevc: await one(PRESET_CANDIDATES.hevc) };
 }
 
 /** Probes sequentially: NVENC session limits make parallel probes fail spuriously. */

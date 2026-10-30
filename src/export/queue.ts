@@ -23,6 +23,7 @@ import { join } from 'node:path';
 
 import { stringifyDocument } from '../project/serialize.ts';
 import type { ProjectDocument } from '../project/document.ts';
+import { DiskSpaceError } from './disk-space.ts';
 import type { ProgressSnapshot } from './progress.ts';
 
 export const QUEUE_FORMAT_VERSION = 1;
@@ -241,7 +242,7 @@ export class RenderQueue {
     const job = this.get(id);
     if (job === undefined || isTerminal(job.status)) return;
     this.cancelled.add(id);
-    if (job.status === 'queued') {
+    if (job.status === 'queued' || job.status === 'paused') {
       this.patch(id, { status: 'cancelled', finishedAt: this.now() });
       await this.persist();
     }
@@ -290,6 +291,11 @@ export class RenderQueue {
     return this.draining;
   }
 
+  /** A job is held for lack of disk space, so the rest wait until it is retried or cancelled. */
+  get isHeld(): boolean {
+    return this.jobs.some((job) => job.status === 'paused');
+  }
+
   /** Finish the running job, then stop. The queue keeps its remaining jobs. */
   pause(): void {
     this.paused = true;
@@ -335,6 +341,14 @@ export class RenderQueue {
           reportPath: outcome.reportPath ?? null,
         });
       } catch (cause) {
+        // Out of disk is the exception: the next job needs the same drive, so the queue holds here
+        // with this job in line, and carries on when the user has made room (export-spec §14).
+        if (cause instanceof DiskSpaceError && !this.cancelled.has(job.id)) {
+          this.patch(job.id, { status: 'paused', progress: null, startedAt: null, error: cause.message });
+          this.paused = true;
+          await this.persist();
+          return;
+        }
         // A failure ends this job, never the queue: an overnight batch must survive one bad
         // project rather than stopping at it and wasting the night.
         this.patch(job.id, {

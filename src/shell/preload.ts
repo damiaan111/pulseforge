@@ -119,6 +119,7 @@ const api: PulseforgeApi = {
   loadImage: (path, projectPath) => ipcRenderer.invoke(IPC.imageLoad, path, projectPath) as ReturnType<PulseforgeApi['loadImage']>,
   environment: () => ipcRenderer.invoke(IPC.environment) as ReturnType<PulseforgeApi['environment']>,
   pickRenderOutput: (suggestedName) => ipcRenderer.invoke(IPC.renderPickOutput, suggestedName) as Promise<string | null>,
+  renderReadiness: (outputPath) => ipcRenderer.invoke(IPC.renderReadiness, outputPath) as ReturnType<PulseforgeApi['renderReadiness']>,
   enqueueRender: (request) => ipcRenderer.invoke(IPC.renderEnqueue, request) as ReturnType<PulseforgeApi['enqueueRender']>,
   listRenders: () => ipcRenderer.invoke(IPC.renderList) as ReturnType<PulseforgeApi['listRenders']>,
   cancelRender: (id) => ipcRenderer.invoke(IPC.renderCancel, id) as Promise<void>,

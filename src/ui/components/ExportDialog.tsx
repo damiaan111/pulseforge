@@ -10,6 +10,9 @@ import { MOTION_BLUR_DEFAULT, TICKS_PER_SECOND, ticksToSeconds } from '../../eng
 import { timelineDurationTicks } from '../../project/snapshot.ts';
 import { formatTime } from './TransportBar.tsx';
 import { EXPORT_PRESETS, findExportPreset, presetCanvas, suggestedOutputName } from '../../export/export-presets.ts';
+import { estimateOutputBytes, formatBytes, spaceProblem } from '../../export/disk-space.ts';
+import { defaultEncodeSettings } from '../../export/ffmpeg-args.ts';
+import type { RenderReadiness } from '../../shell/ipc.ts';
 import { stringifyDocument } from '../../project/serialize.ts';
 import { history, useStudio } from '../store.ts';
 
@@ -41,6 +44,17 @@ export function ExportDialog(): React.JSX.Element | null {
   // Karaoke (S15): the instrumental — every stem but the vocals — as the soundtrack.
   const [karaoke, setKaraoke] = useState(false);
   const stemsReady = useStudio((s) => s.stems.state === 'ready');
+  const [readiness, setReadiness] = useState<RenderReadiness | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void window.pulseforge.renderReadiness(outputPath).then((answer) => {
+      if (current) setReadiness(answer);
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, outputPath]);
   // The dialog stays mounted while closed, so each opening starts from the setting again.
   useEffect(() => {
     if (open) setPresetId(opening);
@@ -56,6 +70,15 @@ export function ExportDialog(): React.JSX.Element | null {
   const toTicks = markers.find((m) => m.id === toId)?.ticks ?? endTicks;
   const ranged = fromId !== '' || toId !== '';
   const badRange = ranged && toTicks - fromTicks < TICKS_PER_SECOND / document.canvas.fps.num * document.canvas.fps.den;
+
+  // Refused before it can be chosen (export-spec §14), and the render's own check says the same.
+  const codec = preset === undefined ? undefined : readiness?.codecs?.[preset.codec];
+  const cannotEncode = codec?.available === false;
+  const frames = Math.ceil((ticksToSeconds(ranged ? toTicks - fromTicks : endTicks) * document.canvas.fps.num) / document.canvas.fps.den);
+  const size = preset === undefined || canvas === null ? null : estimateOutputBytes({
+    ...canvas, frames, fps: document.canvas.fps.num / document.canvas.fps.den, audioBitrateKbps: defaultEncodeSettings(preset.codec).audioBitrateKbps,
+  });
+  const noRoom = size === null || outputPath === null ? null : spaceProblem(outputPath, size, readiness?.freeBytes ?? null);
 
   async function choose(): Promise<void> {
     if (preset === undefined) return;
@@ -100,6 +123,7 @@ export function ExportDialog(): React.JSX.Element | null {
                 value={entry.id}
                 data-action="export-preset"
                 checked={entry.id === presetId}
+                disabled={readiness?.codecs?.[entry.codec].available === false}
                 onChange={() => {
                   setPresetId(entry.id);
                   setOutputPath(null);
@@ -115,8 +139,10 @@ export function ExportDialog(): React.JSX.Element | null {
           <p className="export-summary">
             {canvas.width}×{canvas.height} at {document.canvas.fps.num / document.canvas.fps.den} fps.
             {' '}Per-aspect overrides for this shape are applied.
+            {size === null ? null : <span data-testid="export-size">{' '}Up to {formatBytes(size)}{outputPath !== null && readiness?.freeBytes != null ? `; ${formatBytes(readiness.freeBytes)} free on that drive` : ''}.</span>}
           </p>
         )}
+        {cannotEncode ? <p className="warn-text" data-testid="export-encoder-problem">This machine cannot encode {preset?.codec === 'hevc' ? 'HEVC' : 'H.264'}. {codec.reason}</p> : null}
 
         {markers.length > 0 ? (
           <fieldset className="export-range" data-testid="export-range">
@@ -167,6 +193,7 @@ export function ExportDialog(): React.JSX.Element | null {
         </div>
 
         {noAudio ? <p className="warn-text">The project has no audio. Import audio before rendering.</p> : null}
+        {noRoom !== null ? <p className="warn-text" data-testid="export-no-room">{noRoom}</p> : null}
         <p className="dim-text">The project is snapshotted when queued; keep editing while it renders.</p>
 
         <div className="modal-actions">
@@ -175,7 +202,7 @@ export function ExportDialog(): React.JSX.Element | null {
             type="button"
             className="primary"
             data-action="export-enqueue"
-            disabled={busy || noAudio || badRange || outputPath === null || preset === undefined}
+            disabled={busy || noAudio || badRange || cannotEncode || noRoom !== null || outputPath === null || preset === undefined}
             onClick={() => void enqueue()}
           >
             Add to queue

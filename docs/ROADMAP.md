@@ -20,14 +20,12 @@
 | P2 — Engine | ✅ | |
 | P3 — Studio | ✅ | |
 | P4 — Library | ✅ | 16 steps, 2026-09-15 → 09-18 |
-| P5 — Export | 🔶 | most of it landed early with the render pipeline; see M34 and §3 |
+| P5 — Export | ✅ | the render pipeline, reports and diagnostics; the free-space check (STATUS 4.75) was the last of it |
 | P6 — Lyrics | ✅ | five steps, 2026-09-25: STATUS 4.50–4.55 |
 | P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
-| P8 — Expansion (Should-haves) | 🔶 | a few already done in passing (S8, S14, S19) |
+| P8 — Expansion (Should-haves) | 🔶 | 14 of 16 done; S16 and S17 remain (S3 became C15, S4 M37, S5 M26) |
 
-**Must-haves (M1–M40): all 40 done.** By count that is 90%+; by effort —
-what remains is operability (cache screen, logs and diagnostics, the settings screen) and the P1
-remainder — the v1 must-have work is **roughly nine-tenths done**.
+**Must-haves (M1–M40): all 40 done.**
 
 ---
 
@@ -88,7 +86,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
 | M23 | Deterministic NVENC render at 1080p60, 4K60, 9:16, 1:1; progress/cancel; A/V sync | ✅ | 4.5, 4.33 | |
-| M24 | Export presets + render queue | ✅ | 4.23, 4.34 | the encoder probe exists (`src/export/encoder-probe.ts`) but the dialog does not consult it; today's presets use only codecs Ampere has |
+| M24 | Export presets + render queue | ✅ | 4.23, 4.34 | the dialog consults the encoder probe and disables what cannot open, with the reason (STATUS 4.75) |
 | M25 | Preset save/load, project and layer level, portable JSON | ✅ | 4.19, 4.25, 4.44 | presets reference assets by project id, so a preset that uses an image does not bring it to another project |
 | M38 | Layer groups | ✅ | 4.39 | |
 | M39 | Video layers via a deterministic frame cache, proxies | ✅ | 4.41 | cache-size attribution waits for M33 |
@@ -115,7 +113,7 @@ remainder — the v1 must-have work is **roughly nine-tenths done**.
 | S8 Preset browser | ✅ | 4.44 |
 | S9 Sections/markers | ✅ | 4.21 sections; 4.69 markers: named and coloured, snapping, prev/next, render ranges, `marker`/`markerProgress` sources; loop region and I/O keys not built |
 | S11 Colour management | ✅ | linear-light, premultiplied compositing and correct output transfer; 4.73 the LUT effect with `.cube` files (3D and 1D), for display or linear input |
-| S13 Batch mode | ✅ | 4.68 — drop tracks or Batch…, `npm run batch`; completion notification, shutdown when done; the free-space precheck (export-spec §14) is still open |
+| S13 Batch mode | ✅ | 4.68 — drop tracks or Batch…, `npm run batch`; completion notification, shutdown when done; 4.75 a job that will not fit holds the queue |
 | S15 Karaoke export | ✅ | 4.70 — export dialog, `render --instrumental`, batch; every stem but the vocals, summed; refused without stems |
 | S12 Performance HUD | ✅ | 4.71 — GPU time per top-level layer, whole-frame effects and output; estimates at full size and 4K; per-layer cost in every render report |
 | S14 Headless CLI | ✅ | `npm run render` (4.13), `npm run batch` (4.68) |
@@ -142,8 +140,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
    6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
    4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72), ✅ LUTs (S11, 4.73), ✅ draft mode
-   (S18, 4.74); next S16 librosa, S17 Unicode fonts, and the free-space precheck before a render
-   (export-spec §14).
+   (S18, 4.74), ✅ the free-space check (4.75); next S16 librosa and S17 Unicode fonts.
 
 ---
 

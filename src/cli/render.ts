@@ -32,6 +32,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { MOTION_BLUR_DEFAULT, TICKS_PER_SECOND, motionBlurProblems, type MotionBlur } from '../engine/core/time.ts';
 import { RenderDocumentError, canvasForAspect as sharedCanvasForAspect, renderDocument } from '../export/render-document.ts';
+import { DiskSpaceError } from '../export/disk-space.ts';
 import type { Marker } from '../project/document.ts';
 import { loadDocument } from '../project/load.ts';
 import { ROOT } from '../../setup/lib/paths.ts';
@@ -218,6 +219,7 @@ export async function render(argv: readonly string[]): Promise<void> {
       log: say,
     });
   } catch (error) {
+    if (error instanceof DiskSpaceError) throw new CliError(error.message, error.fixes);
     if (error instanceof RenderDocumentError) {
       throw new CliError(error.message, error.message.startsWith('The project has no audio') || error.message.startsWith('Audio file not found')
         ? ['Point at one with --audio <file>', 'Or fix the path stored in the project']
