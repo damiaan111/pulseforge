@@ -49,7 +49,7 @@ P4 are complete (2026-09-18), and so are the modulation UI (M13), the layer/clip
 M36) and **the P1 remainder** (extras tier, offline rebuild check; 2026-09-25) — every must-have is
 done. P8, the Should-haves, is under way (ROADMAP §3 item 9): keyframes (S1), Shadertoy shaders
 (S2), the 6-stem model (S6), masking (S7), markers (S9), motion blur (S10), LUTs (S11), the
-performance HUD (S12), batch mode (S13), karaoke export (S15) and draft mode (S18) are done; the rest
+performance HUD (S12), batch mode (S13), karaoke export (S15), draft mode (S18) and Unicode text (S17) are done; the rest
 follow ROADMAP §3. `npm run test` writes `out/vitest-last.json`: read it when a run fails.
 
 - The smoke check's renderer code is one template literal: never write a backslash in it (`\n`

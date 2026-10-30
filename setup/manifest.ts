@@ -144,6 +144,65 @@ export const FONT_INTER: ArchiveArtefact = {
   expectFile: 'extras/ttf/Inter-Regular.ttf',
 };
 
+/**
+ * The fallback chain for text (S17), in the order it is tried, after the layer's font and Inter
+ * (which already has Latin, Greek and Cyrillic). All OFL-1.1. Pinned to commits, since Noto
+ * publishes per-script repositories rather than one release; the hashes were recorded from those
+ * files on 2026-10-30. `NotoSansCJKjp` has Simplified and Traditional Chinese and Hangul too, with
+ * Japanese glyph forms where the regions differ; a project that minds chooses its own font.
+ * Noto Emoji is the monochrome one: text is drawn from coverage masks.
+ */
+const NOTO_COMMIT = '412a7edb2c8c535d1066157e5b17e661fd5591fe';
+const noto = (script: string, sha256: string, sizeBytes: number): FileArtefact => ({
+  kind: 'file',
+  id: `font-noto-${script.toLowerCase()}`,
+  name: `Noto Sans ${script}`,
+  version: NOTO_COMMIT.slice(0, 8),
+  tier: 'core',
+  url: `https://raw.githubusercontent.com/notofonts/notofonts.github.io/${NOTO_COMMIT}/fonts/NotoSans${script}/hinted/ttf/NotoSans${script}-Regular.ttf`,
+  fileName: `NotoSans${script}-Regular.ttf`,
+  sha256,
+  sizeBytes,
+  license: 'OFL-1.1',
+  installDir: 'fonts/noto',
+});
+export const FALLBACK_FONTS: readonly FileArtefact[] = [
+  noto('Arabic', 'bdff3e5659d67e67def05b33f749683b9376ae819d65d3dd62ac4640b3aaef48', 234_892),
+  noto('Hebrew', 'cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee', 26_860),
+  noto('Devanagari', '4e3c66638958c3e2ab5d37f47a8deb89fffeb7be9985c665a519bbc7ba762313', 243_520),
+  noto('Bengali', 'b55c62ee531e3214da6c0701daecea89a52ba42db7d8206b92e6b51f397a3193', 143_072),
+  noto('Tamil', '3c0a186feb3c63c7f6d63e1511dcdc144e745ae09b98e217c83f3e317974f6f9', 73_992),
+  noto('Thai', '61cf814eec46b294d6ea4401ac295d0cecd5207bd2331dcc5a15e7301d30ee44', 37_780),
+  noto('Armenian', '720df88c332417a235b4d6209d14ec2e2bf4bfe2a954b7453d869ea593bfce1e', 30_752),
+  noto('Georgian', 'd3e33254b09e7bb2c5cf0f17e554b80462056c5a107097f258d495168c3a9346', 52_888),
+  {
+    kind: 'file',
+    id: 'font-noto-cjk-jp',
+    name: 'Noto Sans CJK JP',
+    version: 'f8d15753',
+    tier: 'core',
+    url: 'https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf',
+    fileName: 'NotoSansCJKjp-Regular.otf',
+    sha256: '68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5',
+    sizeBytes: 16_467_736,
+    license: 'OFL-1.1',
+    installDir: 'fonts/noto',
+  },
+  {
+    kind: 'file',
+    id: 'font-noto-emoji',
+    name: 'Noto Emoji',
+    version: '6157dfaa',
+    tier: 'core',
+    url: 'https://raw.githubusercontent.com/google/fonts/6157dfaa640ca5738b4d1a7070fe389c3036d7fc/ofl/notoemoji/NotoEmoji%5Bwght%5D.ttf',
+    fileName: 'NotoEmoji[wght].ttf',
+    sha256: 'de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551',
+    sizeBytes: 1_982_596,
+    license: 'OFL-1.1',
+    installDir: 'fonts/noto',
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Lyrics tier (P6, M26): transcription and forced alignment
 // ---------------------------------------------------------------------------
@@ -314,7 +373,7 @@ export const EXTRA_ARTEFACTS: Readonly<Record<ExtraId, readonly FileArtefact[]>>
   'align-it': [ALIGN_MODELS.it],
 };
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, ...FALLBACK_FONTS, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
 
 export const PYTHON_PACKAGES = {
   tier: 'stems' as Tier,

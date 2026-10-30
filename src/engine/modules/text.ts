@@ -319,6 +319,7 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       const current = uploaded?.key === key ? uploaded : upload(key, rasterizer.rasterize(request), strokePx);
       const { raster } = current;
       if (!raster.fontFound && font.missing === undefined) ctx.warn(`text: font "${font.name}" could not be used; drawing with the default font`);
+      if (raster.missingGlyphs !== undefined && raster.missingGlyphs.length > 0) ctx.warn(`text: no font has ${raster.missingGlyphs.join(' ')}; drawn as a box. Choose a font that does`);
       if (raster.clamped) ctx.warn('text: the text block is larger than the maximum texture size and was scaled down');
 
       const animation = textAnimation(ctx.time.t, ctx.layer, str(params, 'animIn'), str(params, 'animOut'), num(params, 'animSeconds'), raster.words.length);

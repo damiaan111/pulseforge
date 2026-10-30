@@ -223,21 +223,27 @@ export class PreviewHost {
    * Registers font bytes with the rasteriser. Asynchronous (a FontFace has to be parsed), so each
    * one asks for a redraw as it lands rather than blocking the preview loop.
    */
-  setFonts(defaultFont: { hash: string; bytes: Uint8Array } | null, fonts: ReadonlyMap<string, Uint8Array>): void {
-    const register = async (hash: string, bytes: Uint8Array, isDefault: boolean) => {
+  setFonts(defaultFont: { hash: string; bytes: Uint8Array } | null, fonts: ReadonlyMap<string, Uint8Array>, fallbacks: readonly { readonly hash: string; readonly bytes: Uint8Array }[]): void {
+    const register = async (hash: string, bytes: Uint8Array, kind: 'default' | 'font' | 'fallback') => {
       if (this.registeredFonts.has(hash)) return;
       this.registeredFonts.add(hash);
       try {
-        if (isDefault) await this.text.setDefaultFont(hash, bytes);
-        else await this.text.addFont(hash, bytes);
+        if (kind === 'default') await this.text.setDefaultFont(hash, bytes);
+        else if (kind === 'font') await this.text.addFont(hash, bytes);
+        else await this.text.addFallbackFont(hash, bytes);
         this.needsRedraw = true;
       } catch (error) {
         this.registeredFonts.delete(hash);
         this.callbacks.onError(`A font could not be loaded: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
-    if (defaultFont !== null) void register(defaultFont.hash, defaultFont.bytes, true);
-    for (const [hash, bytes] of fonts) void register(hash, bytes, false);
+    // The default last, in chain order before it: text is drawn from the moment the default is in,
+    // and a line rasterised before its fallback landed would stay a row of boxes in the layer's cache.
+    void (async () => {
+      for (const font of fallbacks) await register(font.hash, font.bytes, 'fallback');
+      if (defaultFont !== null) await register(defaultFont.hash, defaultFont.bytes, 'default');
+    })();
+    for (const [hash, bytes] of fonts) void register(hash, bytes, 'font');
   }
 
   /**

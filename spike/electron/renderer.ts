@@ -73,6 +73,7 @@ async function loadText(config: FontsConfig | undefined): Promise<CanvasTextRast
   if (config === undefined) return undefined;
   const text = new CanvasTextRasterizer();
   await text.setDefaultFont(config.default.hash, readFileSync(config.default.file));
+  for (const font of config.fallbacks ?? []) await text.addFallbackFont(font.hash, readFileSync(font.file));
   for (const font of config.fonts) await text.addFont(font.hash, readFileSync(font.file));
   return text;
 }

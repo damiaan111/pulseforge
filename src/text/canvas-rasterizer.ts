@@ -13,12 +13,25 @@
 //  - **`textRendering: geometricPrecision`**, so glyph shapes scale with the size rather than
 //    snapping to hinted pixel grids that differ between preview and export resolution.
 //  - Layout is ours (layout.ts), never the DOM's.
+//  - **Fallback is a chain of bundled fonts** after the layer's own and the default, so a Japanese
+//    lyric or an emoji reads the same on any machine. A character none of them has is replaced
+//    with a box *before* the canvas sees it: left alone, the canvas would find it in a system font,
+//    which is the one thing the first rule exists to prevent. Shaping (Arabic joining, Indic
+//    reordering) and bidirectional ordering are the canvas's own, through HarfBuzz.
+//  - Emoji are **monochrome** (Noto Emoji): every text effect works on a coverage mask, and a colour
+//    bitmap has none. An emoji takes the layer's colour, gradient and karaoke fill like a letter.
 
 import type { TextRaster, TextRasterizer, TextRequest } from '../engine/core/text.ts';
+import { parseCmap, type FontCoverage } from './cmap.ts';
 import { layoutText } from './layout.ts';
 
 /** Largest bitmap side. Past it the block is scaled down, and the raster says so. */
 const MAX_SIDE = 8192;
+/** Drawn for a character no font has. */
+const NO_GLYPH = 0x25a1;
+const MAX_REPORTED = 8;
+/** Never drawn, so never looked up: joiners, variation selectors, and spaces of every width. */
+const INVISIBLE = /[\s\p{Cf}\p{Cc}\p{Variation_Selector}]/u;
 
 interface FontRegistry {
   add(face: FontFace): void;
@@ -41,6 +54,9 @@ function context(canvas: OffscreenCanvas): Context2D {
 
 export class CanvasTextRasterizer implements TextRasterizer {
   private readonly families = new Map<string, string>();
+  /** By family. Null: a web font whose coverage cannot be read, so it is taken at its word. */
+  private readonly coverage = new Map<string, FontCoverage | null>();
+  private readonly fallbacks: string[] = [];
   private defaultFamily: string | undefined;
   private readonly measureCanvas = new OffscreenCanvas(1, 1);
   private readonly drawCanvas = new OffscreenCanvas(1, 1);
@@ -50,11 +66,21 @@ export class CanvasTextRasterizer implements TextRasterizer {
     if (this.families.has(hash)) return;
     const family = `pf-${hash.slice(0, 24)}`;
     // A copy: FontFace takes ownership of an ArrayBuffer, and a view into a shared one is not accepted.
-    const buffer = bytes.slice().buffer;
+    // Not `bytes.slice()`, which on a Node Buffer is a view of its pool, so a small font comes out
+    // as the whole pool.
+    const buffer = new Uint8Array(bytes).buffer;
     const face = new FontFace(family, buffer);
     await face.load();
     fontRegistry().add(face);
     this.families.set(hash, family);
+    this.coverage.set(family, parseCmap(bytes));
+  }
+
+  /** Adds a font to the end of the fallback chain, tried after the layer's own and the default. */
+  async addFallbackFont(hash: string, bytes: Uint8Array): Promise<void> {
+    await this.addFont(hash, bytes);
+    const family = this.families.get(hash) as string;
+    if (!this.fallbacks.includes(family)) this.fallbacks.push(family);
   }
 
   /** The font used when a layer names none, or when the one it names is missing. */
@@ -77,17 +103,49 @@ export class CanvasTextRasterizer implements TextRasterizer {
     if (family === undefined) throw new Error('no default font registered with the text rasteriser');
     const fontFound = request.fontHash === null || named !== undefined;
 
-    let raster = this.render(request, family, 1);
+    const stack = [...new Set([family, this.defaultFamily as string, ...this.fallbacks])];
+    const { text, missing } = this.covered(request.text, stack);
+    const drawn = text === request.text ? request : { ...request, text };
+    const fonts = stack.map((name) => `"${name}"`).join(', ');
+
+    let raster = this.render(drawn, fonts, 1);
     if (raster.width > MAX_SIDE || raster.height > MAX_SIDE) {
       const scale = MAX_SIDE / Math.max(raster.width, raster.height);
-      raster = this.render(request, family, scale * 0.999);
-      return { ...raster, fontFound, clamped: true };
+      raster = this.render(drawn, fonts, scale * 0.999);
+      return { ...raster, fontFound, clamped: true, missingGlyphs: missing };
     }
-    return { ...raster, fontFound, clamped: false };
+    return { ...raster, fontFound, clamped: false, missingGlyphs: missing };
   }
 
-  private setup(ctx: Context2D, family: string, sizePx: number, letterSpacingPx: number): void {
-    ctx.font = `${sizePx}px "${family}"`;
+  /**
+   * The text with every character no font in the stack has replaced by a box. Same length, code
+   * unit for code unit, because word offsets into the text must still hold: a character outside the
+   * BMP becomes the box and a zero-width space.
+   */
+  private covered(text: string, stack: readonly string[]): { text: string; missing: readonly string[] } {
+    const fonts = stack.map((family) => this.coverage.get(family));
+    // An unreadable font might have anything, and it is the user's own choice: nothing is replaced.
+    if (fonts.some((font) => font === null || font === undefined)) return { text, missing: [] };
+    const known = fonts as readonly FontCoverage[];
+    const box = String.fromCodePoint(known.some((font) => font.has(NO_GLYPH)) ? NO_GLYPH : 0x3f);
+    const missing: string[] = [];
+    let out = '';
+    let changed = false;
+    for (const ch of text) {
+      const code = ch.codePointAt(0) as number;
+      if (INVISIBLE.test(ch) || known.some((font) => font.has(code))) {
+        out += ch;
+        continue;
+      }
+      changed = true;
+      out += ch.length === 1 ? box : `${box}\u200b`;
+      if (missing.length < MAX_REPORTED && !missing.includes(ch)) missing.push(ch);
+    }
+    return { text: changed ? out : text, missing };
+  }
+
+  private setup(ctx: Context2D, fonts: string, sizePx: number, letterSpacingPx: number): void {
+    ctx.font = `${sizePx}px ${fonts}`;
     ctx.letterSpacing = `${letterSpacingPx}px`;
     ctx.fontKerning = 'normal';
     ctx.textRendering = 'geometricPrecision';
@@ -95,12 +153,12 @@ export class CanvasTextRasterizer implements TextRasterizer {
     ctx.textBaseline = 'alphabetic';
   }
 
-  private render(request: TextRequest, family: string, scale: number): Omit<TextRaster, 'fontFound' | 'clamped'> {
+  private render(request: TextRequest, fonts: string, scale: number): Omit<TextRaster, 'fontFound' | 'clamped'> {
     const sizePx = request.sizePx * scale;
     const letterSpacingPx = request.letterSpacingPx * scale;
     const strokePx = request.strokePx * scale;
     const measure = context(this.measureCanvas);
-    this.setup(measure, family, sizePx, letterSpacingPx);
+    this.setup(measure, fonts, sizePx, letterSpacingPx);
     const metrics = measure.measureText('Hg');
 
     const layout = layoutText(request.text, {
@@ -122,8 +180,8 @@ export class CanvasTextRasterizer implements TextRasterizer {
       width,
       height,
       content: layout.content,
-      lines: layout.lines.map((l) => ({ x: l.x, baseline: l.baseline, width: l.width })),
-      words: layout.words.map((w) => ({ text: w.text, start: w.start, line: w.line, x: w.x, y: w.top, width: w.width, height: w.height })),
+      lines: layout.lines.map((l) => ({ x: l.x, baseline: l.baseline, width: l.width, ...(l.rtl ? { rtl: true } : {}) })),
+      words: layout.words.map((w) => ({ text: w.text, start: w.start, line: w.line, x: w.x, y: w.top, width: w.width, height: w.height, ...(w.rtl ? { rtl: true } : {}) })),
     };
     if (width > MAX_SIDE || height > MAX_SIDE) return { ...base, fill: new Uint8Array(0), stroke: null };
 
@@ -138,21 +196,29 @@ export class CanvasTextRasterizer implements TextRasterizer {
     };
 
     draw.clearRect(0, 0, width, height);
-    this.setup(draw, family, sizePx, letterSpacingPx);
+    this.setup(draw, fonts, sizePx, letterSpacingPx);
     draw.fillStyle = '#ffffff';
-    for (const line of layout.lines) if (line.text !== '') draw.fillText(line.text, line.x, line.baseline);
+    for (const line of layout.lines) {
+      if (line.text === '') continue;
+      draw.direction = line.rtl ? 'rtl' : 'ltr';
+      draw.fillText(line.text, line.x, line.baseline);
+    }
     const fill = alpha();
 
     let stroke: Uint8Array | null = null;
     if (strokePx > 0) {
       draw.clearRect(0, 0, width, height);
-      this.setup(draw, family, sizePx, letterSpacingPx);
+      this.setup(draw, fonts, sizePx, letterSpacingPx);
       draw.strokeStyle = '#ffffff';
       draw.lineJoin = 'round';
       draw.miterLimit = 2;
       // A canvas stroke is centred on the outline; twice the width puts `strokePx` outside the glyph.
       draw.lineWidth = strokePx * 2;
-      for (const line of layout.lines) if (line.text !== '') draw.strokeText(line.text, line.x, line.baseline);
+      for (const line of layout.lines) {
+        if (line.text === '') continue;
+        draw.direction = line.rtl ? 'rtl' : 'ltr';
+        draw.strokeText(line.text, line.x, line.baseline);
+      }
       stroke = alpha();
     }
 

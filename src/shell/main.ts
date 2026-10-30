@@ -29,7 +29,7 @@ import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, 
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
 import { EXTRAS, EXTRA_ARTEFACTS, WAV2VEC2_EN, type ExtraId } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
-import { FONT_EXTENSIONS } from '../assets/fonts.ts';
+import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { readTemplateFiles } from '../director/template-store.ts';
@@ -1245,6 +1245,8 @@ function registerHandlers(): void {
     return readFont(DEFAULT_FONT_FILE);
   });
 
+  ipcMain.handle(IPC.fontFallbacks, () => fallbackFontFiles().map((font) => ({ hash: font.hash, bytes: readFileSync(font.file) })));
+
   ipcMain.handle(IPC.imageImport, async (): Promise<ImageBytes | null> => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an image',
@@ -2252,6 +2254,11 @@ app.whenReady().then(async () => {
       // re-render; the light theme swaps the chrome's tokens; the environment names the GPU; and
       // Verify runs the real npm run setup -- --verify under the Node inside Electron and reports back.
       console.log('[smoke] step: ' + 'checkpoint'); recoveryTrace.push('settings:' + (document.querySelector('#app .recovery-dialog') !== null));
+      console.log('[smoke] step: unicodeFonts');
+      // The chain reaches the studio: all ten bundled files, and Arabic among them.
+      const chain = await window.pulseforge.fallbackFonts();
+      const unicodeFonts = chain.length === 10 && chain.every((font) => font.bytes.length > 10000);
+      if (!unicodeFonts) console.error('[smoke] unicodeFonts: ' + chain.length + ' fonts');
       console.log('[smoke] step: settingsUi');
       let settingsUi = false;
       {
@@ -2656,6 +2663,7 @@ app.whenReady().then(async () => {
         ...(lyricsUi === undefined ? {} : { lyricsUi }),
         ...(alignLive === undefined ? {} : { alignLive }),
         exportDialog,
+        unicodeFonts,
         batchUi,
         markerUi,
         perfHud,

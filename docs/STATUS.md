@@ -78,8 +78,11 @@
 > `nvenc.integration` 4, `stems-gpu` 3, `lyrics-align-gpu` 3, `sidecar` 1. The smoke check's
 > `settingsUi` fails on the same preconditions. Golden frames are unaffected (29/29).
 >
-> **Biggest gaps, in order** (details and the rest in ROADMAP.md): the rest of P8 — librosa (S16) and
-> Unicode fonts (S17).
+> And Unicode text (S17, §4.76): titles and lyrics in Arabic, Hebrew, Hindi, Bengali, Tamil, Thai,
+> Armenian, Georgian, Japanese, Chinese, Korean and emoji, from bundled fonts on any machine, with
+> right-to-left karaoke, and a report for anything no font has.
+>
+> **Biggest gaps, in order** (details and the rest in ROADMAP.md): librosa beat tracking (S16).
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -169,6 +172,8 @@
 | 4.72 | Shadertoy shaders (P8 step 10) — S2 |
 | 4.73 | LUTs (P8 step 11) — S11; the vignette keeps alpha |
 | 4.74 | Draft mode (P8 step 12) — S18 |
+| 4.75 | The free-space check and encoder readiness (P8 step 13) — export-spec §14 |
+| 4.76 | Unicode text (P8 step 14) — S17 |
 
 ---
 
@@ -4195,6 +4200,55 @@ for NVENC: this FFmpeg needs version 570 or newer*.
 
 **Not verified:** a real render reaching the check and going on to encode, because of the driver.
 The dialog's refusal states have not been seen on screen; the smoke check asserts the estimate only.
+
+### 4.76 Unicode text (P8 step 14) — S17
+
+**What it does.** A title or a lyric line in any of the scripts below draws the same on any machine,
+with no choice to make. M32 kept the rasteriser behind `TextRasterizer`, and Chromium's canvas already
+shapes with HarfBuzz and runs the bidi algorithm, so this is what that left:
+
+| Piece | Where | What |
+|---|---|---|
+| The chain | `setup/steps/fallback-fonts.ts`, `FALLBACK_FONTS` | Noto Sans Arabic, Hebrew, Devanagari, Bengali, Tamil, Thai, Armenian, Georgian, CJK JP, and Noto Emoji; 19 MB in `vendor/fonts/noto/`, tier core, pinned by commit and SHA-256 |
+| Coverage | `src/text/cmap.ts` | reads format 4 and 12 `cmap` tables from .ttf and .otf |
+| No system fonts | `CanvasTextRasterizer.covered` | a character the stack lacks becomes □ before the canvas sees it, and `missingGlyphs` reaches the layer's warnings |
+| Direction | `layout.ts`: `isRtlText`, `visualOrder` | base direction from the first strong letter; word boxes placed in visual order, listed in reading order |
+| CJK wrapping | `layout.ts`: `breakChunk` | a line may break between Han and kana, with kinsoku rules |
+| Karaoke | `lyrics.ts` | a right-to-left word fills from the right (start > end in the word table); the gradient sweep's row front is mirrored by a row flag |
+
+**Why replace rather than warn.** The canvas's own fallback reaches into the fonts Windows has
+installed, so before this a Japanese title rendered from whatever that machine happened to have, with
+no report: the determinism contract was already being broken, quietly. A web font (.woff, .woff2) has
+no readable table here, so a stack holding one is not checked.
+
+**Decisions.**
+- **Emoji are monochrome** (Noto Emoji). Every text effect works from a coverage mask, and a colour
+  bitmap has none. An emoji takes the layer's colour, gradient and karaoke fill like a letter.
+  Skin-tone modifiers and flag sequences come out as separate glyphs.
+- **One CJK font**: `NotoSansCJKjp` has Simplified, Traditional and Hangul too, with Japanese glyph
+  forms where regions differ. A Chinese project that minds chooses its own font, which goes first.
+- **A number goes with the letter before it.** `مرحبا 123 world` draws as `world 123 مرحبا`: at word
+  level that is the bidi result, and my first version disagreed with the canvas on it. The sheet below
+  showed this; `lyrics-gpu.test.ts` now pins it by reading colours off real pixels.
+- **Thai wraps at spaces only.** Segmenting it takes a dictionary.
+- **Fallbacks register before the default font.** Text is drawn as soon as the default is in, and a line
+  rasterised earlier would stay in the layer's cache as boxes.
+
+**A bug this found:** `addFont` copied with `bytes.slice()`, which on a Node Buffer is a view of its
+shared pool. Inter is big enough to get its own allocation, so it never showed; the small Noto files
+reached `FontFace` as a whole pool and failed as invalid font data.
+
+**Verified here.** 14 script samples through the real engine, all different and with no warnings;
+missing-glyph report; determinism across runs and render order; Hebrew wipe and gradient sweep from
+the right; a mixed line's word boxes against the canvas's pixels. Golden frames 29/29 identical with
+the chain in place, so Latin text did not move. `out/unicode-sheet.png` was read by eye: Arabic joined,
+Devanagari conjuncts formed, Hebrew from the right.
+
+**Setup note:** the preconditions refuse this path and driver, so the step was run on its own against
+the pinned hashes, not through `npm run setup`. A normal `npm run setup` on a fixed machine picks it
+up as a core step. The fonts add 19 MB to PROJECT.md §3's ~20 MB font budget.
+
+**Not built:** colour emoji, vertical text, Thai segmentation, per-project choice of CJK region.
 
 ## 5. Measured results
 

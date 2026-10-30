@@ -6,8 +6,8 @@
 //
 // Why an interface and not code in here: glyph rasterisation needs a font engine, which in this
 // app is Chromium's canvas 2D (§8.13). That is a DOM-side API, and `src/engine/` must stay free
-// of the DOM (CLAUDE.md #2). The boundary also leaves room for the deferred S17 work — shaping,
-// fallback chains, RTL — to replace the rasteriser without touching the module.
+// of the DOM (CLAUDE.md #2). Shaping, fallback fonts and right-to-left text (S17) all live on the
+// far side of this boundary; a module sees words with boxes and a direction.
 //
 // Determinism rests on the rasteriser: the same request must give the same bytes. The browser
 // implementation (src/text/canvas-rasterizer.ts) uses a software-backed canvas and fonts loaded
@@ -44,12 +44,16 @@ export interface TextWord extends TextBox {
   readonly line: number;
   /** Character offset of the word in the (case-transformed) text. */
   readonly start: number;
+  /** Reads right to left. Absent is left to right. */
+  readonly rtl?: boolean;
 }
 
 export interface TextLine {
   readonly x: number;
   readonly baseline: number;
   readonly width: number;
+  /** The paragraph's base direction. Absent is left to right. */
+  readonly rtl?: boolean;
 }
 
 export interface TextRaster {
@@ -68,6 +72,11 @@ export interface TextRaster {
   readonly fontFound: boolean;
   /** True when the bitmap hit the size limit and the text was scaled down to fit. */
   readonly clamped: boolean;
+  /**
+   * Characters no bundled or chosen font has, up to a handful; they are drawn as a box. Reported
+   * rather than left to the canvas, which would take them from whatever the machine has installed.
+   */
+  readonly missingGlyphs?: readonly string[];
 }
 
 export interface TextRasterizer {

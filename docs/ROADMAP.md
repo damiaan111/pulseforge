@@ -23,7 +23,7 @@
 | P5 — Export | ✅ | the render pipeline, reports and diagnostics; the free-space check (STATUS 4.75) was the last of it |
 | P6 — Lyrics | ✅ | five steps, 2026-09-25: STATUS 4.50–4.55 |
 | P7 — Auto-director | ✅ | three steps, 2026-09-25: STATUS 4.56–4.58 |
-| P8 — Expansion (Should-haves) | 🔶 | 14 of 16 done; S16 and S17 remain (S3 became C15, S4 M37, S5 M26) |
+| P8 — Expansion (Should-haves) | 🔶 | 15 of 16 done; S16 remains (S3 became C15, S4 M37, S5 M26) |
 
 **Must-haves (M1–M40): all 40 done.**
 
@@ -119,8 +119,9 @@
 | S14 Headless CLI | ✅ | `npm run render` (4.13), `npm run batch` (4.68) |
 | S18 Draft/proxy mode | ✅ | 4.74 — Draft: 640 px long side, DOF 16 taps instead of 48, no MSAA on 3D scenes; measured −64% on the heaviest case; video proxies already existed |
 | S19 Collect files | ✅ | 4.37 |
+| S17 Unicode & font fallback | ✅ | 4.76 — bundled Noto chain, right-to-left layout and karaoke, CJK line breaks, a report instead of system fonts; emoji are monochrome |
 
-S16 and S17 are not started. Could-haves (C1–C15) are untouched.
+S16 is not started. Could-haves (C1–C15) are untouched.
 
 ---
 
@@ -140,7 +141,7 @@ Ordered by what makes the app most useful soonest, then by what unblocks what.
 9. **P8** — ✅ keyframes (S1, 4.63–4.64), ✅ masking (S7, 4.65), ✅ motion blur (S10, 4.66), ✅ the
    6-stem model (S6, 4.67), ✅ batch mode (S13, 4.68), ✅ markers (S9, 4.69), ✅ karaoke export (S15,
    4.70), ✅ the performance HUD (S12, 4.71), ✅ Shadertoy shaders (S2, 4.72), ✅ LUTs (S11, 4.73), ✅ draft mode
-   (S18, 4.74), ✅ the free-space check (4.75); next S16 librosa and S17 Unicode fonts.
+   (S18, 4.74), ✅ the free-space check (4.75), ✅ Unicode text (S17, 4.76); next S16 librosa.
 
 ---
 
@@ -164,6 +165,7 @@ it was made; they are collected here so none is a surprise.
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
 | The markers lane sits **under the waveform**; **[ / ] also stop at section boundaries**; timeline markers are **separate from the lyrics' `[Chorus]` section markers** | ui-spec §3 lists a Markers track without placing it | the waveform stays the scrub strip; the keys work before any marker exists; lyrics own their structure | STATUS 4.69 |
+| **Emoji are monochrome**, and one CJK font (Japanese forms) serves Chinese and Korean | PROJECT.md S17 lists emoji and non-Latin scripts without saying how | text effects work from coverage masks, which colour bitmaps do not have; a project can choose its own font, which goes first | STATUS 4.76 |
 | The **vignette now darkens and keeps alpha** (it used to fade the edges to transparent) | module-spec §6 says only "darkens toward the edges" | a LUT after it graded see-through corners; on a layer, darkening is what "vignette" means | STATUS 4.73 |
 | **Dropped audio files open the Batch dialog**, even one; a CLI folder is read **one level deep**; "shut down when done" waits **two minutes** | export-spec §12 says "optional shutdown-when-done" and nothing about drops or folders | the dialog is where the folder and preset are chosen; a library's subfolders are albums; two minutes to see it and cancel | STATUS 4.68 |
 | Motion-blur subframes **keep the frame's index** (only `t` moves), and one **before the timeline is held at 0** | export-spec §9 gives the shutter interval only | a video layer has one decoded frame per frame and its own motion blur; grain keyed on the frame should not smear; frame 0 has nothing before it | STATUS 4.66 |

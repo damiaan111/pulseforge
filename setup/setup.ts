@@ -11,6 +11,7 @@ import { SETUP_LOG, SETUP_PID, VENDOR } from './lib/paths.ts';
 import { requiredBytes, runPreflight, type Check } from './lib/preflight.ts';
 import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
+import { fallbackFontsStep } from './steps/fallback-fonts.ts';
 import { lyricsModelsStep } from './steps/lyrics-models.ts';
 import { extraInstalled, extraSteps } from './steps/extras.ts';
 import { runRebuildCheck } from './steps/rebuild-check.ts';
@@ -18,7 +19,7 @@ import { pythonEnvStep, pythonLyricsEnvStep } from './steps/python-env.ts';
 import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
-const STEPS: readonly Step[] = [ffmpegStep, fontStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, lyricsModelsStep, ...extraSteps];
+const STEPS: readonly Step[] = [ffmpegStep, fontStep, fallbackFontsStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, lyricsModelsStep, ...extraSteps];
 
 const USAGE = `
 Usage: npm run setup -- [options]

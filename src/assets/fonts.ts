@@ -7,8 +7,10 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-import { DEFAULT_FONT_FILE } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FALLBACK_FONTS_DIR } from '../../setup/lib/paths.ts';
+import { FALLBACK_FONTS } from '../../setup/manifest.ts';
 import type { ProjectDocument } from '../project/document.ts';
 import { resolveAssetPath } from './load-images.ts';
 import type { AssetProblem } from './load-images.ts';
@@ -30,6 +32,21 @@ export function defaultFontFile(): FontFile {
   }
   defaultFont = { hash: createHash('sha256').update(readFileSync(DEFAULT_FONT_FILE)).digest('hex'), file: DEFAULT_FONT_FILE };
   return defaultFont;
+}
+
+let fallbackFonts: readonly FontFile[] | undefined;
+
+/**
+ * The bundled fallback chain (S17), in order, as far as it is installed. The hashes are the pinned
+ * ones: these fonts are read on every render, and hashing 19 MB each time would buy nothing that
+ * `npm run setup -- --verify` does not. One that is missing is left out, and a text layer that
+ * needed it reports the characters it could not draw.
+ */
+export function fallbackFontFiles(): readonly FontFile[] {
+  fallbackFonts ??= FALLBACK_FONTS
+    .map((font) => ({ hash: font.sha256 as string, file: join(FALLBACK_FONTS_DIR, font.fileName) }))
+    .filter((font) => existsSync(font.file));
+  return fallbackFonts;
 }
 
 /**

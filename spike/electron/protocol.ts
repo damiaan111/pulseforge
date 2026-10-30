@@ -39,6 +39,8 @@ export interface VideoSequenceFile {
 export interface FontsConfig {
   default: FontFileRef;
   fonts: FontFileRef[];
+  /** The bundled chain for scripts the others lack (S17), in order. */
+  fallbacks?: FontFileRef[];
 }
 
 export interface DeterminismConfig {

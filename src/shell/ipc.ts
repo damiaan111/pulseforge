@@ -92,6 +92,7 @@ export const IPC = {
   lutLoad: 'pf:lut:load',
   fontLoad: 'pf:font:load',
   fontDefault: 'pf:font:default',
+  fontFallbacks: 'pf:font:fallbacks',
   imageImport: 'pf:image:import',
   imageLoad: 'pf:image:load',
   environment: 'pf:app:environment',
@@ -587,6 +588,8 @@ export interface PulseforgeApi {
   loadLut(path: string, projectPath: string | null): Promise<LutLoadResult>;
   /** The bundled default typeface (Inter Regular). */
   defaultFont(): Promise<FontBytes>;
+  /** The bundled fallback chain (S17), in order. */
+  fallbackFonts(): Promise<readonly { readonly hash: string; readonly bytes: Uint8Array }[]>;
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
   importImage(): Promise<ImageBytes | null>;
   /** Decodes an asset the project already references; the path may be relative to `projectPath`. */

@@ -158,6 +158,8 @@ export interface StudioState {
   importLut(): Promise<AssetRef | null>;
   /** The bundled default typeface; null until loaded at startup. */
   defaultFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
+  /** The bundled fallback chain (S17), in order; empty until loaded. */
+  fallbackFonts: readonly { readonly hash: string; readonly bytes: Uint8Array }[];
   loadDefaultFont(): Promise<void>;
   /** Loads every image and font the document references that is not loaded yet. `recheck` retries failed ones. */
   loadAssets(recheck?: boolean): Promise<void>;
@@ -453,6 +455,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   fonts: new Map(),
   luts: new Map(),
   defaultFont: null,
+  fallbackFonts: [],
   assetStatus: {},
 
   async loadAssets(recheck = false) {
@@ -611,8 +614,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   async loadDefaultFont() {
     if (get().defaultFont !== null) return;
     try {
-      const font = await window.pulseforge.defaultFont();
-      set({ defaultFont: { hash: font.hash, bytes: font.bytes } });
+      const [font, fallbackFonts] = await Promise.all([window.pulseforge.defaultFont(), window.pulseforge.fallbackFonts()]);
+      set({ defaultFont: { hash: font.hash, bytes: font.bytes }, fallbackFonts });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Loading the default font'), kind: 'bad' } });
     }

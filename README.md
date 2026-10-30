@@ -326,7 +326,7 @@ any strength.
 **Draft mode:** one click renders the preview at 640 px with the costliest effects approximated,
 so heavy projects stay smooth while you edit — exports always use full quality.
 
-**Still to come:** librosa beat tracking and Unicode fonts — the last of the Should-have list.
+**Still to come:** librosa beat tracking, the last of the Should-have list.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
 will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real

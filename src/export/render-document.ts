@@ -26,7 +26,7 @@ import { loadLutAssets } from '../assets/luts.ts';
 /** The soundtrack of a render: the song, or its instrumental for a karaoke render (S15). */
 export type AudioMix = 'full' | 'instrumental';
 import { loadImageAssets } from '../assets/load-images.ts';
-import { defaultFontFile, loadFontAssets } from '../assets/fonts.ts';
+import { defaultFontFile, fallbackFontFiles, loadFontAssets } from '../assets/fonts.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
 import { extractSequence, sequenceDir } from '../assets/video-cache.ts';
 import { videoFramesNeeded } from '../engine/modules/video.ts';
@@ -323,7 +323,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     },
     durationTicks,
     images,
-    text: { default: defaultFontFile(), fonts: fontAssets.fonts },
+    text: { default: defaultFontFile(), fonts: fontAssets.fonts, fallbacks: [...fallbackFontFiles()] },
     ...(lutAssets.luts.length > 0 ? { luts: lutAssets.luts } : {}),
     videos,
     modules: [...scanned.modules],

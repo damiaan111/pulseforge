@@ -18,6 +18,7 @@ export const MODULES_DIR = join(ROOT, 'modules');
 export const FONTS = join(VENDOR, 'fonts');
 /** The default typeface when a text layer names no font. */
 export const DEFAULT_FONT_FILE = join(FONTS, 'inter', 'extras', 'ttf', 'Inter-Regular.ttf');
+export const FALLBACK_FONTS_DIR = join(FONTS, 'noto');
 
 export const VENDOR_LOCK = join(VENDOR, 'vendor.lock.json');
 export const SETUP_LOG = join(VENDOR, 'setup.log');

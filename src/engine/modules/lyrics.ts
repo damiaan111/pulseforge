@@ -314,21 +314,27 @@ export function rasterWordProgress(raster: Pick<TextRaster, 'words'>, text: stri
 
 /**
  * Per text row, where the gradient sweep's front is: +∞ when every word on the row is sung, −∞ when
- * none has started, else the right-most point any word on it has filled to.
+ * none has started, else the furthest point any word on it has filled to. A right-to-left row runs
+ * the other way, so its signs and its "furthest" are mirrored.
  */
-export function rowFronts(raster: Pick<TextRaster, 'words'>, progress: Float32Array): Map<number, number> {
+export function rowFronts(raster: Pick<TextRaster, 'words'> & Partial<Pick<TextRaster, 'lines'>>, progress: Float32Array): Map<number, number> {
   const rows = new Map<number, { done: boolean; started: boolean; front: number }>();
   raster.words.forEach((word, i) => {
     const p = progress[i] ?? 0;
-    const row = rows.get(word.line) ?? { done: true, started: false, front: -Infinity };
+    const rtl = raster.lines?.[word.line]?.rtl === true;
+    const row = rows.get(word.line) ?? { done: true, started: false, front: rtl ? Infinity : -Infinity };
     row.done &&= p >= 1;
     if (p > 0) {
       row.started = true;
-      row.front = Math.max(row.front, word.x + Math.min(1, p) * word.width);
+      const filled = Math.min(1, p) * word.width;
+      row.front = rtl ? Math.min(row.front, word.x + word.width - filled) : Math.max(row.front, word.x + filled);
     }
     rows.set(word.line, row);
   });
-  return new Map([...rows].map(([line, row]) => [line, row.done ? Infinity : row.started ? row.front : -Infinity]));
+  return new Map([...rows].map(([line, row]) => {
+    const sign = raster.lines?.[line]?.rtl === true ? -1 : 1;
+    return [line, row.done ? sign * Infinity : row.started ? row.front : -sign * Infinity];
+  }));
 }
 
 /**
@@ -366,7 +372,7 @@ precision highp float;
 uniform vec2 u_canvas;
 uniform sampler2D u_mask;   // RG: fill, outline — mipmapped, per-word visibility already applied
 uniform sampler2D u_ids;    // RG8: 1-based word id
-uniform highp sampler2D u_words; // RGBA32F, row 0: x0, x1, progress, row sweep x; row 1: pop, lift px
+uniform highp sampler2D u_words; // RGBA32F, row 0: start, end (end < start: right to left), progress, row sweep x; row 1: pop, lift px, row is right to left
 uniform float u_wordCount;
 uniform vec2 u_bitmap;
 uniform vec2 u_origin;
@@ -420,13 +426,15 @@ void main() {
   float s = 0.0;
   if (u_fill == 1 || u_fill == 4) {
     float edge = mix(wa.x, wa.y, progress);
-    s = progress <= 0.0 ? 0.0 : progress >= 1.0 ? 1.0 : 1.0 - smoothstep(edge - u_soft, edge + u_soft, x);
+    float ahead = smoothstep(edge - u_soft, edge + u_soft, x);
+    s = progress <= 0.0 ? 0.0 : progress >= 1.0 ? 1.0 : wa.y < wa.x ? ahead : 1.0 - ahead;
   } else if (u_fill == 2 || u_fill == 3 || u_fill == 6) {
     s = progress > 0.0 ? 1.0 : 0.0;
   } else if (u_fill == 5) {
-    s = 1.0 - smoothstep(wa.w - u_sweep, wa.w + u_sweep, x);
+    float across = wb.z > 0.5 ? x - wa.w : wa.w - x;
+    s = smoothstep(-u_sweep, u_sweep, across);
     // Near the front the colour of singing, further back the colour of sung.
-    target = mix(u_active, u_sung, clamp((wa.w - x) / (4.0 * u_sweep), 0.0, 1.0));
+    target = mix(u_active, u_sung, clamp(across / (4.0 * u_sweep), 0.0, 1.0));
   }
   vec3 fillColor = mix(u_upcoming, target, s);
   if (u_fill == 3) fillColor = mix(fillColor, vec3(1.0), wb.x * u_popBright);
@@ -604,6 +612,8 @@ function createLyrics(gl: WebGL2RenderingContext): ModuleInstance {
       });
       for (const p of placed) {
         if (!p.uploaded.raster.fontFound && font.missing === undefined) ctx.warn(`lyrics: font "${font.name}" could not be used; drawing with the default font`);
+        const missingGlyphs = p.uploaded.raster.missingGlyphs ?? [];
+        if (missingGlyphs.length > 0) ctx.warn(`lyrics: no font has ${missingGlyphs.join(' ')}; drawn as a box. Choose a font that does`);
         if (p.uploaded.raster.clamped) ctx.warn('lyrics: a line is larger than the maximum texture size and was scaled down');
       }
 
@@ -675,8 +685,8 @@ function createLyrics(gl: WebGL2RenderingContext): ModuleInstance {
           const word = raster.words[i] as TextRaster['words'][number];
           const o = (i + 1) * 4;
           const row = rows.get(word.line) ?? -Infinity;
-          table[o] = word.x;
-          table[o + 1] = word.x + word.width;
+          table[o] = word.rtl === true ? word.x + word.width : word.x;
+          table[o + 1] = word.rtl === true ? word.x : word.x + word.width;
           table[o + 2] = progress[i] as number;
           table[o + 3] = Math.max(-1e6, Math.min(1e6, row));
           const ti = tokens.findIndex((token) => word.start >= token.start && word.start < token.end);
@@ -685,6 +695,7 @@ function createLyrics(gl: WebGL2RenderingContext): ModuleInstance {
           const popValue = fill === 'wordPop' && age >= 0 && age < POP_SECONDS * 8 ? Math.exp(-age / POP_SECONDS) * pop : 0;
           table[width * 4 + o] = popValue;
           table[width * 4 + o + 1] = popValue * 0.18 * p.em;
+          table[width * 4 + o + 2] = raster.lines[word.line]?.rtl === true ? 1 : 0;
         }
         uploadWords(table, width);
 

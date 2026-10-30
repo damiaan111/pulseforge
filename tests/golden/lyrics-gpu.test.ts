@@ -95,6 +95,39 @@ describe.skipIf(!available)('lyrics layer on the GPU', () => {
     expect(count(mid, 'white', 200, 260)).toBe(0);
   }, 180_000);
 
+  it('wipes a right-to-left line from the right (S17), by word and by row', async () => {
+    const hebrew: RenderLyrics = {
+      lines: [{
+        id: 'l1', text: 'שלום עולם יפה', startTicks: T(1), endTicks: T(3), role: 'lead', style: null,
+        words: [{ startTicks: T(1), endTicks: T(1.6) }, { startTicks: T(1.6), endTicks: T(2.3) }, { startTicks: T(2.3), endTicks: T(3) }],
+      }],
+      untimedLines: 0,
+    };
+    for (const fillMode of ['wipe', 'gradientSweep']) {
+      const run = await renderFrames({ name: `lyrics-rtl-${fillMode}`, project: project({ fill: fillMode }, hebrew), frames: [114, 200] });
+      const middle = run.frames.find((f) => f.frameIndex === 114) as RenderedFrame;
+      const sequence = runs(middle, 100, 260);
+      expect(run.warnings, fillMode).toEqual([]);
+      // Read from the left of the screen: still to come, then sung.
+      expect(sequence.indexOf('white'), fillMode).toBeLessThan(sequence.lastIndexOf('pink'));
+      expect(sequence[sequence.length - 1], fillMode).toBe('pink');
+      expect(sequence[0], fillMode).toBe('white');
+    }
+  }, 180_000);
+
+  it('agrees with the canvas on where words land in a mixed line (S17)', async () => {
+    // Drawn as "world 123 שלום": once 123 has started, world alone on the left is still to come.
+    const mixed: RenderLyrics = {
+      lines: [{
+        id: 'l1', text: 'שלום 123 world', startTicks: T(1), endTicks: T(3), role: 'lead', style: null,
+        words: [{ startTicks: T(1), endTicks: T(1.5) }, { startTicks: T(1.5), endTicks: T(2.5) }, { startTicks: T(2.5), endTicks: T(3) }],
+      }],
+      untimedLines: 0,
+    };
+    const run = await renderFrames({ name: 'lyrics-mixed', project: project({ fill: 'wordSwap' }, mixed), frames: [120] });
+    expect(runs(run.frames[0] as RenderedFrame, 100, 260)).toEqual(['white', 'pink']);
+  }, 180_000);
+
   it('draws every fill mode, each differently, and "none" never in the sung colour', async () => {
     const modes = ['wipe', 'wordSwap', 'wordPop', 'fillStroke', 'gradientSweep', 'bouncingBall', 'none'];
     const hashes: string[] = [];

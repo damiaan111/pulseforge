@@ -56,6 +56,7 @@ export function CanvasPane(): React.JSX.Element {
   const fonts = useStudio((s) => s.fonts);
   const luts = useStudio((s) => s.luts);
   const defaultFont = useStudio((s) => s.defaultFont);
+  const fallbackFonts = useStudio((s) => s.fallbackFonts);
   const videos = useStudio((s) => s.videos);
   const userModules = useStudio((s) => s.userModules);
   const setPreviewScale = useStudio((s) => s.setPreviewScale);
@@ -122,8 +123,8 @@ export function CanvasPane(): React.JSX.Element {
   }, [images]);
 
   useEffect(() => {
-    hostRef.current?.setFonts(defaultFont, fonts);
-  }, [defaultFont, fonts]);
+    hostRef.current?.setFonts(defaultFont, fonts, fallbackFonts);
+  }, [defaultFont, fonts, fallbackFonts]);
 
   useEffect(() => {
     hostRef.current?.setLuts(luts);
