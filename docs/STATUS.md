@@ -10,8 +10,8 @@
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
 > any aspect. Last full verification, 2026-10-30, on the machine described below: golden 29/29
-> identical; smoke 39/40, the failure being `settingsUi` on setup's preconditions; `npm run check`
-> 1231 of 1242, the 11 failures being the driver's. On the owner's fixed machine, before that driver
+> identical; smoke 41/42, the failure being `settingsUi` on the driver precondition; `npm run check`
+> 1266 of 1277, the 11 failures being the driver's. On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
