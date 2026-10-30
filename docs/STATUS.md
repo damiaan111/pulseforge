@@ -9,9 +9,9 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification, 2026-10-30, on the machine described below: golden 29/29
-> identical; smoke 44/45, the failure being `settingsUi` on the driver precondition, with a real
-> queued render and an auto-directed batch render; `npm run check` 1304 passed, 12 skipped, none failed. On the owner's fixed machine, before that driver
+> any aspect. Last full verification, 2026-10-30, driver 621.01: `npm run check` 1316 of 1316 with
+> nothing skipped; golden 29/29 identical; smoke 46/46 with a real queued render and an auto-directed
+> batch render; `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -73,12 +73,9 @@
 > write, a job that will not fit waits with the queue held behind it, and the dialog refuses a codec
 > this GPU and driver cannot open, with the reason.
 >
-> **This machine, 2026-10-30:** the NVIDIA driver is **560.94**, too old for FFmpeg's NVENC (570+) and
-> the pinned torch (580+), so real renders and GPU stems and lyrics do not run here, and the owner has
-> said to leave that for now. Video exports here on the CPU (§4.85). The tests that need NVENC or
-> CUDA skip themselves (`nvenc.integration` 4, `stems-gpu` 3, `lyrics-align-gpu` 3, `sidecar` 1), so
-> **those paths have not been run on this driver**. The smoke check's `settingsUi` fails because
-> `--verify` cannot load torch here. Golden frames are unaffected (29/29).
+> **This machine, 2026-10-30:** the owner updated the NVIDIA driver to **621.01**, so NVENC, stems and
+> lyrics all run here again. On an older one (570 for NVENC, 580 for torch), video exports on the CPU
+> (§4.85) and the tests that need them skip themselves: read the skip count.
 >
 > And Unicode text (S17, §4.76): titles and lyrics in Arabic, Hebrew, Hindi, Bengali, Tamil, Thai,
 > Armenian, Georgian, Japanese, Chinese, Korean and emoji, from bundled fonts on any machine, with
@@ -270,7 +267,7 @@ ROADMAP.md §3. Keep STATUS.md and ROADMAP.md updated and commit after each step
 ## 2. Environment (the RTX machine)
 
 - Repo: `D:\Claude - Projexz\pulseforge` (must stay on D:, C: has ~19 GB free). Git branch `main`, remote `origin` = `github.com/damiaan111/pulseforge` (push with `git push origin main`; `gh` is logged in). No CI is configured.
-- Hardware: Ryzen 7 3800X (16 threads), 16 GB RAM, RTX 3060 12 GB, driver 616.92, PCIe Gen3 x16, Windows 11 (10.0.26200).
+- Hardware: Ryzen 7 3800X (16 threads), 16 GB RAM, RTX 3060 12 GB, driver 621.01, PCIe Gen3 x16, Windows 11 (10.0.26200).
 - Node 24.19. Node-side scripts run TypeScript directly (type stripping); Electron-side code is bundled with esbuild.
 - System-wide Python 3.11 and `C:\ffmpeg` exist on PATH — **never use them**; everything goes through `vendor/` by absolute path.
 - Shell gotchas: never edit files with PowerShell `Get-Content | -replace | Set-Content` (re-encodes UTF-8).
@@ -4597,13 +4594,24 @@ could anyone with AMD or Intel graphics: the largest gap between this and a rele
 **What it does.** `probeCodecs` tries NVENC, then the vendored FFmpeg's OpenH264. Settings carry
 `encoder: 'software'`, and the export dialog says that it is happening and why. H.264 8-bit 4:2:0 only, so
 the HEVC master stays unavailable and is refused with the reason. OpenH264 has no usable constant-quality
-mode, so CQ becomes a bitrate: 0.2 bits a pixel at CQ 17, doubling every 6 steps (1080p60 is 25 Mbit/s).
+mode, so CQ becomes a bitrate: 0.4 bits a pixel at CQ 17, doubling every 6 steps (1080p60 is 50 Mbit/s).
 `render-document.ts` probes before each render, so a queued job meets what is true when it runs.
 
-**Measured here, MilkDrop, software, verified output.** 1080p60: 97 fps. 4K60: 27 fps. Rendering is the small
-part, about 2.5 ms a frame at either size; the rest is readback and the encoder. A real 20 s 1080p60 batch
-render through the studio: 1,200 frames, verified, no warnings. **Not compared:** picture quality against
-NVENC at the same settings, as NVENC cannot open here.
+**Measured here, MilkDrop, verified output.** At 0.2 bits a pixel, one preset: software 97 fps at 1080p60 and 27 at
+4K60; rendering is the small part, about 2.5 ms a frame at either size. A real 20 s 1080p60 batch render through
+the studio: 1,200 frames, verified, no warnings, at 55 fps in software and 185 on NVENC.
+
+**Against NVENC, on driver 621.01.** A busy preset, 5 s of 1080p60, each measured against a lossless NVENC render
+of the same frames (294.6 MB):
+
+| Encoder | Size | PSNR | SSIM | fps |
+|---|---|---|---|---|
+| NVENC CQ 17 | 26.3 MB | 42.27 dB | 0.962 | 101 |
+| Software 0.2 bits a pixel, the first setting | 15.4 MB | 40.28 dB | 0.944 | 53 |
+| Software 0.3 | 22.9 MB | 41.10 dB | 0.952 | 48 |
+| Software 0.4, the setting now | 30.2 MB | 41.77 dB | 0.959 | 46 |
+
+One preset, and PSNR and SSIM rather than anyone's eyes. NVENC at 4K60: 42 fps.
 
 **From nothing, 2026-10-30.** A fresh `git clone` from GitHub at a path with a space, no Node on PATH,
 `PULSEFORGE_INSTALL_CHECK=1`: the launcher fetched Node and built; the chooser ticked core, beats and MilkDrop
@@ -4617,6 +4625,9 @@ regenerated, or in the same sequence again. The next failure prints which step, 
 
 **Preview cost.** A directed MilkDrop project previewed at 32 fps at 1080p here, 28 frames dropped; exports are not
 affected. Draft mode is the answer for editing; whether the preview should start lower for MilkDrop is undecided.
+
+**Real songs on 621.01.** One through `--stems --refine-beats --instrumental`: MilkDrop Flow chosen, a verified MP4
+with the instrumental soundtrack, 29 s for 10 s of video including separation.
 
 **Tests.** `tests/export/software-encoder.test.ts` makes real files. Tests needing NVENC or CUDA now skip where
 the machine cannot do them (`tests/ml/cuda.ts`), so `npm run check` is green on any PC. That means a green run

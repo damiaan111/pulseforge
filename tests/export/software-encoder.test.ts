@@ -45,9 +45,9 @@ describe('software encoding, as arguments', () => {
   });
 
   it('turns a quality into a bitrate that scales with the picture', () => {
-    expect(softwareBitrate(1920, 1080, rational(60), 17)).toBe(24_883_200);
-    expect(softwareBitrate(3840, 2160, rational(60), 17)).toBe(4 * 24_883_200);
-    expect(softwareBitrate(1920, 1080, rational(60), 23)).toBe(12_441_600);
+    expect(softwareBitrate(1920, 1080, rational(60), 17)).toBe(49_766_400);
+    expect(softwareBitrate(3840, 2160, rational(60), 17)).toBe(4 * 49_766_400);
+    expect(softwareBitrate(1920, 1080, rational(60), 23)).toBe(24_883_200);
   });
 
   it('refuses what it cannot make', () => {

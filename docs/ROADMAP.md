@@ -203,9 +203,9 @@ it was made; they are collected here so none is a surprise.
 Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
 effect on a finished video last. Each is noted beside its requirement in §2.
 
-**Before a public release:** NVENC, stems and lyrics have not run on a current driver since the last
-changes here, and must be run once (STATUS header); a PC with no NVIDIA card has not been tried, only this
-one with NVENC unusable; moving the FFmpeg pin before BtbN drops it, around 2028.
+**Before a public release:** a PC with no NVIDIA card has not been tried, only this one with NVENC unusable;
+stems and lyrics through the chooser from a fresh clone (done with the setup command, not the chooser); moving
+the FFmpeg pin before BtbN drops it, around 2028.
 
 **Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). Vidvox ISF-Files (MIT, 371 files,
 close to the Shadertoy dialect) is the next source, mostly video effects. Hydra is ruled out (AGPL would bind

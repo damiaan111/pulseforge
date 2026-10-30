@@ -55,8 +55,8 @@ bed.
 
 - **Windows 10 or 11**, 64-bit
 - **Any graphics card with WebGL2.** With an NVIDIA card and driver 570 or newer, video encodes on
-  the card with NVENC. Anywhere else it encodes H.264 on the CPU: the same picture, slower to
-  finish, and no HEVC. The export dialog says which you are getting.
+  the card with NVENC. Anywhere else it encodes H.264 on the CPU: about half the speed, a slightly
+  larger file for the same quality, and no HEVC. The export dialog says which you are getting.
 - **An NVIDIA card with driver 580 or newer** for stems and lyrics, which run on CUDA. The setup
   screen checks yours and says so before you download anything.
 - **Disk space:** about 1 GB for the essentials, about 8 GB for stems, about 15 GB for everything

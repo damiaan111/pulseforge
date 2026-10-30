@@ -101,11 +101,12 @@ export function gopLength(fps: Rational): number {
 }
 
 /**
- * OpenH264 has no constant-quality mode that holds up, so the target becomes a bitrate: 0.2 bits a
- * pixel at CQ 17, doubling every 6 steps as a quantiser does. 1080p60 comes to 25 Mbit/s.
+ * OpenH264 has no constant-quality mode that holds up, so the target becomes a bitrate: 0.4 bits a
+ * pixel at CQ 17, doubling every 6 steps as a quantiser does. 1080p60 comes to 50 Mbit/s. Measured
+ * against a lossless render of a busy MilkDrop preset, that lands within 0.5 dB of NVENC at CQ 17.
  */
 export function softwareBitrate(width: number, height: number, fps: Rational, cq: number): number {
-  return Math.round(width * height * (fps.num / fps.den) * 0.2 * 2 ** ((17 - cq) / 6));
+  return Math.round(width * height * (fps.num / fps.den) * 0.4 * 2 ** ((17 - cq) / 6));
 }
 
 function videoEncoderArgs(job: EncodeJob): string[] {
