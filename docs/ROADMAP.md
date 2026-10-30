@@ -207,10 +207,12 @@ pin before BtbN drops it, around 2028.
 **Next, by the owner's request (2026-10-30): real visuals from open-source libraries,** because the
 built-in presets are generated and do not look good enough for strangers. Researched, not integrated:
 - **Butterchurn** (MilkDrop in WebGL2, MIT, 2.6.7) with **butterchurn-presets** (MIT package, about 1,750
-  presets). The strongest fit. This overrides C15's "not a target look". Read but not yet run: all its
-  randomness is `Math.random`, its clock can be passed to `render({ elapsedTime })`, and audio can be
-  passed as `audioLevels`. **Determinism is unproven**: the spike was not allowed to run, pending the
-  owner's approval to execute downloaded code. Open design points: it has its own WebGL2 context (copy
+  presets). The strongest fit. This overrides C15's "not a target look". All its randomness is
+  `Math.random`, its clock can be passed to `render({ elapsedTime })`, and audio can be passed as
+  `audioLevels`. **Spike, 2026-10-30, approved by the owner:** with `Math.random` seeded, 40 presets across
+  the library, 240 frames each at 320×180, were byte-identical within a run and across two separate
+  runs, at 4 ms a frame on average and 9.4 at worst. Synthetic audio, this machine, outside the engine, and
+  6 of the 40 were near black on it. Both packages are installed but nothing uses them yet. Open design points: it has its own WebGL2 context (copy
   its canvas into the engine), each frame feeds on the last (replay from frame 0 on a seek, export-spec
   §8), the host must supply it (`src/engine/` cannot import it, as with `TextRasterizer`), and it wants
   real audio samples, which the analysis does not carry. The package's MIT line does not settle who

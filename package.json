@@ -41,6 +41,8 @@
   },
   "main": "dist/app/main.js",
   "dependencies": {
+    "butterchurn": "2.6.7",
+    "butterchurn-presets": "2.4.7",
     "immer": "^11.1.18",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
