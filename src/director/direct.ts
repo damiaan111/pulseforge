@@ -37,6 +37,7 @@ import { calibrate, sourceTrack, trackStats } from './calibrate.ts';
 import { describeStyle, type StyleVector, type TrackDigest } from './digest.ts';
 import { fingerprint } from './fingerprint.ts';
 import { rankTemplates, type DirectorModules, type TemplateScore } from './match.ts';
+import { chooseLook, milkdropLooks } from './milkdrop.ts';
 import { generatePalette, hexToHsl, hueName } from './palette.ts';
 import {
   parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
@@ -56,6 +57,8 @@ export interface DirectorInput {
   readonly vocalSegments: readonly VocalSegment[];
   /** The title slot's text: the project's name or the track's. */
   readonly title: string;
+  /** The MilkDrop presets installed here, by name; empty when the component is not. */
+  readonly milkdropPresets: readonly string[];
 }
 
 export interface DirectOptions {
@@ -95,8 +98,9 @@ const AUDIO_SOURCES = new Set(['band', 'rms', 'peak', 'onset', 'beat', 'centroid
 const SAFE_Y: readonly [number, number] = [0.12, 0.84];
 
 /** The facts a slot's `condition` or a candidate's `needs` can test. */
-export function projectConditions(document: ProjectDocument, analysis: AnalysisSet | null, title: string): Set<Condition> {
+export function projectConditions(document: ProjectDocument, analysis: AnalysisSet | null, title: string, milkdropPresets: readonly string[]): Set<Condition> {
   const out = new Set<Condition>();
+  if (milkdropLooks(milkdropPresets).length > 0) out.add('hasMilkdrop');
   if (title.trim() !== '') out.add('hasTitle');
   out.add(document.lyrics.lines.some((line) => line.startTicks !== null) ? 'hasLyrics' : 'noLyrics');
   const images = document.assets.filter((a) => a.kind === 'image');
@@ -131,7 +135,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   // Keeping the layout means keeping the template it is a layout of.
   if (locks.has('layout')) locks.add('template');
   const aspect = aspectBucket(document.canvas.width, document.canvas.height);
-  const conditions = projectConditions(document, input.analysis, input.title);
+  const conditions = projectConditions(document, input.analysis, input.title, input.milkdropPresets);
 
   // --- classify -------------------------------------------------------------------------------
   note('classify', `The track reads as ${describeStyle(style)}.`, {
@@ -274,6 +278,20 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   const images = document.assets.filter((a) => a.kind === 'image');
   const logo = images.find((a) => /logo/i.test(a.name));
   const backgrounds = images.filter((a) => a !== logo);
+  const looks = milkdropLooks(input.milkdropPresets);
+  const paletteHue = hexToHsl(palette.colors[palette.roles['primary'] ?? 0] ?? '#808080').h;
+  const chosenLooks = new Map<string, string>();
+  const milkdropFor = (key: string): string => {
+    const known = chosenLooks.get(key);
+    if (known !== undefined) return known;
+    const look = chooseLook(looks, style, paletteHue, seeds.layout, key);
+    if (look === undefined) return '';
+    chosenLooks.set(key, look.name);
+    note('populate', `${key}: the MilkDrop preset "${look.name}", for its motion and brightness against this track.`, {
+      preset: look.name, motion: round(look.motion), brightness: round(look.brightness), fill: round(look.fill), hue: Math.round(look.hue),
+    });
+    return look.name;
+  };
   const tokens = (params: Readonly<Record<string, unknown>>, key: string): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [name, value] of Object.entries(params)) {
@@ -282,6 +300,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
       else if (value === '$backgroundImage') {
         out[name] = backgrounds.length === 0 ? '' : backgrounds[Math.floor(random01(seeds.layout, 'image', key) * backgrounds.length)]!.id;
       } else if (value === '$seed') out[name] = 1 + (hash32(seeds.layout, 'seed', key) % 9999);
+      else if (value === '$milkdrop') out[name] = milkdropFor(key);
       else out[name] = value;
     }
     return out;
@@ -782,6 +801,7 @@ function conditionText(condition: Condition): string {
     case 'hasLogo': return 'no image named "logo" in the project';
     case 'hasStems': return 'stems have not been separated';
     case 'hasBackgroundImage': return 'no background image in the project';
+    case 'hasMilkdrop': return 'the MilkDrop presets are not installed';
   }
 }
 

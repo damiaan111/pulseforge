@@ -86,11 +86,11 @@ what it picked.
 ## What you need
 
 - **Windows 10 or 11**, 64-bit
-- **An NVIDIA graphics card** for exporting video. Pulseforge uses NVENC to encode, with no CPU
-  fallback. Without one the studio still opens and previews, but it cannot export. AMD and Intel
-  cards are not supported.
-- **A recent NVIDIA driver** for the GPU features: 580 or newer for stems and lyrics, 570 or newer
-  for exporting. The setup screen checks yours and says so before you download anything.
+- **Any graphics card with WebGL2.** With an NVIDIA card and driver 570 or newer, video encodes on
+  the card with NVENC. Anywhere else it encodes H.264 on the CPU: the same picture, slower to
+  finish, and no HEVC. The export dialog says which you are getting.
+- **An NVIDIA card with driver 580 or newer** for stems and lyrics, which run on CUDA. The setup
+  screen checks yours and says so before you download anything.
 - **Disk space:** about 1 GB for the essentials, about 8 GB for stems, about 15 GB for everything
   apart from the optional models. Downloads are kept, so reinstalling never needs the internet.
 
@@ -171,7 +171,7 @@ Some things you can pass it:
 | `npm run check` | Typecheck, lint and run the test suite |
 | `npm run golden` | Re-render the reference frames and check nothing moved |
 | `npm run modules:check` | Check the modules in `modules/`: they compile, render the same twice, and fit every aspect |
-| `npm run presets:builtin` | Rebuild the presets that ship with the app |
+| `npm run milkdrop:measure` | Measure every MilkDrop preset for the auto-director's catalogue |
 | `npm run contact-sheet -- <folder>` | Run every auto template on every track in a folder; a grid of stills in `out/contact-sheet/` |
 | `npm run validate` | The full hardware validation run, writes a report to `out/validate/` |
 | `npm run build` | Bundle the app without launching it |
@@ -260,8 +260,8 @@ Being straight about this, since the repo is public to anyone I share it with.
 **Working:** the studio. Import a track, build a look from ten visualizers, ten effects plus depth
 of field, backgrounds (colour, gradient, image or video), text, logos, groups and three 3D scenes
 (a reactive shape, a synthwave terrain, a city of bars), reskin it with the palette, browse and save
-presets with animated thumbnails, preview it against the audio, and queue NVENC renders in any
-aspect. Underneath: the deterministic engine, the project format with undo, the modulation
+presets with animated thumbnails, preview it against the audio, and queue renders in any aspect,
+on NVENC where the card allows it and on the CPU where it does not. Underneath: the deterministic engine, the project format with undo, the modulation
 evaluator, audio analysis with beats and sections, stem separation, drop-in shader modules, and a
 command line that renders a project without opening anything.
 
@@ -282,9 +282,14 @@ file on disk, and lets you restore or discard it.
 isolated vocals in about a minute, or tap along yourself. Correct anything on the lyrics lane
 of the timeline, with the vocals drawn behind it. Words fill in as they are sung, in seven styles.
 
-**Auto:** import a track into an empty project and it offers to build one. Seven templates (Neon
-Pulse, Neon Grid, Minimal Type, Minimal Mono, Cinematic Depth, Cinematic Particles, Lyric Focus)
-are ranked for the song. The one you pick gets a palette, layers and connections calibrated to that
+**MilkDrop:** the Presets panel opens on about 1,750 visuals by the MilkDrop community, with search
+and a picture of each. They render byte-identically from one run to the next, like everything else.
+
+**Auto:** import a track into an empty project and it offers to build one. Ten templates (three
+built on MilkDrop, then Neon Pulse, Neon Grid, Minimal Type, Minimal Mono, Cinematic Depth, Cinematic
+Particles and Lyric Focus) are ranked for the song. With MilkDrop installed, the director picks a
+preset that suits the track: every preset has been rendered and measured, so busy songs get busy
+pictures, dark songs dark ones, and the ones that stay black or strobe are never chosen. The one you pick gets a palette, layers and connections calibrated to that
 track, sections that build and drop, and a title that clears before the singing starts. A "why it
 looks like this" list explains every choice. Surprise Me rolls another take while keeping anything
 you have edited, and anything you lock (palette, layout, motion, template). The last ten rolls
@@ -370,8 +375,7 @@ so check before using them commercially.
 ## Notes
 
 This started as a personal project, built on my own hardware, and it is shaped around that. It is
-not a product and there is no support, but it is built so anyone with an NVIDIA card can download it
-and use it.
+not a product and there is no support, but it is built so anyone on Windows can download it and use it.
 
 If you do end up poking at it, `docs/module-authoring.md` explains how to write your own visualizer
 or effect: a small JSON file and a shader. Anything you drop into `modules/` gets picked up while

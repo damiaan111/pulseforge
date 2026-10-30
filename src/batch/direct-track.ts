@@ -26,6 +26,7 @@ export interface DirectTrackOptions {
   readonly cacheRoot: string;
   readonly templates: readonly Template[];
   readonly modules: DirectorModules;
+  readonly milkdropPresets: readonly string[];
   /** The canvas follows the preset's shape, so the director lays out for the frame it will render. */
   readonly preset: ExportPreset;
   readonly templateId: string | null;
@@ -92,6 +93,7 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
     onsets: result.onsetTimes,
     vocalSegments: vocals === undefined ? [] : detectVocalSegments(vocals.data, vocals.rate),
     title: track.name,
+    milkdropPresets: options.milkdropPresets,
   }, { seed: track.seed, templateId: options.templateId });
 
   await writeProjectText(track.projectPath, stringifyDocument(withStoredPaths(directed.document, track.projectPath)));

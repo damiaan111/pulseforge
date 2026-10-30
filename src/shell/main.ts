@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
+import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
@@ -69,7 +69,9 @@ import { RecoveryStore } from '../project/recovery-store.ts';
 import { DEFAULT_SETTINGS, SettingsStore, validateSettingsPatch, type Settings as UserSettings } from './settings-store.ts';
 import { pythonEnv } from '../../setup/lib/env.ts';
 import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
-import { parsePreset } from '../project/presets.ts';
+import { createLayerPreset, parsePreset } from '../project/presets.ts';
+import { installedMilkdrop } from '../node/milkdrop-index.ts';
+import { resolveParams } from '../engine/core/params.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { probeCodecs, type CodecSupport } from '../export/encoder-probe.ts';
 import { COMPONENTS, NON_COMMERCIAL_NOTICE, componentInstalled, resolveChoice } from '../../setup/components.ts';
@@ -1119,7 +1121,6 @@ function registerHandlers(): void {
   const presetsFolder = presetsFolderPath;
   const presetStore = () => new PresetStore({
     root: presetsFolder(),
-    builtinRoot: join(ROOT, 'presets', 'builtin'),
     thumbnailRoot: join(cacheRootPath(), 'preset-thumbnails'),
   });
   const presetListing = async (): Promise<PresetLibraryListing> => {
@@ -1128,7 +1129,6 @@ function registerHandlers(): void {
     return {
       entries: library.entries.map((entry) => ({
         slug: entry.slug,
-        origin: entry.origin,
         name: entry.name,
         scope: entry.scope,
         tags: entry.tags,
@@ -1433,6 +1433,7 @@ function registerBatchHandlers(renders: RenderService, onChange: (status: BatchS
         cacheRoot: analysisCacheRoot(),
         templates,
         modules: { get: (id) => byId.get(id), all: manifests },
+        milkdropPresets: installedMilkdrop(),
         preset: options.preset,
         templateId: options.templateId,
         appVersion: packageVersion(),
@@ -1522,7 +1523,7 @@ function registerRenderHandlers(renders: RenderService): void {
   // with the app open is noticed when the dialog next opens.
   let codecs: CodecSupport | null = null;
   ipcMain.handle(IPC.renderReadiness, async (_event, outputPath: unknown): Promise<RenderReadiness> => {
-    if (codecs === null || !codecs.h264.available || !codecs.hevc.available) {
+    if (codecs === null || codecs.h264.encoder === 'software' || !codecs.h264.available || !codecs.hevc.available) {
       codecs = existsSync(FFMPEG_EXE) ? await probeCodecs(FFMPEG_EXE) : null;
     }
     return { codecs, freeBytes: typeof outputPath === 'string' ? await freeBytesAt(outputPath) : null };
@@ -1698,11 +1699,15 @@ app.whenReady().then(async () => {
       await new RecoveryStore({ root: recovery }).write('smokecrashed', { text: stringifyDocument(crashed), projectPath: null, projectName: 'Smoke crash', reason: 'every minute' });
     }
 
-    // A fresh, empty user preset folder, so the preset checks start from the built-ins alone and
-    // never touch (or depend on) the owner's own presets.
+    // A fresh user preset folder holding one preset, so the preset checks never touch (or depend
+    // on) the owner's own.
     const presets = join(ROOT, 'out', 'smoke-presets');
     await rm(presets, { recursive: true, force: true });
     process.env['PULSEFORGE_PRESETS'] = presets;
+    await new PresetStore({ root: presets }).save(createLayerPreset(createModuleLayer('core.visualizer.bars', { name: 'Neon bars' }), (id) => {
+      const manifest = BUILTIN_MODULES.find((m) => m.manifest.id === id)?.manifest;
+      return manifest === undefined ? undefined : { version: manifest.version, paramsSchemaVersion: manifest.paramsSchemaVersion, defaults: resolveParams(manifest.params, {}).values };
+    }, { name: 'Neon bars' }));
 
     // A two-second clip for the video bridge check, generated with the vendored FFmpeg's own
     // encoder (the LGPL build has no libx264).
@@ -2034,9 +2039,10 @@ app.whenReady().then(async () => {
         }
         return test();
       };
-      const presetCards = await waitFor(() => document.querySelectorAll('#app .preset-card').length >= 14 && document.querySelectorAll('#app .preset-card').length);
+      document.querySelector('#app [data-action="preset-scope-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const presetCards = await waitFor(() => document.querySelectorAll('#app .preset-card').length >= 1 && document.querySelectorAll('#app .preset-card').length);
       const presetThumbnail = (await waitFor(() => document.querySelector('#app .preset-card .strip[data-thumbnail="ready"]') !== null, 200)) === true;
-      const presetBrowser = presetCards >= 14 && presetThumbnail;
+      const presetBrowser = presetCards >= 1 && presetThumbnail;
 
       console.log('[smoke] step: presetApply');
       let presetApply = false;
@@ -3004,16 +3010,44 @@ app.whenReady().then(async () => {
     // What MilkDrop looks like in the studio, playing, for a person to read.
     try {
       await window.webContents.executeJavaScript(`(async () => {
-        document.querySelector('#app [data-action="preset-scope-milkdrop"]')?.click();
-        await new Promise((done) => setTimeout(done, 1500));
-        document.querySelectorAll('#app [data-action="apply-milkdrop"]')[3]?.click();
+        const wait = async (test) => {
+          for (let i = 0; i < 400 && !test(); i += 1) await new Promise((done) => setTimeout(done, 50));
+        };
+        document.querySelector('#app [data-action="import-audio"]')?.click();
+        if (document.querySelector('#app [data-testid="auto-templates"]') === null) document.querySelector('#app header [data-action="auto-drawer"]')?.click();
+        await wait(() => document.querySelector('#app [data-testid="auto-templates"]') !== null);
+        document.querySelector('#app [data-action="auto-generate"]')?.click();
+        await wait(() => (document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '').includes('Generate project'));
+        document.querySelector('#app header [data-action="auto-drawer"]')?.click();
         await new Promise((done) => setTimeout(done, 400));
-        document.querySelector('#app .transport button[title="Play"]')?.click();
+        document.querySelector('#app .transport button[title="Play / pause (Space)"]')?.click();
         await new Promise((done) => setTimeout(done, 3000));
       })()`);
       await writeFile(join(dirname(shot), 'smoke-milkdrop.png'), (await window.webContents.capturePage()).toPNG());
+      // Playing with the song, the picture has to move and hold light: two moments, a second apart.
+      const box = await window.webContents.executeJavaScript(`(() => {
+        const r = document.querySelector('#app canvas.preview').getBoundingClientRect();
+        return { x: Math.ceil(r.x), y: Math.ceil(r.y), width: Math.floor(r.width), height: Math.floor(r.height) };
+      })()`) as Rectangle;
+      const first = (await window.webContents.capturePage(box)).toBitmap();
+      await new Promise((done) => setTimeout(done, 1000));
+      const second = (await window.webContents.capturePage(box)).toBitmap();
+      let changed = 0;
+      let light = 0;
+      for (let i = 0; i < first.length; i += 4) {
+        light += first[i] ?? 0;
+        if (first[i] !== second[i]) changed += 1;
+      }
+      const pixels = first.length / 4;
+      console.log(`[smoke] MilkDrop with the song: ${Math.round((changed / pixels) * 100)}% of the picture moved, mean level ${(light / pixels).toFixed(1)}`);
+      const directed = await window.webContents.executeJavaScript(`[...document.querySelectorAll('#app .layer-row .meta')].some((m) => m.textContent === 'core.visualizer.milkdrop')`) as boolean;
+      if (!directed) console.error('[smoke] the director did not choose MilkDrop');
+      checks['milkdropPlaying'] = directed && changed / pixels > 0.05 && light / pixels > 2;
+      if (checks['milkdropPlaying'] !== true) failed.push('milkdropPlaying');
     } catch (error) {
       console.error(`[smoke] could not capture MilkDrop: ${error instanceof Error ? error.message : String(error)}`);
+      checks['milkdropPlaying'] = false;
+      failed.push('milkdropPlaying');
     }
 
     // `PULSEFORGE_UI_TOUR=1`: screenshots of the states a single capture never shows — dialogs,

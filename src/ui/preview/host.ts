@@ -512,7 +512,13 @@ export class PreviewHost {
       this.stills = createEngine(this.gl, {
         quality: 'final',
         text: this.text,
-        milkdrop: this.milkdrop,
+        // A final render replays MilkDrop from the first frame, which on this thread would freeze
+        // the studio for a picture deep in a song. A still can jump and settle, as the preview does.
+        milkdrop: {
+          hasPreset: (name) => this.milkdrop.hasPreset(name),
+          frame: (request) => this.milkdrop.frame({ ...request, exact: false }),
+          release: (owner) => this.milkdrop.release(owner),
+        },
         output: { transfer: 'srgb', dither: false, flipY: true, bitDepth: 8 },
       });
       this.stills.addModules(this.userModules);

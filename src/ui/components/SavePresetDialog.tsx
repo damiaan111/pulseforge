@@ -54,7 +54,7 @@ export function SavePresetDialog(): React.JSX.Element | null {
       setPresets(library);
       setScope(null);
       notify({ text: `Saved preset “${preset.name}”`, kind: 'ok' });
-      const entry = library.entries.find((item) => item.origin === 'user' && item.scope === scope && item.slug === slug);
+      const entry = library.entries.find((item) => item.scope === scope && item.slug === slug);
       if (entry !== undefined) void thumbnailUrl(entry, lookup);
     } catch (error) {
       notify({ text: `Could not save the preset. ${error instanceof Error ? error.message : String(error)}`, kind: 'bad' });

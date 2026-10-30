@@ -1,4 +1,5 @@
-// FFmpeg command construction for the NVENC export (export-spec §5–6, D5, D39, D40, D49).
+// FFmpeg command construction for the export (export-spec §5–6, D5, D39, D40, D49): NVENC, or the
+// vendored FFmpeg's own H.264 encoder on a machine without a usable one.
 // Pure: no process, no filesystem — unit-tested, and recorded verbatim in the render report.
 
 import type { Rational } from '../engine/core/time.ts';
@@ -15,6 +16,8 @@ export type ChromaFormat = '420' | '444';
  */
 export type ColorConversion = 'gpu-nv12' | 'swscale';
 export type NvencPreset = 'p1' | 'p2' | 'p3' | 'p4' | 'p5' | 'p6' | 'p7';
+/** 'software' is OpenH264 on the CPU: 8-bit 4:2:0 H.264, for a PC with no NVENC it can open. */
+export type VideoEncoder = 'nvenc' | 'software';
 
 export interface EncodeSettings {
   readonly codec: VideoCodec;
@@ -25,6 +28,8 @@ export interface EncodeSettings {
   readonly cq: number;
   readonly conversion: ColorConversion;
   readonly audioBitrateKbps: number;
+  /** Absent is NVENC. */
+  readonly encoder?: VideoEncoder;
 }
 
 export interface EncodeJob {
@@ -65,9 +70,12 @@ export function settingsProblems(settings: EncodeSettings, width: number, height
   if (settings.conversion === 'gpu-nv12' && width % 4 !== 0) {
     problems.push(`GPU NV12 conversion needs a width divisible by 4, got ${width}.`);
   }
+  if (settings.encoder === 'software' && (settings.codec !== 'h264' || settings.bitDepth !== 8 || settings.chroma !== '420')) {
+    problems.push('The software encoder is 8-bit 4:2:0 H.264 only.');
+  }
   if (!(settings.cq >= 0 && settings.cq <= 51)) problems.push(`CQ must be 0–51, got ${settings.cq}.`);
   if (width % 2 !== 0 || height % 2 !== 0) problems.push(`Dimensions must be even for YUV output, got ${width}×${height}.`);
-  if (width < 146 || height < 50) problems.push(`NVENC needs at least 146×50, got ${width}×${height}.`);
+  if (settings.encoder !== 'software' && (width < 146 || height < 50)) problems.push(`NVENC needs at least 146×50, got ${width}×${height}.`);
   return problems;
 }
 
@@ -90,6 +98,33 @@ function profile(settings: EncodeSettings): string {
 
 export function gopLength(fps: Rational): number {
   return Math.max(1, Math.round((2 * fps.num) / fps.den)); // 2 s (export-spec §5.2)
+}
+
+/**
+ * OpenH264 has no constant-quality mode that holds up, so the target becomes a bitrate: 0.2 bits a
+ * pixel at CQ 17, doubling every 6 steps as a quantiser does. 1080p60 comes to 25 Mbit/s.
+ */
+export function softwareBitrate(width: number, height: number, fps: Rational, cq: number): number {
+  return Math.round(width * height * (fps.num / fps.den) * 0.2 * 2 ** ((17 - cq) / 6));
+}
+
+function videoEncoderArgs(job: EncodeJob): string[] {
+  const { settings, fps } = job;
+  if (settings.encoder === 'software') {
+    return ['-c:v', 'libopenh264', '-rc_mode', 'bitrate', '-b:v', String(softwareBitrate(job.width, job.height, fps, settings.cq)), '-profile:v', 'high', '-g', String(gopLength(fps))];
+  }
+  return [
+    '-c:v', settings.codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc',
+    '-preset', settings.preset,
+    '-tune', 'hq',
+    '-rc', 'vbr',
+    '-cq', String(settings.cq),
+    '-b:v', '0',
+    '-profile:v', profile(settings),
+    '-g', String(gopLength(fps)),
+    '-bf', '3',
+    '-rc-lookahead', '32',
+  ];
 }
 
 export function buildFfmpegArgs(job: EncodeJob): string[] {
@@ -126,20 +161,11 @@ export function buildFfmpegArgs(job: EncodeJob): string[] {
     );
   } else {
     // Already BT.709 limited-range NV12 from the engine (src/engine/render/yuv.ts): tag it as such.
-    args.push('-vf', `${stampTags}:range=tv`);
+    args.push('-vf', settings.encoder === 'software' ? `format=yuv420p,${stampTags}:range=tv` : `${stampTags}:range=tv`);
   }
 
   args.push(
-    '-c:v', settings.codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc',
-    '-preset', settings.preset,
-    '-tune', 'hq',
-    '-rc', 'vbr',
-    '-cq', String(settings.cq),
-    '-b:v', '0',
-    '-profile:v', profile(settings),
-    '-g', String(gopLength(fps)),
-    '-bf', '3',
-    '-rc-lookahead', '32',
+    ...videoEncoderArgs(job),
     // All four tags, always (export-spec §6). Transfer is tagged BT.709 by decision D49.
     '-colorspace', 'bt709',
     '-color_primaries', 'bt709',

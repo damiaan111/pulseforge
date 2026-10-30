@@ -77,5 +77,6 @@ export function directorInput(document: ProjectDocument = songDocument(), templa
     onsets: s.onsets,
     vocalSegments: [],
     title: document.name,
+    milkdropPresets: [],
   };
 }

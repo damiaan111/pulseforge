@@ -21,6 +21,7 @@ import { basename, extname, join, resolve } from 'node:path';
 
 import { FFMPEG_EXE, ROOT } from '../setup/lib/paths.ts';
 import { bundleElectron } from '../spike/harness.ts';
+import { installedMilkdrop } from '../src/node/milkdrop-index.ts';
 import { renderFrames } from '../spike/lib/frames-run.ts';
 import { AnalysisCache } from '../src/analysis/cache.ts';
 import { analyzeCached } from '../src/analysis/cached.ts';
@@ -120,7 +121,7 @@ async function main(): Promise<void> {
     for (const template of templates) {
       const directed = direct({
         document: withAudio, templates, modules, digest, style, analysis: result.analysis,
-        beats: result.beatGrid?.beats ?? [], onsets: result.onsetTimes, vocalSegments: [], title: name,
+        beats: result.beatGrid?.beats ?? [], onsets: result.onsetTimes, vocalSegments: [], title: name, milkdropPresets: installedMilkdrop(),
       }, { seed: args.seed, templateId: template.id });
       const { project } = toRenderProject(directed.document);
       const frames = await renderFrames({ name: `contact-${t}-${template.id}`, project, frames: [frame], pcm: decoded.pcm, analysis: { mix, beatGrid: result.beatGrid } });
@@ -132,7 +133,7 @@ async function main(): Promise<void> {
     }
     const ranked = direct({
       document: withAudio, templates, modules, digest, style, analysis: result.analysis,
-      beats: result.beatGrid?.beats ?? [], onsets: result.onsetTimes, vocalSegments: [], title: name,
+      beats: result.beatGrid?.beats ?? [], onsets: result.onsetTimes, vocalSegments: [], title: name, milkdropPresets: installedMilkdrop(),
     }, { seed: args.seed }).template.name;
     rows.push(`<tr><th><b>${escape(name)}</b><br>${escape(describeStyle(style))}<br>${Math.round(digest.bpm)} BPM · ${result.sections.length} sections<br>best match: <b>${escape(ranked)}</b></th>${cells.join('')}</tr>`);
     console.log(`${file}: ${((performance.now() - started) / 1000).toFixed(1)} s`);

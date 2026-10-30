@@ -166,6 +166,8 @@ it was made; they are collected here so none is a surprise.
 | Templates key section states by **this build's labels** (intro, build, main, breakdown, outro); a modulation may list **alternative targets**; the budget is **numeric** (low 1, medium 2, high 4 × pixels/1080p) | auto-director-spec §4 sketch: chorus/drop states, one target, `maxGpuCost: "high"` | the section detector's labels are what exist; candidates do not share parameter names; a budget has to be summed to be enforced | STATUS 4.57 |
 | Keyframes: **not per aspect**; **transform fields are targets**; colours ease **in linear light**; key times are **timeline ticks** (moving a layer does not move its keys); **presets do not carry keys** | module-spec left these open (keyframes-spec.md, marked "proposed") | one track per target keeps the timeline readable (D44's concern); transform is the most animated thing; linear light matches the compositor; ticks match lyric times | STATUS 4.63 |
 | The markers lane sits **under the waveform**; **[ / ] also stop at section boundaries**; timeline markers are **separate from the lyrics' `[Chorus]` section markers** | ui-spec §3 lists a Markers track without placing it | the waveform stays the scrub strip; the keys work before any marker exists; lyrics own their structure | STATUS 4.69 |
+| **No built-in presets**; the Presets panel opens on MilkDrop | D16: modules ship starting presets | the owner: they were generated and did not look good | STATUS 4.84 |
+| **Software H.264 where NVENC will not open** | PROJECT.md and export-spec: NVENC, no CPU fallback | an app that cannot export on most PCs is no release; NVENC stays first wherever it works | STATUS 4.85 |
 | **MilkDrop is in** (C15 was last in line), through Butterchurn; its presets run as code from a pinned package; no checkpoints, a final render replays from frame 0 | PROJECT.md C15: not a target look, determinism-hostile; export-spec §8 asks for checkpoints | the owner asked for well-made visuals; seeding `Math.random` and a fixed step made it byte-identical; replay meets the contract at the cost of time on a late start | STATUS 4.83 |
 | **librosa only**, no madmom; refinement is **stored in the project** and **offered, not automatic** | D28 and PROJECT.md S16 name both tools and "an optional pass" | madmom has no Windows wheels, and the lock is wheels only; a render must not need Python; for music on a click the built-in grid is only as good as its tempo, but refining is still an edit to the project | STATUS 4.77 |
 | **Emoji are monochrome**, and one CJK font (Japanese forms) serves Chinese and Korean | PROJECT.md S17 lists emoji and non-Latin scripts without saying how | text effects work from coverage masks, which colour bitmaps do not have; a project can choose its own font, which goes first | STATUS 4.76 |
@@ -201,15 +203,14 @@ it was made; they are collected here so none is a surprise.
 Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
 effect on a finished video last. Each is noted beside its requirement in §2.
 
-**Before a public release:** real renders, stems and lyrics
-through the chooser on a current driver (STATUS header); a PC with no NVIDIA card; moving the FFmpeg
-pin before BtbN drops it, around 2028.
+**Before a public release:** NVENC, stems and lyrics have not run on a current driver since the last
+changes here, and must be run once (STATUS header); a PC with no NVIDIA card has not been tried, only this
+one with NVENC unusable; moving the FFmpeg pin before BtbN drops it, around 2028.
 
-**Visuals (the owner's request, 2026-10-30):** MilkDrop is in (STATUS 4.83). Left: the auto-director using
-it, retiring the generated presets, and looking into why some presets stay black. Vidvox ISF-Files (MIT,
-371 files, close to the Shadertoy dialect) is the next source, mostly video effects. Hydra is ruled out
-(AGPL would bind the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site
-default is non-commercial, so nothing is bundled from it without checking each shader.
+**Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). Vidvox ISF-Files (MIT, 371 files,
+close to the Shadertoy dialect) is the next source, mostly video effects. Hydra is ruled out (AGPL would bind
+the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site default is
+non-commercial, so nothing is bundled from it without checking each shader.
 
 **Auto-director (Could-level in the spec):** `derive-from-image` palettes; "Extract as template";
 palette shifts at a chorus; converting arrangement curves to keyframes.

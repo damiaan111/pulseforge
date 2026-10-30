@@ -17,11 +17,14 @@ import { direct, surprise, DirectorError, type DirectorInput, type DirectResult 
 import { buildTrackDigest, styleVector } from '../director/digest.ts';
 import { rankTemplates, type DirectorModules, type TemplateScore } from '../director/match.ts';
 import { projectConditions } from '../director/direct.ts';
+import { walkRenderModules } from '../engine/core/project.ts';
 import { frameStartTick, sourceToTimelineSeconds } from '../engine/core/time.ts';
+import { MILKDROP_MODULE } from '../engine/modules/milkdrop.ts';
 import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
 import { applyDirection } from '../project/commands.ts';
 import { aspectBucket, type DirectorRoll, type ProjectDocument } from '../project/document.ts';
 import { toRenderProject } from '../project/snapshot.ts';
+import { loadPreset } from './milkdrop.ts';
 import { moduleDefinitions } from './modules.ts';
 import { thumbnailHost } from './preset-thumbnails.ts';
 import { previewControls } from './components/CanvasPane.tsx';
@@ -67,6 +70,7 @@ export function directorInput(state: StudioState, document: ProjectDocument = st
     onsets: state.onsetTimes,
     vocalSegments: vocals === undefined ? [] : detectVocalSegments(vocals.data, vocals.rate),
     title: titleOf(state),
+    milkdropPresets: state.milkdropPresets,
   };
 }
 
@@ -74,7 +78,7 @@ export function directorInput(state: StudioState, document: ProjectDocument = st
 export function rankedTemplates(state: StudioState): TemplateScore[] {
   if (directorBlocker(state) !== null) return [];
   const input = directorInput(state);
-  return rankTemplates(input.templates, input.style, projectConditions(state.document, state.analysis, input.title), input.modules, aspectBucket(state.document.canvas.width, state.document.canvas.height));
+  return rankTemplates(input.templates, input.style, projectConditions(state.document, state.analysis, input.title, input.milkdropPresets), input.modules, aspectBucket(state.document.canvas.width, state.document.canvas.height));
 }
 
 export type DirectorAction =
@@ -149,6 +153,10 @@ export function drawRollThumbnail(roll: DirectorRoll, document?: ProjectDocument
       const width = 192;
       const height = Math.max(2, Math.round((width * project.canvas.height) / project.canvas.width / 2) * 2);
       const small = { ...project, canvas: { ...project.canvas, width, height } };
+      for (const layer of walkRenderModules(small.layers)) {
+        const preset = layer.params['preset'];
+        if (layer.module === MILKDROP_MODULE && typeof preset === 'string') await loadPreset(preset);
+      }
       const frames = host.renderStills(small, state.analysis, [momentFrame(state, made)]);
       const pixels = frames?.[0];
       if (pixels === undefined) return;

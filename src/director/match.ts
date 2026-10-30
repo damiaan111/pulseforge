@@ -29,12 +29,16 @@ export interface Availability {
 }
 
 /** Whether every module the template needs is here, substituting by tag where it is not (D29). */
-export function templateAvailability(template: Template, modules: DirectorModules): Availability {
+export function templateAvailability(template: Template, modules: DirectorModules, conditions: ReadonlySet<Condition>): Availability {
   const substitutes = new Map<string, string>();
   const notes: string[] = [];
   for (const slot of template.slots) {
     let usable = 0;
-    for (const candidate of slot.candidates) {
+    const offered = slot.candidates.filter((c) => c.needs !== 'hasMilkdrop' || conditions.has('hasMilkdrop'));
+    if (slot.required && slot.candidates.length > 0 && offered.length === 0) {
+      return { available: false, reason: 'it is built on MilkDrop presets, which are not installed: add them in Settings, under Components', substitutes, notes };
+    }
+    for (const candidate of offered) {
       if (modules.get(candidate.module) !== undefined) {
         usable += 1;
         continue;
@@ -99,7 +103,7 @@ function inside(value: number, [lo, hi]: readonly [number, number]): boolean {
 }
 
 export function scoreTemplate(template: Template, style: StyleVector, conditions: ReadonlySet<Condition>, modules: DirectorModules, aspect: string): TemplateScore {
-  const availability = templateAvailability(template, modules);
+  const availability = templateAvailability(template, modules, conditions);
   const reasons: string[] = [];
   const measured = (axis: StyleAxis) => !style.unmeasured.includes(axis);
   const axes = (ranges: AxisRanges) => STYLE_AXES.filter((axis) => ranges[axis] !== undefined && measured(axis));

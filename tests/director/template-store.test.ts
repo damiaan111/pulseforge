@@ -20,7 +20,7 @@ describe('the template library', () => {
     }));
     await writeFile(join(user, 'broken.json'), '{ not json');
     const { templates, problems } = loadTemplates(await readTemplateFiles({ builtin: TEMPLATE_DIR, user }));
-    expect(templates.length).toBe(7);
+    expect(templates.length).toBe(10);
     const pulse = templates.find((t) => t.template.id === 'tpl.neon.pulse')!;
     expect(pulse.origin).toBe('user');
     expect(pulse.template.name).toBe('My Pulse');

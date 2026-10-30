@@ -33,6 +33,7 @@ import { videoFramesNeeded } from '../engine/modules/video.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { cacheOptionsFor } from '../analysis/project-settings.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
+import { probeCodecs } from './encoder-probe.ts';
 import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
 import { rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { loadDocument } from '../project/load.ts';
@@ -215,7 +216,13 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   }
   // The disk is checked before any of the slow work below, and for a job in a queue at the moment
   // it starts, when the jobs before it have written their files (export-spec §14).
-  const encodeSettings = defaultEncodeSettings(options.codec);
+  // The render's own check, as the export dialog's: a job can outlive what was true when queued.
+  const support = (await probeCodecs(FFMPEG_EXE))[options.codec];
+  if (!support.available) {
+    throw new RenderDocumentError(`This machine cannot encode ${options.codec === 'hevc' ? 'HEVC' : 'H.264'}. ${support.reason ?? ''}`.trim(), ['Choose an H.264 export preset, or update the graphics driver']);
+  }
+  const encodeSettings = { ...defaultEncodeSettings(options.codec), encoder: support.encoder };
+  if (support.encoder === 'software') say(`Encoding in software, which is slower: NVENC is not usable here (${support.reason ?? 'unknown reason'})`);
   const neededBytes = estimateOutputBytes({ ...canvas, frames, fps: fps.num / fps.den, audioBitrateKbps: encodeSettings.audioBitrateKbps });
   const noRoom = spaceProblem(options.outputPath, neededBytes, await (options.freeBytes ?? freeBytesAt)(options.outputPath));
   if (noRoom !== null) throw diskSpaceError(noRoom);

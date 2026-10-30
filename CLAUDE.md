@@ -1,7 +1,7 @@
 # Pulseforge — context for Claude Code
 
 Self-hosted, GPU-accelerated audio visualizer and music-video renderer. Electron + TypeScript +
-WebGL2, with a Python ML sidecar (Demucs, WhisperX) and FFmpeg/NVENC export.
+WebGL2, with a Python ML sidecar (Demucs, WhisperX) and FFmpeg export (NVENC, or software H.264).
 
 **The planning phase is complete. Everything is specified. Read before writing code.**
 
@@ -57,6 +57,10 @@ through Butterchurn (STATUS 4.83). ROADMAP §6 lists what is left. `npm run test
   that dies leaves the old one behind.
 - The end goal is a clean public repo: `Pulseforge.cmd` starts everything from nothing, and the app
   offers components (`setup/components.ts`). Nothing may assume the owner's PC, path or tools.
+
+- MilkDrop is in, the director uses it (`src/director/milkdrop-catalogue.ts` is generated: `npm run
+  milkdrop:measure -- --write`), and video exports on the CPU where NVENC will not open (STATUS 4.84, 4.85).
+  Tests needing NVENC or CUDA skip where the machine cannot run them, so read the skip count.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept
 detailed enough that a fresh session can take over mid-project. Commit at the end of each step.

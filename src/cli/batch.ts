@@ -20,6 +20,7 @@
 //   --seconds N          render only the first N seconds of each (a quick look at a batch)
 //   --direct-only        write the projects, render nothing
 
+import { installedMilkdrop } from '../node/milkdrop-index.ts';
 import { existsSync, statSync } from 'node:fs';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -169,6 +170,7 @@ export async function batch(argv: readonly string[]): Promise<number> {
           ffmpegExe: FFMPEG_EXE,
           cacheRoot,
           templates,
+          milkdropPresets: installedMilkdrop(),
           modules,
           preset: options.preset,
           templateId: options.templateId,

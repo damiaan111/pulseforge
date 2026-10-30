@@ -38,7 +38,7 @@ export function PresetsPanel(): React.JSX.Element {
   const lookup = useMemo(() => manifestLookup(manifests), [manifests]);
 
   const [text, setText] = useState('');
-  const [scope, setScope] = useState<ScopeFilter>('all');
+  const [scope, setScope] = useState<ScopeFilter>('milkdrop');
   const [tags, setTags] = useState<readonly string[]>([]);
   const [starredOnly, setStarredOnly] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -115,7 +115,7 @@ export function PresetsPanel(): React.JSX.Element {
 
       {presets === null && scope !== 'milkdrop' ? <p className="dim">Reading presets…</p> : null}
       {presets !== null && shown.length === 0 && scope !== 'milkdrop' ? (
-        <p className="empty">{entries.length === 0 ? 'No presets yet. Save a layer or the project to start a library.' : 'Nothing matches.'}</p>
+        <p className="empty">{entries.length === 0 ? 'No saved presets yet. Save a layer or the project to start a library, or try the MilkDrop tab.' : 'Nothing matches.'}</p>
       ) : null}
       <ul className="preset-grid">
         {(scope === 'milkdrop' ? [] : shown).map((entry) => (
@@ -220,7 +220,6 @@ function PresetCard(props: {
       </div>
       <div className="preset-sub dim">
         {entry.scope === 'project' ? 'project' : (lookup(entry.moduleId ?? '') === undefined ? `${entry.moduleId} (not installed)` : entry.moduleId?.split('.').pop())}
-        {entry.origin === 'builtin' ? ' · built-in' : ''}
       </div>
       {open && (
         <div className="preset-actions">
@@ -237,9 +236,7 @@ function PresetCard(props: {
               <button type="button" title="Add its layers above the current ones" onClick={() => apply('merge')}>Add its layers</button>
             </>
           )}
-          {entry.origin === 'user' && (
-            <button type="button" className="danger" data-action="preset-delete" onClick={() => void deletePreset(entry.scope, entry.slug)}>Delete</button>
-          )}
+          <button type="button" className="danger" data-action="preset-delete" onClick={() => void deletePreset(entry.scope, entry.slug)}>Delete</button>
           {entry.tags.length > 0 && <span className="dim preset-tags">{entry.tags.join(' · ')}</span>}
         </div>
       )}

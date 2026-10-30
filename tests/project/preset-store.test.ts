@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createModuleLayer } from '../../src/project/create.ts';
-import { createLayerPreset, stringifyPreset, type ManifestLookup, type Preset } from '../../src/project/presets.ts';
+import { createLayerPreset, type ManifestLookup, type Preset } from '../../src/project/presets.ts';
 import {
   PresetStore,
   presetThumbnailKey,
@@ -74,22 +74,6 @@ describe('PresetStore', () => {
     expect(await store.list()).toEqual({ entries: [], problems: [] });
   });
 
-  it('a user preset shadows a built-in with the same slug', async () => {
-    const builtinRoot = join(root, 'shipped');
-    await mkdir(join(builtinRoot, 'layer'), { recursive: true });
-    await writeFile(join(builtinRoot, 'layer', 'neon-pulse.json'), stringifyPreset(preset('Neon Pulse', ['shipped'])));
-
-    const store = new PresetStore({ root, builtinRoot });
-    expect((await store.list()).entries[0]!.origin).toBe('builtin');
-
-    await store.save(preset('Neon Pulse', ['mine']), { slug: 'neon-pulse', overwrite: true });
-    const entries = (await store.list()).entries;
-    // One entry, the user's — an app update improving the built-in must not fight the user's edit.
-    expect(entries).toHaveLength(1);
-    expect(entries[0]!.origin).toBe('user');
-    expect(entries[0]!.tags).toEqual(['mine']);
-  });
-
   it('one bad file does not hide the rest of the library', async () => {
     const store = new PresetStore({ root });
     await store.save(preset('Good One'));
@@ -137,17 +121,12 @@ describe('PresetStore', () => {
     await expect(store.read('layer', 'a-project')).rejects.toThrow(/No preset/);
   });
 
-  it('deletes a user preset and refuses to delete a built-in', async () => {
-    const builtinRoot = join(root, 'shipped');
-    await mkdir(join(builtinRoot, 'layer'), { recursive: true });
-    await writeFile(join(builtinRoot, 'layer', 'shipped.json'), stringifyPreset(preset('Shipped')));
-
-    const store = new PresetStore({ root, builtinRoot });
+  it('deletes a preset, and says so when there is none', async () => {
+    const store = new PresetStore({ root });
     const slug = await store.save(preset('Mine'));
     await store.remove('layer', slug);
-    expect((await store.list()).entries.map((entry) => entry.name)).toEqual(['Shipped']);
-
-    await expect(store.remove('layer', 'shipped')).rejects.toThrow(/cannot be deleted/);
+    expect((await store.list()).entries).toEqual([]);
+    await expect(store.remove('layer', 'never-existed')).rejects.toThrow(/no preset "never-existed"/);
   });
 
   it('renames by writing a new slug', async () => {
@@ -202,18 +181,6 @@ describe('searchPresets', () => {
 
   it('counts tags most-used first', () => {
     expect([...tagCounts(entries)]).toEqual([['neon', 2], ['bars', 1], ['minimal', 1]]);
-  });
-});
-
-describe('delete messages distinguish the two cases', () => {
-  it('says a built-in cannot be deleted, and that an unknown slug does not exist', async () => {
-    const builtinRoot = join(root, 'shipped');
-    await mkdir(join(builtinRoot, 'layer'), { recursive: true });
-    await writeFile(join(builtinRoot, 'layer', 'shipped.json'), stringifyPreset(preset('Shipped')));
-    const store = new PresetStore({ root, builtinRoot });
-
-    await expect(store.remove('layer', 'shipped')).rejects.toThrow(/built-in preset and cannot be deleted/);
-    await expect(store.remove('layer', 'never-existed')).rejects.toThrow(/no preset "never-existed"/);
   });
 });
 

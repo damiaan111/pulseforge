@@ -11,6 +11,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { torchHasCuda } from '../ml/cuda.ts';
 
 import { pythonEnv } from '../../setup/lib/env.ts';
 import { FFMPEG_EXE, MODELS, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
@@ -23,7 +24,7 @@ import { SidecarSupervisor, spawnPythonSidecar } from '../../src/ml/supervisor.t
 const WHISPER = join(MODELS, 'whisper', 'faster-whisper-medium');
 const ALIGN = join(MODELS, 'align');
 const available = [FFMPEG_EXE, PYTHON_EXE, join(WHISPER, 'model.bin'), join(ALIGN, 'wav2vec2_fairseq_base_ls960_asr_ls960.pth'), join(VENDOR, 'python', '.pulseforge-lyrics-env.json')]
-  .every((p) => existsSync(p));
+  .every((p) => existsSync(p)) && torchHasCuda();
 
 let root: string;
 let audioPath: string;

@@ -283,7 +283,6 @@ export interface StemProgressEvent {
 /** One preset as the browser shows it (S8). */
 export interface PresetListing {
   readonly slug: string;
-  readonly origin: 'builtin' | 'user';
   readonly name: string;
   readonly scope: 'layer' | 'project';
   readonly tags: readonly string[];
@@ -447,7 +446,7 @@ export interface EnvironmentReport {
  */
 export interface RenderReadiness {
   /** Null when the encoders have not been checked: FFmpeg is missing. */
-  readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null }>> | null;
+  readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null; readonly encoder: 'nvenc' | 'software' }>> | null;
   /** On the output file's drive; null with no output chosen, or when it cannot be read. */
   readonly freeBytes: number | null;
 }

@@ -13,6 +13,7 @@
 // React tree per frame is the standard way these tools become sluggish (ui-spec §13), so the
 // host owns its own rAF loop and pushes a throttled summary in.
 
+import { milkdropIndex } from './milkdrop.ts';
 import { create } from 'zustand';
 
 import { decodeAnalysis } from '../analysis/container.ts';
@@ -218,7 +219,7 @@ export interface StudioState {
   modulesFolder: string | null;
   loadModules(): Promise<void>;
 
-  /** The preset library (S8): built-ins and the user's own, favourites marked; null until listed. */
+  /** The preset library (S8): the user's own, favourites marked; null until listed. */
   presets: PresetLibraryListing | null;
   /** The Save preset dialog, open for a scope, or closed. */
   presetDialog: 'layer' | 'project' | null;
@@ -319,6 +320,8 @@ export interface StudioState {
   setAutoOpen(open: boolean): void;
   /** The template library, parsed; problems are files that did not parse. */
   templates: readonly LoadedTemplate[];
+  /** The MilkDrop presets installed here, for the director. */
+  milkdropPresets: readonly string[];
   templateProblems: readonly TemplateProblem[];
   templatesFolder: string | null;
   loadTemplates(): Promise<void>;
@@ -1310,13 +1313,14 @@ export const useStudio = create<StudioState>((set, get) => ({
     set(open ? { autoOpen: true, queueOpen: false, matrixOpen: false, lyricsOpen: false, autoOffer: false } : { autoOpen: false });
   },
   templates: [],
+  milkdropPresets: [],
   templateProblems: [],
   templatesFolder: null,
   async loadTemplates() {
     try {
-      const listing = await window.pulseforge.listTemplates();
+      const [listing, milkdrop] = await Promise.all([window.pulseforge.listTemplates(), milkdropIndex()]);
       const { templates, problems } = loadTemplateLibrary(listing.files);
-      set({ templates, templateProblems: problems, templatesFolder: listing.folder });
+      set({ templates, templateProblems: problems, templatesFolder: listing.folder, milkdropPresets: milkdrop?.presets.map((p) => p.name) ?? [] });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Reading the templates'), kind: 'bad' } });
     }

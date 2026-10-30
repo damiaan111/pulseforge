@@ -30,7 +30,7 @@ export const SLOT_ROLES = ['BACKDROP', 'HERO', 'ACCENT', 'TEXT', 'LYRICS', 'LOGO
 export type SlotRole = (typeof SLOT_ROLES)[number];
 
 /** Facts about the project a slot or candidate can depend on (§4 `condition`, `needs`). */
-export const CONDITIONS = ['hasTitle', 'hasLyrics', 'noLyrics', 'hasLogo', 'hasStems', 'hasBackgroundImage'] as const;
+export const CONDITIONS = ['hasTitle', 'hasLyrics', 'noLyrics', 'hasLogo', 'hasStems', 'hasBackgroundImage', 'hasMilkdrop'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 
 export const INTENSITIES = { subtle: 0.08, medium: 0.25, strong: 0.6 } as const;

@@ -8,6 +8,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { torchHasCuda } from '../ml/cuda.ts';
 
 import { pythonEnv } from '../../setup/lib/env.ts';
 import { FFMPEG_EXE, MODELS, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
@@ -22,7 +23,7 @@ import { DEMUCS_6S_STEMS, DEMUCS_STEMS, separateStems } from '../../src/ml/stems
 import { GpuQueue } from '../../src/node/gpu-queue.ts';
 import { DEFAULT_ANALYSIS_SETTINGS } from '../../src/project/create.ts';
 
-const available = [FFMPEG_EXE, PYTHON_EXE, join(MODELS, 'demucs', 'htdemucs.yaml')].every((p) => existsSync(p));
+const available = [FFMPEG_EXE, PYTHON_EXE, join(MODELS, 'demucs', 'htdemucs.yaml')].every((p) => existsSync(p)) && torchHasCuda();
 
 let root: string;
 let audioPath: string;

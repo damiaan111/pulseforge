@@ -5,7 +5,7 @@
 import { spawn } from 'node:child_process';
 
 import { diagnoseEncoderFailure } from './encoder.ts';
-import type { VideoCodec } from './ffmpeg-args.ts';
+import type { VideoCodec, VideoEncoder } from './ffmpeg-args.ts';
 
 export interface EncoderCapability {
   readonly id: string;
@@ -30,6 +30,8 @@ const CANDIDATES: Candidate[] = [
   { id: 'av1-8-420', label: 'AV1 8-bit 4:2:0', args: ['-c:v', 'av1_nvenc', '-pix_fmt', 'yuv420p'] },
 ];
 
+const SOFTWARE: Candidate = { id: 'h264-software', label: 'H.264 8-bit 4:2:0 (software)', args: ['-c:v', 'libopenh264', '-pix_fmt', 'yuv420p'] };
+
 function tryEncoder(ffmpegExe: string, candidate: Candidate): Promise<EncoderCapability> {
   const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=320x240:r=30:d=0.2', '-frames:v', '3', ...candidate.args, '-f', 'null', '-'];
   return new Promise((resolve) => {
@@ -47,15 +49,22 @@ function tryEncoder(ffmpegExe: string, candidate: Candidate): Promise<EncoderCap
 /** What the export presets use, one candidate each (export-spec §14: hide it before it can be chosen). */
 const PRESET_CANDIDATES: Readonly<Record<VideoCodec, string>> = { h264: 'h264-8-420', hevc: 'hevc-10-420' };
 
-export type CodecSupport = Readonly<Record<VideoCodec, { readonly available: boolean; readonly reason: string | null }>>;
+export type CodecSupport = Readonly<Record<VideoCodec, {
+  readonly available: boolean;
+  /** Why not NVENC, even when software stands in for it. */
+  readonly reason: string | null;
+  readonly encoder: VideoEncoder;
+}>>;
 
-/** Whether this GPU and driver can encode each codec the presets use. */
+/** Whether this machine can encode each codec the presets use; H.264 falls back to the CPU. */
 export async function probeCodecs(ffmpegExe: string): Promise<CodecSupport> {
   const one = async (id: string) => {
     const result = await tryEncoder(ffmpegExe, CANDIDATES.find((candidate) => candidate.id === id) as Candidate);
-    return { available: result.available, reason: result.reason ?? null };
+    return { available: result.available, reason: result.reason ?? null, encoder: 'nvenc' as const };
   };
-  return { h264: await one(PRESET_CANDIDATES.h264), hevc: await one(PRESET_CANDIDATES.hevc) };
+  const h264 = await one(PRESET_CANDIDATES.h264);
+  const software = h264.available ? false : (await tryEncoder(ffmpegExe, SOFTWARE)).available;
+  return { h264: software ? { ...h264, available: true, encoder: 'software' } : h264, hevc: await one(PRESET_CANDIDATES.hevc) };
 }
 
 /** Probes sequentially: NVENC session limits make parallel probes fail spuriously. */

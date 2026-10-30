@@ -145,6 +145,7 @@ export function ExportDialog(): React.JSX.Element | null {
             {size === null ? null : <span data-testid="export-size">{' '}Up to {formatBytes(size)}{outputPath !== null && readiness?.freeBytes != null ? `; ${formatBytes(readiness.freeBytes)} free on that drive` : ''}.</span>}
           </p>
         )}
+        {!cannotEncode && codec?.encoder === 'software' ? <p className="dim" data-testid="export-software-encoder">No NVENC on this machine, so H.264 encodes on the CPU: the same picture, slower to finish. {codec.reason}</p> : null}
         {cannotEncode ? <p className="warn-text" data-testid="export-encoder-problem">This machine cannot encode {preset?.codec === 'hevc' ? 'HEVC' : 'H.264'}. {codec.reason}</p> : null}
 
         {markers.length > 0 ? (

@@ -5,6 +5,8 @@
 // beforehand: its size, its licence, and whether this PC can run it. A component that needs a newer
 // NVIDIA driver cannot be ticked, and says why, instead of failing twenty minutes into a download.
 
+import { forgetMilkdropIndex } from '../milkdrop.ts';
+import { useStudio } from '../store.ts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ComponentRow, ComponentsInfo } from '../../shell/ipc.ts';
@@ -86,6 +88,8 @@ export function ComponentChooser(props: { readonly firstRun: boolean; readonly o
         setWanted(new Set());
         setAccepted(false);
         setResult({ ok: true, text: 'Installed.' });
+        forgetMilkdropIndex();
+        void useStudio.getState().loadTemplates();
         onChanged?.();
       } else {
         const core = after.components.find((c) => c.id === 'core')?.installed === true;
@@ -148,7 +152,7 @@ export function ComponentChooser(props: { readonly firstRun: boolean; readonly o
       <p className="dim note" data-testid="component-total">
         {toInstall.length === 0 ? 'Nothing chosen to install.' : `To download: about ${size(total)}.`}
         {info?.freeBytes != null ? ` ${size(info.freeBytes)} free on this drive.` : ''}
-        {info?.driver != null ? ` ${info.driver.name}, driver ${info.driver.version}.` : ' No NVIDIA card found: exporting video and the GPU features need one.'}
+        {info?.driver != null ? ` ${info.driver.name}, driver ${info.driver.version}.` : ' No NVIDIA card found: video exports on the CPU, more slowly, and the GPU features are not available.'}
       </p>
       {tooBig ? <p className="warn-text">That is more than the drive has free.</p> : null}
       {lines.length > 0 ? <pre className="setup-log" ref={logRef} data-testid="component-log">{lines.join('\n')}</pre> : null}

@@ -10,8 +10,8 @@
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
 > any aspect. Last full verification, 2026-10-30, on the machine described below: golden 29/29
-> identical; smoke 43/44, the failure being `settingsUi` on the driver precondition; `npm run check`
-> 1298 of 1310 (1 skipped), the 11 failures being the driver's. On the owner's fixed machine, before that driver
+> identical; smoke 44/45, the failure being `settingsUi` on the driver precondition, with a real
+> queued render and an auto-directed batch render; `npm run check` 1304 passed, 12 skipped, none failed. On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
 > **Since P4:** modulation can now be wired in the studio (M13, §4.46); the analysis computes the
@@ -75,9 +75,10 @@
 >
 > **This machine, 2026-10-30:** the NVIDIA driver is **560.94**, too old for FFmpeg's NVENC (570+) and
 > the pinned torch (580+), so real renders and GPU stems and lyrics do not run here, and the owner has
-> said to leave that for now. `npm run check` shows 11 failures, all from the driver:
-> `nvenc.integration` 4, `stems-gpu` 3, `lyrics-align-gpu` 3, `sidecar` 1. The smoke check's
-> `settingsUi` fails on the same driver precondition. Golden frames are unaffected (29/29).
+> said to leave that for now. Video exports here on the CPU (§4.85). The tests that need NVENC or
+> CUDA skip themselves (`nvenc.integration` 4, `stems-gpu` 3, `lyrics-align-gpu` 3, `sidecar` 1), so
+> **those paths have not been run on this driver**. The smoke check's `settingsUi` fails because
+> `--verify` cannot load torch here. Golden frames are unaffected (29/29).
 >
 > And Unicode text (S17, §4.76): titles and lyrics in Arabic, Hebrew, Hindi, Bengali, Tamil, Thai,
 > Armenian, Georgian, Japanese, Chinese, Korean and emoji, from bundled fonts on any machine, with
@@ -186,6 +187,8 @@
 | 4.81 | Polish: modulation, lyrics, stems — ROADMAP §6 |
 | 4.82 | Choosing visuals, and the licence |
 | 4.83 | MilkDrop, through Butterchurn |
+| 4.84 | The generated presets retired; the auto-director uses MilkDrop |
+| 4.85 | Exporting without NVENC |
 
 ---
 
@@ -4555,6 +4558,56 @@ now, even after a crash or a kill. Draft mode's cost test now times its renders 
 **Not built:** the auto-director does not use MilkDrop, and the old generated presets are still there. **Not
 verified:** an NVENC encode of a MilkDrop layer, because of the driver; 1080p and 4K cost per frame; the preview
 playing with a song, beyond frames and the smoke check, which has no audio at that point.
+
+### 4.84 The generated presets retired; the auto-director uses MilkDrop
+
+**Retired.** The 14 files in `presets/builtin/`, their generator and the store's built-in origin are
+gone: `PresetStore` holds the user's own, and the panel opens on MilkDrop. The visualizer *modules* and
+the seven older templates stay; only the canned presets went. This overrides D16 (ROADMAP §4).
+
+**What the director knows.** `npm run milkdrop:measure` rendered all 1,754 presets at 8, 10 and 12 s of a
+reference track, 320×180, and measured light, coverage, saturation, hue, motion, change, flicker and detail.
+The result is committed as `src/director/milkdrop-catalogue.ts`, because the director is a pure function:
+a machine-local measure would make the same seed give different projects. The presets are pinned by hash,
+so the numbers cannot go stale. Zero failed to run; **1,416 were kept**; 215 were dark, 55 strobing, 50 flat,
+18 frozen. That is the answer to §4.83's black presets: about one in eight stays dark on a given track,
+because of the preset, not the host. Rejected ones can still be picked by hand.
+
+**How it chooses (`src/director/milkdrop.ts`).** Measures become ranks among all presets, held against the
+style vector: energy to motion, darkness to brightness, density to coverage, with the palette's hue as a
+smaller pull. The seed picks among the 24 closest, so rerolls differ and each roll stays reproducible. The
+template says `"preset": "$milkdrop"`; the choice and its reasons go in the decision log.
+
+**Templates.** MilkDrop Surge, Flow and Lyric. A new condition, `hasMilkdrop`, gives them a bonus when the
+presets are installed; without them they show as unavailable, saying to add them in Settings. A preset's
+own colours do not follow the palette: only text, and the hue pull above, connect them.
+
+**Also.** Thumbnails of a roll used to render as `final`, which would replay MilkDrop from frame 0 on the UI
+thread; stills now jump and settle as the preview does. Installing components reloads what the director sees.
+
+**Verified.** Two real songs through the templates, frames looked at: rich, different, none black. In the
+studio with a song: import, Auto, MilkDrop Surge chosen, play: 94% of the picture moved between two moments a
+second apart (`milkdropPlaying` in the smoke check). This closes "the preview with a song" from §4.83.
+
+### 4.85 Exporting without NVENC
+
+**Why.** Exporting needed a recent NVIDIA card and driver. The owner's PC cannot export because of that, nor
+could anyone with AMD or Intel graphics: the largest gap between this and a release.
+
+**What it does.** `probeCodecs` tries NVENC, then the vendored FFmpeg's OpenH264. Settings carry
+`encoder: 'software'`, and the export dialog says that it is happening and why. H.264 8-bit 4:2:0 only, so
+the HEVC master stays unavailable and is refused with the reason. OpenH264 has no usable constant-quality
+mode, so CQ becomes a bitrate: 0.2 bits a pixel at CQ 17, doubling every 6 steps (1080p60 is 25 Mbit/s).
+`render-document.ts` probes before each render, so a queued job meets what is true when it runs.
+
+**Measured here, MilkDrop, software, verified output.** 1080p60: 97 fps. 4K60: 27 fps. Rendering is the small
+part, about 2.5 ms a frame at either size; the rest is readback and the encoder. A real 20 s 1080p60 batch
+render through the studio: 1,200 frames, verified, no warnings. **Not compared:** picture quality against
+NVENC at the same settings, as NVENC cannot open here.
+
+**Tests.** `tests/export/software-encoder.test.ts` makes real files. Tests needing NVENC or CUDA now skip where
+the machine cannot do them (`tests/ml/cuda.ts`), so `npm run check` is green on any PC. That means a green run
+says nothing about those paths: read the skip count.
 
 ## 5. Measured results
 

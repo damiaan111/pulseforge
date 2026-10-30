@@ -98,6 +98,7 @@ describe.skipIf(!existsSync(FFMPEG_EXE))('directTrack', () => {
     const [track] = planBatch([audioPath], { outDir: join(root, 'out'), preset: findExportPreset('shorts')!, seed: 3, templateId: null });
 
     const directed = await directTrack(track!, {
+      milkdropPresets: [],
       ffmpegExe: FFMPEG_EXE,
       cacheRoot: join(root, 'cache'),
       templates: library.templates.map((t) => t.template),

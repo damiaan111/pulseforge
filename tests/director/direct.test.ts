@@ -4,6 +4,7 @@
 // What matters most, in order: the result is an ordinary project that loads, renders and has no
 // broken references; the same inputs give the same bytes; a reroll never loses the user's edits.
 
+import { MILKDROP_MEASURES } from '../../src/director/milkdrop-catalogue.ts';
 import { describe, expect, it } from 'vitest';
 
 import { direct, surprise } from '../../src/director/direct.ts';
@@ -41,10 +42,10 @@ describe('the built-in templates', () => {
     expect(parseTemplate(raw).issues).toEqual([]);
   });
 
-  it('are seven, with unique ids, and every module they name is installed', () => {
+  it('are ten, with unique ids, and every module they name is installed', () => {
     const templates = builtinTemplates();
     expect(templates.map((t) => t.name).sort()).toEqual([
-      'Cinematic Depth', 'Cinematic Particles', 'Lyric Focus', 'Minimal Mono', 'Minimal Type', 'Neon Grid', 'Neon Pulse',
+      'Cinematic Depth', 'Cinematic Particles', 'Lyric Focus', 'MilkDrop Flow', 'MilkDrop Lyric', 'MilkDrop Surge', 'Minimal Mono', 'Minimal Type', 'Neon Grid', 'Neon Pulse',
     ]);
     for (const t of templates) {
       for (const slot of t.slots) {
@@ -61,7 +62,7 @@ describe('directing a track', () => {
   });
 
   it.each(builtinTemplates().map((t) => [t.id] as const))('%s makes a well-formed, renderable project', (templateId) => {
-    const result = direct(directorInput(), { seed: 7, templateId });
+    const result = direct({ ...directorInput(), milkdropPresets: MILKDROP_MEASURES.map((row) => row[0]) }, { seed: 7, templateId });
     const document = result.document;
     expect(document.layers.length).toBeGreaterThanOrEqual(2);
     expect(document.director?.current.templateId).toBe(templateId);
@@ -107,7 +108,7 @@ describe('directing a track', () => {
 
   it('keeps text readable: the generated palette meets each template\'s contrast minimum', () => {
     for (const template of builtinTemplates()) {
-      const { document } = direct(directorInput(), { seed: 11, templateId: template.id });
+      const { document } = direct({ ...directorInput(), milkdropPresets: MILKDROP_MEASURES.map((row) => row[0]) }, { seed: 11, templateId: template.id });
       const colors = document.palette.colors;
       const roles = document.palette.roles;
       expect(contrastRatio(colors[roles['text']!]!, colors[roles['background']!]!), template.id).toBeGreaterThanOrEqual(template.palette.minTextContrast - 0.01);

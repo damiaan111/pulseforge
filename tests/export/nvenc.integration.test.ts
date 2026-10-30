@@ -1,5 +1,5 @@
-// Real NVENC encodes through the vendored FFmpeg. Runs only where setup has provisioned FFmpeg
-// (the RTX machine); skipped elsewhere, with the reason in the test name.
+// Real NVENC encodes through the vendored FFmpeg. Runs only where FFmpeg is provisioned and NVENC
+// opens; skipped elsewhere, with the reason in the test name.
 
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { rational } from '../../src/engine/core/time.ts';
 import { prepareExportAudio, samplesForFrames } from '../../src/export/audio.ts';
 import { startEncoder } from '../../src/export/encoder.ts';
-import { probeEncoders } from '../../src/export/encoder-probe.ts';
+import { probeCodecs, probeEncoders } from '../../src/export/encoder-probe.ts';
 import { buildFfmpegArgs, defaultEncodeSettings, type EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import { checkOutput, probeFile } from '../../src/export/verify.ts';
 
@@ -62,7 +62,9 @@ async function encode(dir: string, name: string, settings: EncodeSettings, withA
   return output;
 }
 
-describe.skipIf(!existsSync(FFMPEG))('NVENC export path (vendored FFmpeg; skipped until `npm run setup`)', () => {
+const nvenc = existsSync(FFMPEG) && (await probeCodecs(FFMPEG)).h264.encoder === 'nvenc';
+
+describe.skipIf(!nvenc)('NVENC export path (skipped without FFmpeg, or where NVENC will not open)', () => {
   it('encodes H.264 with audio: exact frame count, tags, A/V length', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pulseforge-nvenc-'));
     try {
