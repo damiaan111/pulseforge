@@ -4611,6 +4611,13 @@ NVENC at the same settings, as NVENC cannot open here.
 `src/cli/batch.ts` on a real song: MilkDrop Surge chosen, a verified 720-frame 1080p60 MP4 with audio. This is
 the first time the path from download to finished video has been run end to end on this machine.
 
+**Open: one unexplained failure.** The smoke check's `lyricsUi` failed once in about eight runs, on a run straight
+after `check` and `golden`. Its log was deleted before it was read. It did not come back with the song
+regenerated, or in the same sequence again. The next failure prints which step, in `lyricsUi steps`: keep that log.
+
+**Preview cost.** A directed MilkDrop project previewed at 32 fps at 1080p here, 28 frames dropped; exports are not
+affected. Draft mode is the answer for editing; whether the preview should start lower for MilkDrop is undecided.
+
 **Tests.** `tests/export/software-encoder.test.ts` makes real files. Tests needing NVENC or CUDA now skip where
 the machine cannot do them (`tests/ml/cuda.ts`), so `npm run check` is green on any PC. That means a green run
 says nothing about those paths: read the skip count.
