@@ -405,10 +405,12 @@ async function installCheck(window: BrowserWindow): Promise<void> {
   await page(`document.querySelector('[data-action="components-install"]').click()`);
   report['core'] = await until(() => componentInstalled('core'), 600);
   report['beats'] = await until(() => componentInstalled('beats'), 600);
+  report['milkdrop'] = await until(() => componentInstalled('milkdrop'), 600);
   // The chooser reloads the page when it finishes, into the studio with nothing left to ask.
   report['studio'] = await until(() => page<boolean>(`document.body.dataset.pulseforgeReady === 'true' && document.querySelector('[data-testid="component-chooser"]') === null`).catch(() => false), 120);
   report['log'] = await page<string>(`document.querySelector('[data-testid="component-log"]')?.textContent?.slice(-800) ?? ''`).catch(() => '');
   await writeFile(join(ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
+  app.quit();
 }
 
 /** The NVIDIA card and driver, by asking the driver; null when there is none to ask. */
