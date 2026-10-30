@@ -54,8 +54,9 @@ what is left. `npm run test` writes `out/vitest-last.json`: read it when a run f
 
 - The smoke check's renderer code is one template literal: never write a backslash in it (`\n`
   becomes a real line break, `\b` a backspace). Delete `out/smoke-result.json` before a run: a run
-  that dies leaves the old one behind. `START-HERE.md` describes P0, which
-is done.
+  that dies leaves the old one behind.
+- The end goal is a clean public repo: `Pulseforge.cmd` starts everything from nothing, and the app
+  offers components (`setup/components.ts`). Nothing may assume the owner's PC, path or tools.
 
 The owner has asked for autonomous progress through the milestones, with `docs/STATUS.md` kept
 detailed enough that a fresh session can take over mid-project. Commit at the end of each step.

@@ -11,6 +11,7 @@ import { SETUP_LOG, SETUP_PID, VENDOR } from './lib/paths.ts';
 import { requiredBytes, runPreflight, type Check } from './lib/preflight.ts';
 import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
+import { NON_COMMERCIAL_NOTICE, resolveChoice } from './components.ts';
 import { fallbackFontsStep } from './steps/fallback-fonts.ts';
 import { lyricsModelsStep } from './steps/lyrics-models.ts';
 import { extraInstalled, extraSteps } from './steps/extras.ts';
@@ -19,7 +20,14 @@ import { pythonBeatsEnvStep, pythonEnvStep, pythonLyricsEnvStep } from './steps/
 import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
-const STEPS: readonly Step[] = [ffmpegStep, fontStep, fallbackFontsStep, pythonStep, uvStep, pythonEnvStep, demucsModelStep, pythonLyricsEnvStep, pythonBeatsEnvStep, lyricsModelsStep, ...extraSteps];
+const STEPS: readonly Step[] = [
+  ffmpegStep, fontStep, fallbackFontsStep,
+  { ...pythonStep, alsoFor: ['lyrics', 'beats'] },
+  { ...uvStep, alsoFor: ['lyrics', 'beats'] },
+  // The lyrics environment is the stems one plus WhisperX.
+  { ...pythonEnvStep, alsoFor: ['lyrics'] },
+  demucsModelStep, pythonLyricsEnvStep, pythonBeatsEnvStep, lyricsModelsStep, ...extraSteps,
+];
 
 const USAGE = `
 Usage: npm run setup -- [options]
@@ -42,6 +50,11 @@ Options:
   --rebuild-check Prove the Python env can be rebuilt with no network: a fresh interpreter from the
                   kept archive, both locks from vendor/wheelhouse/ only, imports and a model load
                   checked, then removed. The live env is not touched. A few minutes.
+  --components <list>
+                  What to install, as the app's chooser names it: core, stems, lyrics, beats and the
+                  optional models. What a component needs comes with it.
+  --accept-non-commercial
+                  Needed to install the alignment models for French, German, Spanish and Italian.
   --relock        Re-resolve setup/python/requirements.lock.txt from requirements.in (needs network).
   --from <dir>    Take pinned archives/models from <dir> instead of the network.
   --help          Show this help.
@@ -70,6 +83,8 @@ function parseOptions(argv: string[]): Options | string {
         relock: { type: 'boolean', default: false },
         tier: { type: 'string' },
         extras: { type: 'string' },
+        components: { type: 'string' },
+        'accept-non-commercial': { type: 'boolean', default: false },
         from: { type: 'string' },
         help: { type: 'boolean', default: false },
       },
@@ -82,6 +97,27 @@ function parseOptions(argv: string[]): Options | string {
   if (values.plan && values.verify) return `--plan and --verify cannot be combined.\n${USAGE}`;
   if (values['rebuild-check'] && (values.plan || values.verify || values.tier !== undefined)) return `--rebuild-check runs on its own.\n${USAGE}`;
 
+  if (values.components !== undefined) {
+    if (values.tier !== undefined || values.extras !== undefined) return `--components replaces --tier and --extras.\n${USAGE}`;
+    let choice;
+    try {
+      choice = resolveChoice(values.components.split(',').map((id) => id.trim()).filter(Boolean));
+    } catch (error) {
+      return (error as Error).message;
+    }
+    if (!values.verify && choice.components.some((c) => c.nonCommercial) && !values['accept-non-commercial']) {
+      return `${NON_COMMERCIAL_NOTICE}\nAdd --accept-non-commercial to install them.`;
+    }
+    return {
+      extras: [...choice.extras],
+      plan: values.plan,
+      verify: values.verify,
+      rebuildCheck: false,
+      relock: values.relock,
+      tiers: [...choice.tiers],
+      fromDir: values.from !== undefined ? resolve(values.from) : undefined,
+    };
+  }
   const tiers: Tier[] = [];
   for (const name of (values.tier ?? ALL_TIERS.join(',')).split(',').map((t) => t.trim()).filter(Boolean)) {
     if ((ALL_TIERS as readonly string[]).includes(name) || (OPTIONAL_TIERS as readonly string[]).includes(name)) {
@@ -219,7 +255,7 @@ export async function main(argv: string[]): Promise<number> {
     const lockNow = await readVendorLock(log);
     const steps = STEPS.filter((s) => {
       const extra = (s as { extra?: ExtraId }).extra;
-      if (extra === undefined) return options.tiers.includes(s.tier);
+      if (extra === undefined) return options.tiers.includes(s.tier) || s.alsoFor?.some((tier) => options.tiers.includes(tier)) === true;
       // Extras: the ones named when installing them; when verifying, every one that is installed.
       if (options.tiers.includes('extras')) return options.extras.includes(extra);
       return options.verify && extraInstalled(extra, lockNow);

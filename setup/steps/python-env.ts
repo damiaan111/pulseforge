@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS, PYTHON_PACKAGES_LYRICS } from '../manifest.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
@@ -61,6 +61,8 @@ interface PythonEnvConfig {
   readonly probeExtra: string;
   /** Throws a SetupError when the tier's own packages are not usable; returns a summary. */
   readonly check: (info: EnvProbe) => string;
+  /** False for a tier that needs no GPU: its lock has no torch, and its health no CUDA. */
+  readonly usesTorch?: boolean;
   /** Before relocking, what must already be in place (the stems lock, for the lyrics tier). */
   readonly requires?: () => void;
   readonly record: (ctx: StepContext, lockSha: string, info: EnvProbe) => void;
@@ -126,6 +128,15 @@ out["packages"] = sorted(
 print(json.dumps(out))
 `;
 
+/**
+ * A path as uv should get it. uv splits the values of `--constraint` and `--override` at spaces, so
+ * an absolute path under `C:\Users\First Last\` reaches it as two files. Relative to the repo, with
+ * uv running there, no spaces are involved wherever the repo is.
+ */
+export function fromRoot(path: string): string {
+  return relative(ROOT, path).split('\\').join('/');
+}
+
 async function sha256Text(path: string): Promise<string> {
   return createHash('sha256').update(await readFile(path)).digest('hex');
 }
@@ -189,6 +200,10 @@ async function ensureRequirementsLock(config: PythonEnvConfig, ctx: StepContext)
   );
 
   const torch = lockedTorchVersion(await readFile(config.requirementsLock, 'utf8'));
+  if (config.usesTorch === false) {
+    ctx.log.ok(`Wrote ${config.lockRelative}`);
+    return { generated: true };
+  }
   if (torch === undefined || !torch.endsWith(`+${PYTHON_PACKAGES.torchLocalVersion}`)) {
     throw new SetupError({
       step: config.title,
@@ -260,16 +275,16 @@ async function installFromWheelhouse(config: PythonEnvConfig, ctx: StepContext):
     [
       'pip', 'install',
       '--python', PYTHON_EXE,
-      '--requirement', config.requirementsLock,
+      '--requirement', fromRoot(config.requirementsLock),
       '--require-hashes',
       '--no-index',
-      '--find-links', WHEELHOUSE,
+      '--find-links', fromRoot(WHEELHOUSE),
       '--offline',
       '--no-config',
       '--break-system-packages',
       ...(await config.installArgs()),
     ],
-    { step: config.title, log: ctx.log, env: pythonEnv(), echo: true },
+    { step: config.title, log: ctx.log, cwd: ROOT, env: pythonEnv(), echo: true },
     () => ({
       what: 'Installing from the wheelhouse failed.',
       likelyCause: 'The wheelhouse is incomplete, or a file in it is damaged.',
@@ -287,6 +302,7 @@ function assertHealthy(config: PythonEnvConfig, info: EnvProbe): string {
       fix: ['This is a setup bug. Share vendor/setup.log.'],
     });
   }
+  if (config.usesTorch === false) return config.check(info);
   if (info.torchError !== undefined) {
     const dll = /WinError 126|DLL load failed|\.dll/i.test(info.torchError);
     throw new SetupError({
@@ -417,8 +433,8 @@ export function createPythonEnvStep(config: PythonEnvConfig): Step {
       // Proves the wheelhouse alone satisfies the lock, with no index: the offline-rebuild guarantee.
       await runChecked(
         UV_EXE,
-        ['pip', 'install', '--python', PYTHON_EXE, '--requirement', config.requirementsLock, '--require-hashes', '--no-index', '--find-links', WHEELHOUSE, '--offline', '--no-config', '--break-system-packages', '--dry-run', ...(await config.installArgs())],
-        { step: TITLE, log: ctx.log, env: pythonEnv() },
+        ['pip', 'install', '--python', PYTHON_EXE, '--requirement', fromRoot(config.requirementsLock), '--require-hashes', '--no-index', '--find-links', fromRoot(WHEELHOUSE), '--offline', '--no-config', '--break-system-packages', '--dry-run', ...(await config.installArgs())],
+        { step: TITLE, log: ctx.log, cwd: ROOT, env: pythonEnv() },
         () => ({
           what: 'The wheelhouse can no longer satisfy the lock offline.',
           likelyCause: 'Wheels were deleted from vendor/wheelhouse/.',
@@ -436,8 +452,8 @@ function recordEnv(ctx: StepContext, lockSha: string, info: EnvProbe): void {
   ctx.lock.pythonEnv = {
     requirementsLockSha256: ctx.lock.pythonEnv?.requirementsLockSha256 ?? lockSha,
     python: info.python,
-    torch: info.torch ?? 'unknown',
-    torchCuda: info.torchCuda ?? 'none',
+    torch: info.torch ?? ctx.lock.pythonEnv?.torch ?? 'none',
+    torchCuda: info.torchCuda ?? ctx.lock.pythonEnv?.torchCuda ?? 'none',
     // The one interpreter's whole package list: after the lyrics tier, its packages too.
     packages: info.packages,
   };
@@ -503,6 +519,7 @@ if _spec is not None and _spec.submodule_search_locations:
 export async function lyricsOverridesFile(fromLock?: string): Promise<string> {
   await mkdir(TMP, { recursive: true });
   const path = join(TMP, 'lyrics-overrides.txt');
+  // Relative to the repo, where uv runs: see `fromRoot`.
   let text = `${PYTHON_PACKAGES_LYRICS.overrides.join('\n')}\n`;
   if (fromLock !== undefined) {
     const lock = (await readFile(fromLock, 'utf8')).replace(/\r\n/g, '\n');
@@ -518,7 +535,7 @@ export async function lyricsOverridesFile(fromLock?: string): Promise<string> {
     }).join('\n') + '\n';
   }
   await writeFile(path, text);
-  return path;
+  return fromRoot(path);
 }
 
 export const pythonLyricsEnvStep: Step = createPythonEnvStep({
@@ -547,7 +564,7 @@ export const pythonLyricsEnvStep: Step = createPythonEnvStep({
       .map((line) => /^([A-Za-z0-9_.-]+==\S+)/.exec(line)?.[1])
       .filter((pin): pin is string => pin !== undefined);
     await writeFile(constraints, `${pins.join('\n')}\n`);
-    return ['--constraint', constraints, '--override', await lyricsOverridesFile()];
+    return ['--constraint', fromRoot(constraints), '--override', await lyricsOverridesFile()];
   },
   installArgs: async () => ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)],
   probeExtra: CUBLAS12_SNIPPET + String.raw`
@@ -593,6 +610,7 @@ export const pythonBeatsEnvStep: Step = createPythonEnvStep({
   lockRelative: 'setup/python/requirements-beats.lock.txt',
   marker: join(VENDOR, 'python', '.pulseforge-beats-env.json'),
   approxWheelhouseBytes: PYTHON_PACKAGES_BEATS.approxWheelhouseBytes,
+  usesTorch: false,
   requires() {
     if (!existsSync(PY_LYRICS_REQUIREMENTS_LOCK)) {
       throw new SetupError({
@@ -610,9 +628,9 @@ export const pythonBeatsEnvStep: Step = createPythonEnvStep({
       .map((line) => /^([A-Za-z0-9_.-]+==\S+)/.exec(line)?.[1])
       .filter((pin): pin is string => pin !== undefined);
     await writeFile(constraints, `${pins.join('\n')}\n`);
-    return ['--constraint', constraints, '--override', await lyricsOverridesFile()];
+    return ['--constraint', fromRoot(constraints)];
   },
-  installArgs: async () => ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)],
+  installArgs: async () => [],
   probeExtra: String.raw`
 try:
     import librosa

@@ -1,7 +1,9 @@
 // The studio layout (ui-spec §1): top bar, left rail, centre canvas, right inspector, bottom
 // timeline. Dense and dark, with the canvas the only saturated thing on screen (§12).
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+import { ComponentChooser } from './ComponentChooser.tsx';
 
 import { useStudio } from '../store.ts';
 import { CanvasPane } from './CanvasPane.tsx';
@@ -226,6 +228,7 @@ export function App(): React.JSX.Element {
       <BatchDialog />
       <ShadertoyDialog />
       <SettingsDialog />
+      <FirstRun />
       <SavePresetDialog />
       <RecoveryDialog />
       <ShutdownBanner />
@@ -236,4 +239,15 @@ export function App(): React.JSX.Element {
       )}
     </div>
   );
+}
+
+/** A fresh download: nothing can play or render until the essentials are in. */
+function FirstRun(): React.JSX.Element | null {
+  const [needed, setNeeded] = useState(false);
+  useEffect(() => {
+    void window.pulseforge.componentsInfo().then((info) => setNeeded(info.components.some((c) => c.id === 'core' && !c.installed)));
+  }, []);
+  if (!needed) return null;
+  // Reloaded rather than patched up: everything that read "no FFmpeg, no fonts" at start reads again.
+  return <ComponentChooser firstRun onClose={() => setNeeded(false)} onChanged={() => window.location.reload()} />;
 }

@@ -56,6 +56,7 @@ export function CanvasPane(): React.JSX.Element {
   const fonts = useStudio((s) => s.fonts);
   const luts = useStudio((s) => s.luts);
   const defaultFont = useStudio((s) => s.defaultFont);
+  const soloUrl = useStudio((s) => s.soloUrl);
   const fallbackFonts = useStudio((s) => s.fallbackFonts);
   const videos = useStudio((s) => s.videos);
   const userModules = useStudio((s) => s.userModules);
@@ -109,6 +110,38 @@ export function CanvasPane(): React.JSX.Element {
   useEffect(() => {
     hostRef.current?.setDraft(draft);
   }, [draft]);
+
+  // Soloing a stem swaps the file under the audio element, which starts over: it picks up where the
+  // song was, playing or not. The stems run the song's length, so the time means the same thing.
+  const lastSource = useRef({ url: soloUrl, time: 0, playing: false });
+  useEffect(() => {
+    const element = audioRef.current;
+    if (element === null || lastSource.current.url === soloUrl) return;
+    const { time, playing } = lastSource.current;
+    lastSource.current.url = soloUrl;
+    const resume = () => {
+      element.currentTime = time;
+      if (playing) void element.play();
+    };
+    element.addEventListener('loadedmetadata', resume, { once: true });
+    return () => element.removeEventListener('loadedmetadata', resume);
+  }, [soloUrl]);
+  useEffect(() => {
+    const element = audioRef.current;
+    if (element === null) return;
+    const remember = () => {
+      if (element.readyState > 0) {
+        lastSource.current.time = element.currentTime;
+        lastSource.current.playing = !element.paused;
+      }
+    };
+    element.addEventListener('timeupdate', remember);
+    element.addEventListener('pause', remember);
+    return () => {
+      element.removeEventListener('timeupdate', remember);
+      element.removeEventListener('pause', remember);
+    };
+  }, [audio]);
 
   useEffect(() => {
     hostRef.current?.setDocument(document, analysis);
@@ -222,7 +255,7 @@ export function CanvasPane(): React.JSX.Element {
           the page itself. */}
       {audio === null
         ? <audio ref={audioRef} preload="auto" />
-        : <audio ref={audioRef} src={audio.url} preload="auto" />}
+        : <audio ref={audioRef} src={soloUrl ?? audio.url} preload="auto" />}
     </section>
   );
 }

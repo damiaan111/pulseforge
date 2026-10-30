@@ -24,6 +24,8 @@ export interface Step {
   id: string;
   title: string;
   tier: Tier;
+  /** Other tiers that need this step: the Python interpreter serves every tier that runs Python. */
+  alsoFor?: readonly Tier[];
   /** What --plan shows. Must not touch the network or change anything. */
   describe(lock: VendorLock): Promise<PlanRow>;
   run(ctx: StepContext): Promise<void>;

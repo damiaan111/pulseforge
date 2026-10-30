@@ -18,6 +18,7 @@ import type { TemplateFile } from '../director/template-library.ts';
 import type { CacheCategory, CacheInventory } from '../cache/cache-store.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
+import type { Component } from '../../setup/components.ts';
 import type { BeatRefinement, BeatRefinementState } from '../analysis/beat-refinement.ts';
 
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
@@ -37,6 +38,7 @@ export const IPC = {
   audioPick: 'pf:audio:pick',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
+  stemAudio: 'pf:audio:stem',
   beatsRefine: 'pf:beats:refine',
   beatsCancel: 'pf:beats:cancel',
   recoveryWrite: 'pf:recovery:write',
@@ -101,6 +103,7 @@ export const IPC = {
   environment: 'pf:app:environment',
   renderPickOutput: 'pf:render:pick-output',
   renderEnqueue: 'pf:render:enqueue',
+  componentsInfo: 'pf:setup:components',
   renderReadiness: 'pf:render:readiness',
   renderList: 'pf:render:list',
   renderCancel: 'pf:render:cancel',
@@ -236,7 +239,6 @@ export interface SettingsInfo {
   readonly stemModels: readonly string[];
   readonly whisperModels: readonly string[];
   /** The optional models (D8), each installable from Settings. */
-  readonly extras: readonly { readonly id: string; readonly title: string; readonly note: string; readonly bytes: number; readonly installed: boolean; readonly license: string }[];
   /** Languages with word alignment installed. */
   readonly alignLanguages: readonly string[];
   /** Chromium picks the GPU; this is the one in use, shown rather than chosen (ROADMAP §4). */
@@ -449,7 +451,21 @@ export interface RenderReadiness {
   readonly freeBytes: number | null;
 }
 
+/** A component the chooser offers (setup/components.ts), and whether it is on this PC. */
+export type ComponentRow = Component & { readonly installed: boolean };
+
+export interface ComponentsInfo {
+  readonly components: readonly ComponentRow[];
+  /** Null: no NVIDIA card or driver answered. */
+  readonly driver: { readonly name: string; readonly version: string; readonly major: number } | null;
+  /** On the drive this folder is on; null when it cannot be read. */
+  readonly freeBytes: number | null;
+  readonly nonCommercialNotice: string;
+}
+
 export interface PulseforgeApi {
+  /** What can be installed, and what this PC can run. */
+  componentsInfo(): Promise<ComponentsInfo>;
   /**
    * The project named on the command line (`pulseforge song.pvproj`), or by a double-click
    * once the file type is associated. Null when the app was started with nothing to open.
@@ -489,6 +505,8 @@ export interface PulseforgeApi {
    * same mapping the exporter uses (analysis/project-settings.ts), so preview and export agree.
    */
   analyzeAudio(path: string, settings: ProjectAnalysisSettings): Promise<AnalysisPayload>;
+  /** A separated stem's audio file, for soloing it in the preview. */
+  readStemAudio(path: string, stem: string, stemModel: string): Promise<{ readonly bytes: Uint8Array }>;
   /** Tracks the beats with librosa (S16). Rejects with a sentence, including on cancel. */
   refineBeats(path: string, stemModel: string): Promise<BeatRefinement>;
   cancelRefineBeats(): Promise<void>;
@@ -532,7 +550,7 @@ export interface PulseforgeApi {
   /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */
   revealPath(which: 'userData' | 'settings'): Promise<void>;
   /** Runs `npm run setup -- --verify` or `--tier <tier>`; output arrives through `onSetupOutput`. */
-  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
+  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'components'; readonly components: readonly string[]; readonly acceptNonCommercial: boolean } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' | 'beats' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
   cancelSetup(): Promise<void>;
   onSetupOutput(listener: (line: string) => void): () => void;
   /** Shows an open dialog for a lyrics file (.lrc, .srt, .vtt, .ttml, .txt). Null when cancelled. */

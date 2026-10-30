@@ -103,6 +103,9 @@ export const lyricsManifest: ModuleManifest = {
     { key: 'ballColor', label: 'Ball colour', group: 'Karaoke', type: 'color', default: '#ffffff', paletteRole: 'accent', visibleWhen: { param: 'fill', equals: 'bouncingBall' } },
     { key: 'ballSize', label: 'Ball size', group: 'Karaoke', type: 'float', default: 0.16, min: 0.04, max: 0.6, unit: 'em', visibleWhen: { param: 'fill', equals: 'bouncingBall' } },
 
+    { key: 'gradient', label: 'Gradient', group: 'Karaoke', type: 'bool', default: false, description: 'Tints the line from top to bottom, over whichever colour each word has reached' },
+    { key: 'gradientColor', label: 'Gradient to', group: 'Karaoke', type: 'color', default: '#7f7fff', paletteRole: 'secondary', visibleWhen: { param: 'gradient', equals: true } },
+
     { key: 'strokeWidth', label: 'Outline', group: 'Outline', type: 'float', default: 0, min: 0, max: 0.3, softMax: 0.12, unit: 'em', modulatable: false, description: '“Fill the outline” uses at least 0.04 em' },
     { key: 'strokeColor', label: 'Outline colour', group: 'Outline', type: 'color', default: '#000000' },
 
@@ -385,6 +388,7 @@ uniform float u_soft;       // px
 uniform float u_sweep;      // px: the gradient sweep's feather, at least one em
 uniform float u_popBright;
 uniform vec3 u_strokeColor;
+uniform vec4 u_gradient;    // tint at the bottom of the line (linear), on
 uniform vec4 u_shadow;      // dx, dy (px), lod, opacity
 uniform vec3 u_shadowColor;
 uniform vec3 u_glowColor;
@@ -438,6 +442,8 @@ void main() {
   }
   vec3 fillColor = mix(u_upcoming, target, s);
   if (u_fill == 3) fillColor = mix(fillColor, vec3(1.0), wb.x * u_popBright);
+  // A tint rather than a colour: a wipe has to stay readable all the way down the line.
+  if (u_gradient.w > 0.5) fillColor *= mix(vec3(1.0), u_gradient.rgb, clamp((q.y - u_origin.y - u_content.y) / u_content.w, 0.0, 1.0));
   // Fill the outline: the outline is always there, the fill pours in.
   if (u_fill == 4) fillA *= s;
   vec4 glyph = vec4(fillColor * fillA, fillA) + vec4(u_strokeColor * strokeA, strokeA) * (1.0 - fillA);
@@ -487,7 +493,7 @@ function createLyrics(gl: WebGL2RenderingContext): ModuleInstance {
   const maskPass = createWordMaskPass(gl, lyricsManifest.id);
   const names = [
     'u_canvas', 'u_mask', 'u_ids', 'u_words', 'u_wordCount', 'u_bitmap', 'u_origin', 'u_content',
-    'u_upcoming', 'u_active', 'u_sung', 'u_fill', 'u_soft', 'u_sweep', 'u_popBright', 'u_strokeColor',
+    'u_upcoming', 'u_active', 'u_sung', 'u_fill', 'u_soft', 'u_sweep', 'u_popBright', 'u_strokeColor', 'u_gradient',
     'u_shadow', 'u_shadowColor', 'u_glowColor', 'u_glow', 'u_plateColor', 'u_plate', 'u_anim', 'u_ball', 'u_ballColor',
   ] as const;
   const u = Object.fromEntries(names.map((name) => [name, uniformLocation(gl, program, name)])) as Record<(typeof names)[number], WebGLUniformLocation>;
@@ -656,6 +662,7 @@ function createLyrics(gl: WebGL2RenderingContext): ModuleInstance {
       const active = linearHex(str(params, 'active'), '#ff2d95');
       const sung = linearHex(str(params, 'sung'), '#ff2d95');
       const sc = linearHex(str(params, 'strokeColor'), '#000000');
+      const gradientTint = linearHex(str(params, 'gradientColor'), '#7f7fff');
       const shc = linearHex(str(params, 'shadowColor'), '#000000');
       const gc = linearHex(str(params, 'glowColor'), '#ff2d95');
       const pc = linearHex(str(params, 'plateColor'), '#000000');
@@ -794,6 +801,7 @@ function createLyrics(gl: WebGL2RenderingContext): ModuleInstance {
         gl.uniform1f(u.u_sweep, Math.max(num(params, 'softEdge'), 1) * p.em);
         gl.uniform1f(u.u_popBright, 0.5);
         gl.uniform3f(u.u_strokeColor, sc[0], sc[1], sc[2]);
+        gl.uniform4f(u.u_gradient, gradientTint[0], gradientTint[1], gradientTint[2], params['gradient'] === true ? 1 : 0);
         gl.uniform4f(u.u_shadow, Math.cos(angle) * shadowDistancePx, Math.sin(angle) * shadowDistancePx, lodFor(num(params, 'shadowSoftness') * p.em), num(params, 'shadow'));
         gl.uniform3f(u.u_shadowColor, shc[0], shc[1], shc[2]);
         gl.uniform3f(u.u_glowColor, gc[0], gc[1], gc[2]);

@@ -128,6 +128,22 @@ describe.skipIf(!available)('lyrics layer on the GPU', () => {
     expect(runs(run.frames[0] as RenderedFrame, 100, 260)).toEqual(['white', 'pink']);
   }, 180_000);
 
+  it('tints a gradient line from top to bottom, leaving the top alone', async () => {
+    const run = await renderFrames({ name: 'lyrics-gradient', project: project({ fill: 'none', gradient: true, gradientColor: '#000000', upcoming: '#ffffff' }), frames: [60] });
+    const frame = run.frames[0] as RenderedFrame;
+    expect(run.warnings).toEqual([]);
+    const lit = (y0: number, y1: number) => {
+      let best = 0;
+      for (let y = y0; y < y1; y += 1) for (let x = 0; x < frame.width; x += 1) best = Math.max(best, frame.at(x, y).r);
+      return best;
+    };
+    const rows: number[] = [];
+    for (let y = 140; y < 198; y += 1) if (lit(y, y + 1) > 60) rows.push(y); // The current line only.
+    const top = rows[0] as number;
+    const bottom = rows[rows.length - 1] as number;
+    expect(lit(top, top + 4)).toBeGreaterThan(lit(bottom - 3, bottom + 1) + 40);
+  }, 180_000);
+
   it('draws every fill mode, each differently, and "none" never in the sung colour', async () => {
     const modes = ['wipe', 'wordSwap', 'wordPop', 'fillStroke', 'gradientSweep', 'bouncingBall', 'none'];
     const hashes: string[] = [];

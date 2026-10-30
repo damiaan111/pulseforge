@@ -115,8 +115,8 @@ export async function alignLyrics(options: LyricsAlignOptions): Promise<LyricsAl
   const installed = installedAlignLanguages(options.alignDir);
   if (!installed.includes(language)) {
     const more = language === 'en'
-      ? ' It comes with the lyrics part of setup (npm run setup -- --tier lyrics).'
-      : ALIGN_MODEL_FILES[language] !== undefined ? ' Its model is an optional extra: Settings → Audio & models installs it.' : '';
+      ? ' It comes with Lyric transcription and timing, in Settings → Components.'
+      : ALIGN_MODEL_FILES[language] !== undefined ? ' Its model is optional: Settings → Components installs it.' : '';
     throw new LyricsLanguageError(`Word alignment is installed for ${installed.join(', ') || 'no language'}, not “${options.language}”.${more} Tap-to-sync works for every language.`);
   }
   if (options.mode === 'align' && options.lines.length === 0) {

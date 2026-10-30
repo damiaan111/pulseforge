@@ -15,6 +15,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { ComponentChooser } from './ComponentChooser.tsx';
+
 import { EXPORT_PRESETS } from '../../export/export-presets.ts';
 import type { SettingsInfo, UserSettings } from '../../shell/ipc.ts';
 import { useStudio } from '../store.ts';
@@ -126,7 +128,11 @@ export function SettingsDialog(): React.JSX.Element | null {
               {settings.tapLatencyMs !== null && <button type="button" onClick={() => void save({ tapLatencyMs: null })}>Reset</button>}
             </div>
             <p className="dim note">Calibrate it from the Lyrics drawer's tap-to-sync. Word alignment is installed for: {info?.alignLanguages.join(', ') || '…'}.</p>
-            {info !== null && <OptionalModels extras={info.extras} onInstalled={() => setInfoVersion((v) => v + 1)} />}
+          </section>
+
+          <section data-testid="settings-components">
+            <h3>Components</h3>
+            <ComponentChooser firstRun={false} onChanged={() => setInfoVersion((v) => v + 1)} />
           </section>
 
           <section>
@@ -181,52 +187,6 @@ function FragmentRow(props: { label: string; value: string; bad: boolean }): Rea
       <dt>{props.label}</dt>
       <dd className={props.bad ? 'bad' : ''}>{props.value}</dd>
     </>
-  );
-}
-
-/**
- * The optional models (D8: quality one click away): each with its size, what it is for, and Install,
- * which runs setup for that one extra with its output shown. A non-commercial licence is said
- * where it applies.
- */
-function OptionalModels(props: { readonly extras: SettingsInfo['extras']; readonly onInstalled: () => void }): React.JSX.Element {
-  const [running, setRunning] = useState<string | null>(null);
-  const [lines, setLines] = useState<readonly string[]>([]);
-  const [result, setResult] = useState<string | null>(null);
-  useEffect(() => window.pulseforge.onSetupOutput((line) => {
-    if (running !== null) setLines((l) => [...l.slice(-200), line]);
-  }), [running]);
-  const install = async (id: string, title: string) => {
-    setRunning(id);
-    setLines([]);
-    setResult(null);
-    try {
-      const { code } = await window.pulseforge.runSetup({ mode: 'extra', extra: id });
-      setResult(code === 0 ? `${title} is installed.` : `Installing ${title} stopped (code ${code ?? 'none'}); the output says why.`);
-      props.onInstalled();
-    } catch (error) {
-      setResult(error instanceof Error ? error.message : String(error));
-    } finally {
-      setRunning(null);
-    }
-  };
-  return (
-    <div className="optional-models" data-testid="optional-models">
-      <h4>Optional models</h4>
-      <ul>
-        {props.extras.map((e) => (
-          <li key={e.id} data-extra={e.id}>
-            <span><strong>{e.title}</strong> <span className="dim">{(e.bytes / 1e9).toFixed(e.bytes > 1e9 ? 1 : 2)} GB</span></span>
-            <span className="dim">{e.note}{/NC/.test(e.license) ? ` Licence: ${e.license}.` : ''}</span>
-            {e.installed
-              ? <span className="ok">Installed</span>
-              : <button type="button" disabled={running !== null} data-action={`install-${e.id}`} onClick={() => void install(e.id, e.title)}>{running === e.id ? 'Installing…' : 'Install'}</button>}
-          </li>
-        ))}
-      </ul>
-      {lines.length > 0 && <pre className="setup-log">{lines.join('\n')}</pre>}
-      {result !== null && <p className={/stopped|not|fail/i.test(result) ? 'bad' : 'ok'}>{result}</p>}
-    </div>
   );
 }
 
@@ -312,7 +272,7 @@ function SetupSection(): React.JSX.Element {
       <div className="setup-actions">
         <button type="button" data-action="setup-verify" disabled={running} onClick={() => void run({ mode: 'verify' })}>Verify installation</button>
         <button type="button" data-action="setup-rebuild-check" disabled={running} title="Builds a second Python environment from the kept wheels with the network made unusable, checks it imports and loads, then deletes it (a few minutes, about 4.4 GB of temporary space)" onClick={() => void run({ mode: 'rebuild-check' })}>Offline rebuild check</button>
-        {(['core', 'stems', 'lyrics'] as const).map((tier) => (
+        {(['core', 'stems', 'lyrics', 'beats'] as const).map((tier) => (
           <button key={tier} type="button" disabled={running} data-action={`setup-repair-${tier}`} onClick={() => void run({ mode: 'repair', tier })}>Repair {tier}</button>
         ))}
         {running && <button type="button" onClick={() => void window.pulseforge.cancelSetup()}>Cancel</button>}

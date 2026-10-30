@@ -27,6 +27,7 @@ const api: PulseforgeApi = {
   revealLibrary: () => ipcRenderer.invoke(IPC.libraryReveal) as Promise<void>,
   pickAudio: () => ipcRenderer.invoke(IPC.audioPick) as ReturnType<PulseforgeApi['pickAudio']>,
   readAudio: (path) => ipcRenderer.invoke(IPC.audioRead, path) as ReturnType<PulseforgeApi['readAudio']>,
+  readStemAudio: (path, stem, stemModel) => ipcRenderer.invoke(IPC.stemAudio, path, stem, stemModel) as ReturnType<PulseforgeApi['readStemAudio']>,
   refineBeats: (path, stemModel) => ipcRenderer.invoke(IPC.beatsRefine, path, stemModel) as ReturnType<PulseforgeApi['refineBeats']>,
   cancelRefineBeats: () => ipcRenderer.invoke(IPC.beatsCancel) as ReturnType<PulseforgeApi['cancelRefineBeats']>,
   analyzeAudio: (path, settings) => ipcRenderer.invoke(IPC.audioAnalyze, path, settings) as ReturnType<PulseforgeApi['analyzeAudio']>,
@@ -54,6 +55,7 @@ const api: PulseforgeApi = {
   revealLogs: () => ipcRenderer.invoke(IPC.revealLogs) as Promise<void>,
   copyDiagnostics: (options) => ipcRenderer.invoke(IPC.copyDiagnostics, options ?? {}) as ReturnType<PulseforgeApi['copyDiagnostics']>,
   revealPath: (which) => ipcRenderer.invoke(IPC.revealPath, which) as Promise<void>,
+  componentsInfo: () => ipcRenderer.invoke(IPC.componentsInfo) as ReturnType<PulseforgeApi['componentsInfo']>,
   runSetup: (request) => ipcRenderer.invoke(IPC.setupRun, request) as ReturnType<PulseforgeApi['runSetup']>,
   cancelSetup: () => ipcRenderer.invoke(IPC.setupCancel) as Promise<void>,
   onSetupOutput(listener) {

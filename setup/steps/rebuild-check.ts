@@ -7,9 +7,9 @@ import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import type { Logger } from '../lib/log.ts';
 import { formatBytes } from '../lib/log.ts';
-import { DOWNLOADS, MODELS, PY_BEATS_REQUIREMENTS_LOCK, PY_LYRICS_REQUIREMENTS_LOCK, PY_REQUIREMENTS_LOCK, TAR_EXE, UV_EXE, VENDOR, WHEELHOUSE } from '../lib/paths.ts';
+import { DOWNLOADS, MODELS, PY_BEATS_REQUIREMENTS_LOCK, PY_LYRICS_REQUIREMENTS_LOCK, PY_REQUIREMENTS_LOCK, ROOT, TAR_EXE, UV_EXE, VENDOR, WHEELHOUSE } from '../lib/paths.ts';
 import { runChecked } from '../lib/proc.ts';
-import { lyricsOverridesFile } from './python-env.ts';
+import { fromRoot, lyricsOverridesFile } from './python-env.ts';
 
 // The offline-rebuild check (PROJECT.md P1 exit criterion, risk "the Python env rots").
 //
@@ -117,7 +117,7 @@ export async function runRebuildCheck(log: Logger): Promise<void> {
     for (const [lock, extra, label] of [
       [PY_REQUIREMENTS_LOCK, [] as string[], 'stems packages (torch CUDA, Demucs)'],
       [PY_LYRICS_REQUIREMENTS_LOCK, ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)], 'lyrics packages (WhisperX)'],
-      [PY_BEATS_REQUIREMENTS_LOCK, ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)], 'beat-tracking packages (librosa)'],
+      [PY_BEATS_REQUIREMENTS_LOCK, [] as string[], 'beat-tracking packages (librosa)'],
     ] as const) {
       if (!existsSync(lock)) {
         log.warn(`${label}: no lock (${lock}); skipped — that tier is not set up here.`);
@@ -126,8 +126,8 @@ export async function runRebuildCheck(log: Logger): Promise<void> {
       const t = performance.now();
       await runChecked(
         UV_EXE,
-        ['pip', 'install', '--python', python, '--requirement', lock, '--require-hashes', '--no-index', '--find-links', WHEELHOUSE, '--offline', '--no-config', '--break-system-packages', ...extra],
-        { step, log, env },
+        ['pip', 'install', '--python', python, '--requirement', fromRoot(lock), '--require-hashes', '--no-index', '--find-links', fromRoot(WHEELHOUSE), '--offline', '--no-config', '--break-system-packages', ...extra],
+        { step, log, cwd: ROOT, env },
         () => ({
           what: `The ${label} could not be installed from the wheelhouse alone.`,
           likelyCause: 'A wheel the lock needs is missing from vendor/wheelhouse/, so a rebuild would need the network.',

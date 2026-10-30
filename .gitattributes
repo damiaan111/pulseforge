@@ -4,3 +4,7 @@
 
 *.png  binary
 *.bin  binary
+
+# cmd.exe and PowerShell 5.1 are Windows programs: the launcher keeps Windows line endings.
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf

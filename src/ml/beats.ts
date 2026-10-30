@@ -53,7 +53,7 @@ export async function refineBeats(options: RefineBeatsOptions): Promise<BeatRefi
         const done = events.find((event) => event['event'] === 'beats');
         if (code === 0 && done !== undefined) return resolve(done);
         if (/No module named '?librosa/.test(stderr + stdout)) {
-          return reject(new BeatTrackingError('librosa is not installed. Run `npm run setup`, then try again.'));
+          return reject(new BeatTrackingError('Beat refinement is not installed. Add it in Settings → Components.'));
         }
         const failure = events.find((event) => event['event'] === 'error');
         reject(new BeatTrackingError(`Beat tracking failed: ${String(failure?.['message'] ?? (stderr.trim().split(/\r?\n/).pop() || `exit ${code}`))}`));

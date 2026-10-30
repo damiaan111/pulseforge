@@ -1,28 +1,29 @@
 # Provisioned by `npm run setup` — never committed (multi-GB, machine-specific)
-vendor/
+/vendor/
 
 # Dependencies
-node_modules/
+/node_modules/
 
 # Python bytecode from the ML sidecar
 __pycache__/
 *.pyc
 
 # Build output
-dist/
-build/
-out/
-release/
+/dist/
+/build/
+/out/
+/release/
 *.tsbuildinfo
 
 # Caches: analysis, stems, waveform peaks, glyph atlases, video frame caches.
 # All rebuildable by definition (PROJECT.md M33) — deleting them costs time, never data.
-cache/
+# Anchored, like every folder here: a bare `cache/` also hid src/cache/ from git.
+/cache/
 .cache/
 *.analysis.bin
 
 # Render outputs and reports
-renders/
+/renders/
 *.mp4
 *.mkv
 *.webm
@@ -40,8 +41,8 @@ renders/
 .env
 .env.local
 settings.local.json
-scratch/
-tmp/
+/scratch/
+/tmp/
 
 # Editor / OS
 .vscode/
@@ -54,3 +55,6 @@ Desktop.ini
 # evidence for that run only, never a committed reference.
 tests/golden/references/*.actual.png
 tests/golden/references/*.rgba
+
+# Local tool configuration
+/.claude/

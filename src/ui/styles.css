@@ -702,3 +702,18 @@ kbd { font: 11px Consolas, monospace; padding: 1px 5px; border: 1px solid var(--
 .calibrate-dialog { width: min(440px, 92vw); }
 .lyric-keys { font-size: 11px; margin: 2px 0 6px; line-height: 1.8; }
 .lyric-keys kbd { font-size: 10px; }
+
+/* What to install: the first-run chooser and Settings → Components. */
+.component-chooser.first-run { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.component-list { list-style: none; margin: 6px 0 10px; padding: 0; display: grid; gap: 2px; }
+.component-list li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 5px 6px; border-radius: var(--radius); }
+.component-list li.blocked { opacity: 0.7; }
+.component-list label { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.component-list input { margin-top: 2px; flex: none; }
+.component-text { display: grid; gap: 1px; font-size: 12px; min-width: 0; }
+.component-text strong { font-weight: 600; }
+.badge.warn { color: var(--warn, #e0a030); font-size: 11px; }
+.non-commercial { border: 1px solid var(--warn, #e0a030); border-radius: var(--radius); padding: 8px 10px; margin: 8px 0; font-size: 12px; }
+.non-commercial p { margin: 0 0 6px; }
+.level-spark { flex: 0 0 44px; width: 44px; height: 12px; }
+.level-spark polyline { stroke: var(--text-dim); stroke-width: 1; vector-effect: non-scaling-stroke; }

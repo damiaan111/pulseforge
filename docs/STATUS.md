@@ -73,12 +73,11 @@
 > write, a job that will not fit waits with the queue held behind it, and the dialog refuses a codec
 > this GPU and driver cannot open, with the reason.
 >
-> **This machine, 2026-10-30:** the NVIDIA driver is **560.94** and the repo is at
-> **`D:\Claude - Projexz\pulseforge`**. The driver is too old for FFmpeg's NVENC (570+) and the pinned
-> torch (580+), so real renders and GPU stems and lyrics do not run, and setup's preconditions refuse
-> both the driver and the space in the path. `npm run check` shows 11 failures, all from the driver:
+> **This machine, 2026-10-30:** the NVIDIA driver is **560.94**, too old for FFmpeg's NVENC (570+) and
+> the pinned torch (580+), so real renders and GPU stems and lyrics do not run here, and the owner has
+> said to leave that for now. `npm run check` shows 11 failures, all from the driver:
 > `nvenc.integration` 4, `stems-gpu` 3, `lyrics-align-gpu` 3, `sidecar` 1. The smoke check's
-> `settingsUi` fails on the same preconditions. Golden frames are unaffected (29/29).
+> `settingsUi` fails on the same driver precondition. Golden frames are unaffected (29/29).
 >
 > And Unicode text (S17, §4.76): titles and lyrics in Arabic, Hebrew, Hindi, Bengali, Tamil, Thai,
 > Armenian, Georgian, Japanese, Chinese, Korean and emoji, from bundled fonts on any machine, with
@@ -87,7 +86,8 @@
 > And beat refinement (S16, §4.77): one click tracks a tempo that moves, finds exact tempos the
 > built-in grid misses, and moves section boundaries onto the music, stored in the project.
 >
-> **Every must-have and every should-have is done.** What is left is listed in ROADMAP.md §6.
+> **Every must-have and every should-have is done.** **The end goal is now a public release:** a
+> launcher and a component chooser (§4.80). What is left is listed in ROADMAP.md §6.
 
 **Contents** — §1 where we are · §2 environment · §3 commands · §4 what exists (below) ·
 §5 measured results · §6 decisions made while building · §7 known gaps · §8–§10 phase summaries
@@ -182,6 +182,8 @@
 | 4.77 | Beat refinement (P8 step 15) — S16, D28 |
 | 4.78 | The stall watchdog (P8 step 16) — export-spec §14 |
 | 4.79 | Dragging on the timeline (P8 step 17) — M9, M29 |
+| 4.80 | The launcher and the component chooser — the public release |
+| 4.81 | Polish: modulation, lyrics, stems — ROADMAP §6 |
 
 ---
 
@@ -4357,6 +4359,82 @@ Layer blocks and the audio clip's edges now drag on the timeline, the gaps M9 an
 
 **Verified here.** 10 tests of the rules; smoke `layerDragUi` drags a block with real pointer events
 and undoes it. **Not verified in the app:** the clip edges, which have the tests only.
+
+### 4.80 The launcher and the component chooser — the public release
+
+**The goal, from the owner (2026-10-30):** a clean repo anyone can download, where a launcher fetches
+every dependency and the user chooses what they want. The non-commercial alignment models stay, as
+optional downloads with a notice.
+
+**What a stranger does.** Download the repo, double-click `Pulseforge.cmd`.
+- `launcher/start.ps1` (Windows PowerShell 5.1, ASCII, CRLF): Node.js from PATH if new enough, else a
+  private copy in `vendor/node`, pinned by version and SHA-256; `npm ci` when `package-lock.json`
+  changes; a build when sources are newer than `dist/`; then the app. `-PrepareOnly` stops before it.
+- The app opens on **Set up Pulseforge** (`ComponentChooser`) when the essentials are missing. The
+  same list is **Settings → Components** afterwards.
+- `setup/components.ts` is the one list of what can be chosen: size, licence, what it needs, the
+  NVIDIA driver it needs. `--components` takes the same names, and `resolveChoice` brings
+  requirements along. `componentInstalled` reads files. "Verify" covers what is installed, so a part
+  someone left out is not a failure.
+
+**The chooser.** Features this PC can run start ticked, models do not. What this PC cannot run is
+disabled with the reason ("Needs NVIDIA driver 580 or newer; this PC has 560.94"), before anything is
+downloaded. The total is shown against the free space.
+
+**Non-commercial models.** `align-fr/de/es/it` are CC BY-NC 4.0. They carry a badge, and choosing any
+shows `NON_COMMERCIAL_NOTICE` and needs a tick; Install stays disabled until then. The command line
+refuses them without `--accept-non-commercial`. They are never in a default install.
+
+**Beat refinement stands alone.** Its lock no longer includes the lyrics set: 27 packages, no torch, no
+NVIDIA card. Its lock is resolved with the lyrics lock as constraints, so the two can share an
+interpreter. `Step.alsoFor` gives the interpreter to every tier that runs Python.
+
+**Spaces in paths are fine now.** The old precondition blamed "Python tooling". Bisected: uv splits the
+values of `--constraint` and `--override` at spaces, and nothing else misbehaves. `fromRoot` passes them
+relative to the repo, with uv running there. The precondition is gone, and `START-HERE.md` with it.
+
+**What the fresh-clone test found, none of it visible on this machine:**
+1. **The repo on GitHub could not build.** `.gitignore`'s bare `cache/` also matched `src/cache/`, so
+   `cache-store.ts` and its test were never committed. Every folder rule is anchored now.
+2. **The FFmpeg pin was dead** (HTTP 404). BtbN deletes daily builds within weeks and keeps each month's
+   last for about two years, so the pin is now a month-end build. **It has to be moved forward before
+   about 2028**, or the file mirrored somewhere the project controls.
+3. `.gitattributes` forced LF on the `.cmd` file; `*.cmd` and `*.ps1` are CRLF now.
+4. A red "default font is missing" error behind the chooser on the first start.
+
+**Verified here**, `PULSEFORGE_INSTALL_CHECK=1` in a fresh `git clone` at a path with a space, with no Node
+on PATH: the launcher downloaded and verified Node 24.22.2, ran `npm ci` and built; the chooser appeared
+with `core` and `beats` ticked and 9 items blocked by the driver; Install fetched them; the app reloaded
+into the studio with nothing left to ask. `vendor/` came to 1.5 GB for those two, three times the
+504 MB download, because the wheelhouse is kept for offline rebuilds. 13 tests in
+`tests/setup/components.test.ts`. `out/install-chooser.png` was read by eye.
+
+**Not verified:** stems, lyrics and the optional models through the chooser, because of this driver;
+Windows 10; a PC with no NVIDIA card at all. `PULSEFORGE_INSTALL_CHECK` is a test hook.
+
+**Not built:** removing a component (delete its folder under `vendor/`); a packaged installer; an
+update check, which the offline rule forbids. **The repo has no LICENSE file**, which is the owner's
+choice to make: without one, strangers may read it but not legally reuse it.
+
+### 4.81 Polish: modulation, lyrics, stems — ROADMAP §6
+
+- **Copy and paste of bindings:** Copy and Paste in the Modulation section. `planBindingPaste` retargets
+  to the same parameter, and for an effect to the destination's first effect of that module. What does
+  not exist there is left behind and named in the toast. 3 tests.
+- **Source sparkline:** beside each binding's meter, its last 48 readings.
+- **Global-chain bindings** were already there: the note in ROADMAP was stale.
+- **Lyric gradient fill:** Karaoke → Gradient tints the line from top to bottom. A tint, not a colour,
+  so a wipe stays readable all the way down. GPU test.
+- **Per-stem rows:** Show on the timeline, in the Stems section: one row per stem, drawn from its `rms`.
+- **Stem solo:** the stem's name on its row solos it in the preview, from `<cacheRoot>/stems/`, and the
+  audio element picks up where it was. Preview only; a render is never affected.
+
+**Not verified:** stem rows and solo in the app, since this driver cannot separate stems. They typecheck.
+
+**Decided against: contrast against the live backdrop** (lyrics-spec §7). The engine draws every layer
+first and composites them in one pass, so a layer cannot see what is behind it, and changing that for
+one feature is not worth it. The default shadow meets the spec's "shadow or plate", and the director
+enforces contrast against the palette's background.
 
 ## 5. Measured results
 

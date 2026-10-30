@@ -20,14 +20,14 @@
 //    than working on this machine and breaking on a disconnected one.
 //  - **A strict CSP** on top, so an injected script tag has nowhere to load from either.
 
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, shell } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
-import { EXTRAS, EXTRA_ARTEFACTS, WAV2VEC2_EN, type ExtraId } from '../../setup/manifest.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
+import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
@@ -45,7 +45,7 @@ import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult, type LutFile, type LutLoadResult,
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
-  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob, type RenderReadiness,
+  type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob, type RenderReadiness, type ComponentsInfo,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
@@ -71,6 +71,7 @@ import { PresetStore, presetThumbnailKey } from '../project/preset-store.ts';
 import { parsePreset } from '../project/presets.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { probeCodecs, type CodecSupport } from '../export/encoder-probe.ts';
+import { COMPONENTS, NON_COMMERCIAL_NOTICE, componentInstalled, resolveChoice } from '../../setup/components.ts';
 import { BeatTrackingError, refineBeats, worthFollowing } from '../ml/beats.ts';
 import type { BeatRefinement } from '../analysis/beat-refinement.ts';
 import { freeBytesAt } from '../node/free-bytes.ts';
@@ -376,6 +377,48 @@ function captureConsole(): void {
   console.log = (...args: unknown[]) => { original.log(...args); route('info', args); };
 }
 
+/**
+ * What a stranger's first start does, driven through the real chooser in a fresh download
+ * (`PULSEFORGE_INSTALL_CHECK=1`): it appears, the essentials and whatever else is ticked install,
+ * the app reloads into a working studio. The verdict goes to out/install-check.json.
+ */
+async function installCheck(window: BrowserWindow): Promise<void> {
+  const page = <T>(script: string) => window.webContents.executeJavaScript(script) as Promise<T>;
+  const until = async (test: () => Promise<boolean> | boolean, seconds: number) => {
+    for (const end = Date.now() + seconds * 1000; Date.now() < end; await new Promise((done) => setTimeout(done, 500))) {
+      if (await test()) return true;
+    }
+    return false;
+  };
+  const ready = () => page<boolean>(`document.querySelector('[data-action="components-install"]')?.disabled === false`).catch(() => false);
+  const report: Record<string, unknown> = { root: ROOT, chooser: await until(ready, 60) };
+  report['ticked'] = await page<string[]>(`[...document.querySelectorAll('[data-testid="component-chooser"] input:checked')].map((box) => box.dataset.action)`);
+  report['blocked'] = await page<number>(`document.querySelectorAll('[data-testid="component-chooser"] li.blocked').length`);
+  report['page'] = await page<string>(`document.querySelector('[data-testid="component-total"]')?.textContent ?? document.body.innerText.slice(0, 300)`);
+  await mkdir(join(ROOT, 'out'), { recursive: true });
+  await writeFile(join(ROOT, 'out', 'install-chooser.png'), (await window.webContents.capturePage()).toPNG());
+  await writeFile(join(ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
+  if (report['chooser'] !== true) return;
+  await page(`document.querySelector('[data-action="components-install"]').click()`);
+  report['core'] = await until(() => componentInstalled('core'), 600);
+  report['beats'] = await until(() => componentInstalled('beats'), 600);
+  // The chooser reloads the page when it finishes, into the studio with nothing left to ask.
+  report['studio'] = await until(() => page<boolean>(`document.body.dataset.pulseforgeReady === 'true' && document.querySelector('[data-testid="component-chooser"]') === null`).catch(() => false), 120);
+  report['log'] = await page<string>(`document.querySelector('[data-testid="component-log"]')?.textContent?.slice(-800) ?? ''`).catch(() => '');
+  await writeFile(join(ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
+}
+
+/** The NVIDIA card and driver, by asking the driver; null when there is none to ask. */
+function nvidiaDriver(): Promise<ComponentsInfo['driver']> {
+  return new Promise((resolve) => {
+    execFile(NVIDIA_SMI_EXE, ['--query-gpu=name,driver_version', '--format=csv,noheader,nounits'], { windowsHide: true }, (error, stdout) => {
+      const [name, version] = (stdout.split(/\r?\n/)[0] ?? '').split(',').map((part) => part.trim());
+      const major = Number(version?.split('.')[0]);
+      resolve(error !== null || name === undefined || version === undefined || !Number.isFinite(major) ? null : { name, version, major });
+    });
+  });
+}
+
 async function gpuDescription(): Promise<string> {
   const gpu = await app.getGPUInfo('basic').catch(() => null) as { gpuDevice?: { deviceId?: number; active?: boolean; driverVersion?: string; deviceString?: string }[] } | null;
   const active = gpu?.gpuDevice?.find((d) => d.active === true) ?? gpu?.gpuDevice?.[0];
@@ -398,15 +441,6 @@ function templatesFolderPath(): string {
 }
 
 /** How the Settings screen names each optional model (D8). */
-const EXTRA_TEXT: Readonly<Record<ExtraId, { title: string; note: string }>> = {
-  htdemucs_ft: { title: 'Finer stems (htdemucs_ft)', note: 'Four fine-tuned Demucs models: cleaner separation in about 1.7× the time (39 s against 23 s for a 3-minute song here). Chosen per project in the Audio panel.' },
-  htdemucs_6s: { title: 'Six stems (htdemucs_6s)', note: 'Guitar and piano split out of "other", as stems of their own for layers and connections. Chosen per project in the Audio panel.' },
-  'whisper-large-v3': { title: 'Larger transcription model (Whisper large-v3)', note: 'Hears more of the words (on a test song it caught an opening line medium missed) but splits lines less cleanly, in lower case; about 5 GB of VRAM. Medium stays the default. Chosen above.' },
-  'align-fr': { title: 'Word alignment: French', note: 'Word-by-word lyric timing for French.' },
-  'align-de': { title: 'Word alignment: German', note: 'Word-by-word lyric timing for German.' },
-  'align-es': { title: 'Word alignment: Spanish', note: 'Word-by-word lyric timing for Spanish.' },
-  'align-it': { title: 'Word alignment: Italian', note: 'Word-by-word lyric timing for Italian.' },
-};
 
 /** The render queue's jobs, for "Copy diagnostics" on a failed one; set once the queue starts. */
 let rendersForDiagnostics: (() => readonly RenderJob[]) | null = null;
@@ -632,6 +666,15 @@ function registerHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC.stemAudio, async (_event, path: unknown, stem: unknown, stemModel: unknown) => {
+    const name = /^[A-Za-z0-9_-]{1,40}$/;
+    if (typeof path !== 'string' || typeof stem !== 'string' || typeof stemModel !== 'string' || !name.test(stem) || !name.test(stemModel)) throw new Error('readStemAudio needs a path, a stem and a model');
+    const { pcmSha256 } = await decodeMono48k(FFMPEG_EXE, path);
+    const file = join(cacheRootPath(), 'stems', pcmSha256, stemModel, `${stem}.flac`);
+    if (!existsSync(file)) throw new Error(`The ${stem} stem's audio is not in the cache. Separate the stems again.`);
+    return { bytes: await readFile(file) };
+  });
+
   // Beat refinement (S16): librosa in a child process, on the CPU, so it does not queue for the GPU.
   let beatsController: AbortController | null = null;
   ipcMain.handle(IPC.beatsRefine, async (_event, path: unknown, stemModel: unknown): Promise<BeatRefinement> => {
@@ -671,7 +714,7 @@ function registerHandlers(): void {
     if (stemsController !== null) throw new Error('A stem separation is already running.');
     const missing = [FFMPEG_EXE, PYTHON_EXE, join(MODELS, 'demucs', `${settings.stemModel}.yaml`)].filter((p) => !existsSync(p));
     if (missing.length > 0) {
-      throw new Error(`Stem separation needs the stems part of setup, which is not installed here:\n${missing.join('\n')}\n\nTry:\n• Run \`npm run setup\` (the stems tier) and restart the studio`);
+      throw new Error(`Stem separation needs the stems part of setup, which is not installed here:\n${missing.join('\n')}\n\nTry:\n• Install Stem separation in Settings → Components`);
     }
     const controller = new AbortController();
     stemsController = controller;
@@ -738,14 +781,6 @@ function registerHandlers(): void {
     return {
       stemModels: await listed(join(MODELS, 'demucs'), (n) => (n.endsWith('.yaml') ? n.slice(0, -5) : null)),
       whisperModels: await listed(join(MODELS, 'whisper'), (n) => (n.startsWith('faster-whisper-') && existsSync(join(MODELS, 'whisper', n, 'model.bin')) ? n : null)),
-      extras: EXTRAS.map((id) => ({
-        id,
-        title: EXTRA_TEXT[id].title,
-        note: EXTRA_TEXT[id].note,
-        bytes: EXTRA_ARTEFACTS[id].reduce((sum, a) => sum + a.sizeBytes, 0),
-        installed: EXTRA_ARTEFACTS[id].every((a) => existsSync(join(VENDOR, a.installDir, a.fileName))),
-        license: EXTRA_ARTEFACTS[id][0]?.license ?? '',
-      })),
       alignLanguages: installedAlignLanguages(join(MODELS, 'align')),
       gpu: await gpuDescription(),
       paths: {
@@ -855,16 +890,25 @@ function registerHandlers(): void {
   // Setup and repair from the studio (M36, ui-spec §8): the same `npm run setup` a terminal runs,
   // under Electron's own Node, its output streamed to the Settings screen. One run at a time.
   let setupChild: ReturnType<typeof spawn> | null = null;
+  ipcMain.handle(IPC.componentsInfo, async (): Promise<ComponentsInfo> => ({
+    components: COMPONENTS.map((component) => ({ ...component, installed: componentInstalled(component.id) })),
+    driver: await nvidiaDriver(),
+    freeBytes: await freeBytesAt(ROOT),
+    nonCommercialNotice: NON_COMMERCIAL_NOTICE,
+  }));
   ipcMain.handle(IPC.setupRun, async (event, raw: unknown): Promise<{ readonly code: number | null }> => {
     const request = (typeof raw === 'object' && raw !== null ? raw : {}) as { mode?: unknown; tier?: unknown };
     if (setupChild !== null) throw new Error('Setup is already running.');
-    const extra = (request as { extra?: unknown }).extra;
-    const args = request.mode === 'verify' ? ['--verify']
+    // Verifying covers what is installed: a part someone chose not to have is not a failure.
+    const installed = COMPONENTS.filter((c) => componentInstalled(c.id)).map((c) => c.id);
+    const chosen = (request as { components?: unknown }).components;
+    const args = request.mode === 'verify' ? ['--verify', '--components', installed.join(',')]
       : request.mode === 'rebuild-check' ? ['--rebuild-check']
-      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics'].includes(request.tier) ? ['--tier', request.tier]
-        : request.mode === 'extra' && typeof extra === 'string' && (EXTRAS as readonly string[]).includes(extra) ? ['--tier', 'extras', '--extras', extra]
+      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats'].includes(request.tier) ? ['--components', request.tier]
+        : request.mode === 'components' && Array.isArray(chosen) && chosen.every((id) => typeof id === 'string')
+          ? ['--components', resolveChoice(chosen as string[]).components.map((c) => c.id).join(','), ...((request as { acceptNonCommercial?: unknown }).acceptNonCommercial === true ? ['--accept-non-commercial'] : [])]
           : null;
-    if (args === null) throw new Error('Setup can verify, repair one tier (core, stems or lyrics), or install one optional model.');
+    if (args === null) throw new Error('Setup can verify, repair one part, or install chosen components.');
     const send = (line: string) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC.setupOutput, line);
     };
@@ -940,7 +984,7 @@ function registerHandlers(): void {
   const lyricsMissing = (): string | null => {
     const files = lyricsFiles();
     const missing = [PYTHON_EXE, files.marker, join(files.whisperDir, 'model.bin'), join(files.alignDir, WAV2VEC2_EN.fileName)].filter((p) => !existsSync(p));
-    return missing.length === 0 ? null : `Alignment needs the lyrics part of setup, which is not installed here. Run \`npm run setup -- --tier lyrics\` (about 2.7 GB) and restart the studio.`;
+    return missing.length === 0 ? null : `Alignment needs the lyrics part of setup, which is not installed here. Install Lyric transcription and timing in Settings → Components.`;
   };
   ipcMain.handle(IPC.lyricsAlignAvailable, async () => {
     const reason = lyricsMissing();
@@ -1725,6 +1769,12 @@ app.whenReady().then(async () => {
   }
 
   const window = await createWindow();
+
+  if (process.env['PULSEFORGE_INSTALL_CHECK'] === '1') {
+    await installCheck(window);
+    app.quit();
+    return;
+  }
 
   // A launch self-check for CI and for `npm run dev -- --smoke`: prove the window loaded, the
   // preload bridge is reachable and the renderer rendered, then quit with a status. Four lines

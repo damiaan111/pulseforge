@@ -13,7 +13,7 @@
 // numbers — rendered values and signal levels — come from the preview's last frame, throttled
 // (host.ts `onModulation`), so what the meter shows is what was drawn.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import type { ParamSpec } from '../../engine/core/params.ts';
 import { KNOWN_CURVES } from '../../engine/core/modulation.ts';
@@ -22,7 +22,7 @@ import type { ModulationBinding } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import {
   LFO_SHAPES, RECIPES, SOURCE_CHOICES, STEM_CHOICES, allBindings, defaultBinding, describeSource, describeTarget,
-  isImperceptible, paramSpan, suggestedSources, type SchemaLookup, type TargetInfo,
+  isImperceptible, paramSpan, planBindingPaste, suggestedSources, type SchemaLookup, type TargetInfo,
 } from '../../project/modulation-authoring.ts';
 import { useModules } from '../modules.ts';
 import { useStudio } from '../store.ts';
@@ -114,12 +114,26 @@ export function ModulationSection(props: { layerId: string; bindings: readonly M
   const schemas = useSchemas();
   const setMatrixOpen = useStudio((s) => s.setMatrixOpen);
   const sorted = [...bindings].sort((a, b) => (a.target < b.target ? -1 : a.target > b.target ? 1 : a.order - b.order));
+  const copied = useStudio((s) => s.copiedBindings);
+  const setCopied = useStudio((s) => s.setCopiedBindings);
+  const run = useStudio((s) => s.run);
+  const notify = useStudio((s) => s.notify);
+
+  function paste(): void {
+    if (copied === null) return;
+    const plan = planBindingPaste(document, copied.document, copied.bindings, layerId, schemas, newId);
+    if (plan.bindings.length > 0) run(sequence('Paste modulation', plan.bindings.map((binding) => addModulation(layerId, binding))));
+    const left = plan.skipped.length === 0 ? '' : ` Not here: ${plan.skipped.join(', ')}.`;
+    notify({ text: `Pasted ${plan.bindings.length} of ${copied.bindings.length}.${left}`, kind: plan.skipped.length === 0 ? 'ok' : 'warn' });
+  }
 
   return (
     <div className="modulation-section" data-testid="modulation-section">
       <div className="section-head">
         <h2>Modulation</h2>
         <span className="spacer" />
+        {bindings.length > 0 ? <button type="button" data-action="bindings-copy" title="Copy these bindings, to paste onto another layer" onClick={() => setCopied({ document, bindings })}>Copy</button> : null}
+        {copied !== null ? <button type="button" data-action="bindings-paste" title="Add the copied bindings here, for the parameters this layer has" onClick={paste}>Paste {copied.bindings.length}</button> : null}
         <button type="button" onClick={() => setMatrixOpen(true)} title="Every binding in the project">Matrix</button>
       </div>
       {sorted.length === 0 ? (
@@ -186,14 +200,31 @@ function BindingRow(props: {
   );
 }
 
-/** The binding's shaped signal right now (0..1): "is this source doing anything here?" */
+/** How many of the last readings the sparkline shows, at the preview's throttled rate. */
+const SPARK_POINTS = 48;
+
+/** The binding's shaped signal right now (0..1), and its recent past: "is this source doing anything here?" */
 function LevelMeter(props: { bindingId: string; enabled: boolean }): React.JSX.Element {
   const level = useStudio((s) => s.liveModulation.levels.get(props.bindingId));
   const shown = props.enabled && level !== undefined ? Math.min(1, Math.max(0, level)) : 0;
+  // A ref: the store already re-renders this on every reading, so state would only render it twice.
+  const history = useRef<number[]>([]);
+  const last = useRef<unknown>(null);
+  const reading = useStudio((s) => s.liveModulation);
+  if (last.current !== reading) {
+    last.current = reading;
+    history.current = [...history.current.slice(1 - SPARK_POINTS), shown];
+  }
+  const points = history.current.map((value, i) => `${i},${(1 - value) * 10}`).join(' ');
   return (
+    <>
+    <svg className="level-spark" viewBox={`0 0 ${SPARK_POINTS - 1} 10`} preserveAspectRatio="none" aria-hidden="true">
+      <polyline points={points} fill="none" />
+    </svg>
     <span className="level-meter" title={level === undefined ? 'No signal (paused before the first frame, or the source is unavailable)' : `Signal ${(shown * 100).toFixed(0)}%`}>
       <span className="level-fill" style={{ width: `${(shown * 100).toFixed(1)}%` }} />
     </span>
+    </>
   );
 }
 

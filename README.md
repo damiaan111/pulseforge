@@ -85,61 +85,63 @@ what it picked.
 
 ## What you need
 
-- **Windows 11**
-- **An NVIDIA GPU.** Pulseforge uses NVENC for exporting and CUDA for the audio separation. It was
-  built and measured on an RTX 3060 12GB. Older or smaller NVIDIA cards should work, AMD and Intel
-  will not.
-- **Node 24 or newer**, and **git**
-- **About 10GB of free disk space** for the setup, plus room for your own caches and renders
+- **Windows 10 or 11**, 64-bit
+- **An NVIDIA graphics card** for exporting video. Pulseforge uses NVENC to encode, with no CPU
+  fallback. Without one the studio still opens and previews, but it cannot export. AMD and Intel
+  cards are not supported.
+- **A recent NVIDIA driver** for the GPU features: 580 or newer for stems and lyrics, 570 or newer
+  for exporting. The setup screen checks yours and says so before you download anything.
+- **Disk space:** about 1 GB for the essentials, about 8 GB for stems, about 15 GB for everything
+  apart from the optional models. Downloads are kept, so reinstalling never needs the internet.
 
 One thing to know about the graphics card. Anything in the RTX 30 series can encode H.264 and
 HEVC, but not AV1. That needs a 40 series card or newer. Pulseforge checks what your card can
-actually do when it starts and hides the options it cannot deliver, rather than letting you pick
-something that fails twenty minutes into a render.
+actually do and disables what it cannot deliver, rather than letting you pick something that fails
+twenty minutes into a render.
+
+You do not need Node, Python, FFmpeg or git. The launcher fetches what is missing.
 
 ## Install
 
-```bash
-git clone https://github.com/damiaan111/pulseforge.git
-cd pulseforge
-npm install
-npm run setup
-```
+1. Download this repository (**Code → Download ZIP** on GitHub, or `git clone`) and unzip it
+   anywhere you like.
+2. Double-click **`Pulseforge.cmd`**.
 
-`npm run setup` is the one step that needs an internet connection. It downloads everything the app
-uses into a local `vendor/` folder and checks each file against a known checksum. That includes
-FFmpeg, a private copy of Python, PyTorch, the Demucs models for splitting the audio into stems,
-and the Whisper models for lyrics.
+The first start downloads Node.js if you do not have it, then the app's own packages, about 300 MB
+in all. Then Pulseforge opens and asks what you want:
 
-It comes to roughly 8GB to 9GB. You can pick which parts you want, so if you are not going to use
-the lyric alignment you can skip those models and come back for them later. It is resumable, so a
-dropped connection halfway through is not a disaster.
+| Component | What it adds | Download |
+|---|---|---|
+| Essentials | FFmpeg and the fonts for every script. Required. | about 220 MB |
+| Stem separation | Vocals, drums, bass and the rest, so visuals can react to each. Karaoke export. | about 3.6 GB |
+| Lyric transcription and timing | Writes down the lyrics and times them word by word, in English. | about 6.4 GB |
+| Beat refinement | Follows a tempo that moves. Runs on the CPU. | about 280 MB |
+| Optional models | Finer stems, six stems, a larger transcription model, word timing for French, German, Spanish and Italian. | 0.05–3 GB each |
 
-Two things worth saying about it. Nothing is installed system wide, so your own Python and FFmpeg
-are left completely alone. And once setup has finished, the app never reaches out to the internet
-again for anything.
+Tick what you want and press **Install**. It can be stopped and resumed, and every file is checked
+against a known checksum. You can add more at any time in **Settings → Components**.
 
-To check that everything landed correctly:
+**A licence to be aware of:** the French, German, Spanish and Italian alignment models are licensed
+CC BY-NC 4.0, for non-commercial use. They are never installed unless you choose them and confirm
+that you have read the notice. English alignment is not affected.
 
-```bash
-npm run setup -- --verify
-```
+Nothing is installed outside this folder, so your own Python and FFmpeg are left alone, and
+deleting the folder removes all of it. Once the download has finished, the app never reaches out to
+the internet again.
 
 ## Running it
 
+Double-click `Pulseforge.cmd`. To open a project, pass it along:
+
+```bash
+Pulseforge.cmd song.pvproj
+```
+
 Pulseforge is a desktop app, so there is no server to start and no address to open in Chrome. The
-window is Chromium underneath, which is where the WebGL rendering happens, but you launch it like
-any other program.
+window is Chromium underneath, which is where the WebGL rendering happens.
 
-```bash
-npm run dev
-```
-
-You can open a project straight away:
-
-```bash
-npm run dev -- song.pvproj
-```
+If you are working on Pulseforge itself, `npm run dev` runs it with a rebuild on every change, and
+`npm run setup -- --help` shows the command-line version of the setup screen.
 
 ### Rendering without opening the app
 
@@ -354,8 +356,9 @@ The design was written before the code, and it is all in the repo.
 
 ## Notes
 
-This is a personal project. I am building it for my own use, on my own hardware, and it is shaped
-around that. It is not trying to be a product and there is no support.
+This started as a personal project, built on my own hardware, and it is shaped around that. It is
+not a product and there is no support, but it is built so anyone with an NVIDIA card can download it
+and use it.
 
 If you do end up poking at it, `docs/module-authoring.md` explains how to write your own visualizer
 or effect: a small JSON file and a shader. Anything you drop into `modules/` gets picked up while

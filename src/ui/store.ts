@@ -28,7 +28,7 @@ import { createDocument, createModuleLayer } from '../project/create.ts';
 import { timelineDurationTicks, toRenderProject } from '../project/snapshot.ts';
 import { frameCount } from '../engine/core/time.ts';
 import { videoFramesNeeded } from '../engine/modules/video.ts';
-import type { AssetRef, ProjectDocument } from '../project/document.ts';
+import type { AssetRef, ModulationBinding, ProjectDocument } from '../project/document.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
 import { newId } from '../project/ids.ts';
 import { History, type Command } from '../project/history.ts';
@@ -159,6 +159,16 @@ export interface StudioState {
   importLut(): Promise<AssetRef | null>;
   /** The bundled default typeface; null until loaded at startup. */
   defaultFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
+  /** Stems drawn on the timeline. */
+  stemRows: boolean;
+  setStemRows(on: boolean): void;
+  /** The stem heard instead of the song in the preview, and its audio. Never reaches a render. */
+  soloStem: string | null;
+  soloUrl: string | null;
+  toggleSolo(stem: string): Promise<void>;
+  /** Bindings on the clipboard, with the document they came from, which names their effects. */
+  copiedBindings: { readonly document: ProjectDocument; readonly bindings: readonly ModulationBinding[] } | null;
+  setCopiedBindings(copied: { readonly document: ProjectDocument; readonly bindings: readonly ModulationBinding[] } | null): void;
   /** What became of the project's refined grid (S16) at the last analysis. */
   beatRefinementState: BeatRefinementState;
   refiningBeats: boolean;
@@ -465,6 +475,28 @@ export const useStudio = create<StudioState>((set, get) => ({
   luts: new Map(),
   defaultFont: null,
   fallbackFonts: [],
+  stemRows: false,
+  setStemRows(on) {
+    set({ stemRows: on });
+  },
+  soloStem: null,
+  soloUrl: null,
+  async toggleSolo(stem) {
+    const audio = get().audio;
+    const previous = get().soloUrl;
+    const off = get().soloStem === stem;
+    try {
+      const file = off || audio === null ? null : await window.pulseforge.readStemAudio(audio.path, stem, history.current.analysisSettings.stemModel);
+      set({ soloStem: file === null ? null : stem, soloUrl: file === null ? null : URL.createObjectURL(new Blob([file.bytes as unknown as BlobPart])) });
+      if (previous !== null) URL.revokeObjectURL(previous);
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Soloing the stem'), kind: 'bad' } });
+    }
+  },
+  copiedBindings: null,
+  setCopiedBindings(copied) {
+    set({ copiedBindings: copied });
+  },
   beatRefinementState: 'none',
   refiningBeats: false,
 
@@ -665,7 +697,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       const [font, fallbackFonts] = await Promise.all([window.pulseforge.defaultFont(), window.pulseforge.fallbackFonts()]);
       set({ defaultFont: { hash: font.hash, bytes: font.bytes }, fallbackFonts });
     } catch (error) {
-      set({ toast: { text: describeError(error, 'Loading the default font'), kind: 'bad' } });
+      // A fresh download has no fonts yet, and the setup screen is already on its way.
+      const text = describeError(error, 'Loading the default font');
+      if (!/default font is missing/.test(text)) set({ toast: { text, kind: 'bad' } });
     }
   },
 
@@ -1095,6 +1129,9 @@ export const useStudio = create<StudioState>((set, get) => ({
     let url: string | undefined;
     try {
       const file = await window.pulseforge.readAudio(path);
+      // A solo belongs to the song it was made from.
+      if (get().soloUrl !== null) URL.revokeObjectURL(get().soloUrl as string);
+      set({ soloStem: null, soloUrl: null });
       if (request !== audioRequest) return;
       // A Blob URL, not file://: the page's CSP allows blob: media, and the sandboxed renderer
       // has no filesystem of its own to point an element at.

@@ -39,7 +39,7 @@
 | M2 | One-command setup with checksums; fully offline after | ✅ | 4.2, 4.55, 4.62 | alignment beyond en/fr/de/es/it (Hugging Face models) not provisioned; those languages use tap-to-sync |
 | M3 | Audio import (mp3/wav/flac/m4a/ogg/opus), waveform, transport with accurate seek | ✅ | 4.4, 4.16, 4.27 | |
 | M4 | FFT, bands, RMS, onsets, BPM/beat grid; cache keyed by audio hash | ✅ | 4.4, 4.17, 4.45 | the project's bands are computed since 4.45; editing them in the UI is not built |
-| M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | ✅ | 4.6, 4.24, 4.48 | per-stem waveform rows and stem solo in the preview are not built |
+| M5 | Stem separation (Demucs, GPU), per-stem features, cached, background with progress/cancel, mix-only fallback | ✅ | 4.6, 4.24, 4.48 | 4.81 per-stem rows and stem solo in the preview |
 | M6 | Determinism contract from commit one; golden frames | ✅ | 4.3, 4.12 | golden frames run locally (`npm run golden`); the repo is on GitHub but no CI is configured (the golden set needs the RTX GPU, so a hosted runner could not run it) |
 | M7 | Compositor: stack, blend modes, opacity, transform, render-to-texture | ✅ | 4.3, 4.39, 4.47 | thirteen modes (normal, add, screen and the ten separable ones); the HSL family is not implemented and not offered |
 | M8 | Undo/redo for every mutation | ✅ | 4.15 | |
@@ -54,7 +54,7 @@
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
-| M13 | Modulation matrix: all sources incl. per-stem bands, curves, attack/release, per-parameter binding UI with live values | ✅ | 4.10, 4.46, 4.48 | per-stem sources work once a track's stems are separated; not built: source sparkline, copy/paste of bindings, global-chain bindings |
+| M13 | Modulation matrix: all sources incl. per-stem bands, curves, attack/release, per-parameter binding UI with live values | ✅ | 4.10, 4.46, 4.48 | per-stem sources work once a track's stems are separated; 4.81 source sparkline, copy and paste of bindings |
 | M14 | Background: solid, gradient, image, video; fit modes; Ken Burns | ✅ | 4.35, 4.41 | |
 | M15 | Logo/watermark with reactive pulse | ✅ | 4.40 | |
 | M16 | Text layer with styling and animation | ✅ | 4.38 | |
@@ -71,7 +71,7 @@
 |---|---|---|---|
 | M18 | Lyrics editor: paste, `.lrc`/`.srt` import, per-line times | ✅ | 4.50, 4.53 — paste/type with markers, import and export of five formats, typed times, roles, locks, words, checklist |
 | M19 | Tap-to-sync with beat snapping, vocal-stem waveform, drag-adjust | ✅ | 4.53, 4.54 — tap-to-sync; the timeline lane with the vocal level, drag/resize/ripple/word boundaries, snapping, zoom, keyboard. Not built: marquee select, loop region |
-| M20 | Karaoke word-fill rendering | ✅ | 4.51 — seven fill modes, line window with scroll/crossfade/cut, roles, lyric modulation sources. Not built: contrast enforcement against the backdrop, gradient fills |
+| M20 | Karaoke word-fill rendering | ✅ | 4.51 — seven fill modes, line window with scroll/crossfade/cut, roles, lyric modulation sources. 4.81 gradient fills. Contrast against the live backdrop is decided against |
 | M26 | WhisperX transcription + alignment on the vocal stem | ✅ | 4.55 — English alignment; other languages' models and `large-v3` are not provisioned |
 
 ### Auto (P7)
@@ -172,7 +172,7 @@ it was made; they are collected here so none is a surprise.
 | **Dropped audio files open the Batch dialog**, even one; a CLI folder is read **one level deep**; "shut down when done" waits **two minutes** | export-spec §12 says "optional shutdown-when-done" and nothing about drops or folders | the dialog is where the folder and preset are chosen; a library's subfolders are albums; two minutes to see it and cancel | STATUS 4.68 |
 | Motion-blur subframes **keep the frame's index** (only `t` moves), and one **before the timeline is held at 0** | export-spec §9 gives the shutter interval only | a video layer has one decoded frame per frame and its own motion blur; grain keyed on the frame should not smear; frame 0 has nothing before it | STATUS 4.66 |
 | Masks are applied **in canvas space** (the source as drawn in the frame, after both layers' transforms); a source that is **off leaves the target unmasked** | compositor-spec §5 places the mask step before the target's transform and does not say what an off source means | "a shape masks what is under it on screen" is what people expect; switching a mask's eye off to compare is a common gesture | STATUS 4.65 |
-| **The VoxPopuli alignment models (fr, de, es, it) are CC BY-NC 4.0** — non-commercial | PROJECT.md §3 wants open licences | they are what WhisperX uses for these languages; they are optional extras, the licence is shown where they are installed, and English (MIT) is unaffected. **The owner should decide** whether to keep offering them | STATUS 4.62 |
+| **The VoxPopuli alignment models (fr, de, es, it) are CC BY-NC 4.0** — non-commercial | PROJECT.md §3 wants open licences | they are what WhisperX uses for these languages. **Decided by the owner 2026-10-30:** they stay, as optional downloads with a notice that needs a tick | STATUS 4.62, 4.80 |
 | The offline rebuild check is **a command and a Settings button, not a CI job** | P1 exit: "passes a networking-disabled end-to-end run in CI" | the repo has no CI; the check runs the same rebuild locally with the network made unusable | STATUS 4.62 |
 | **MilkDrop presets** (PROJECT.md §3 extras) are not provisioned | extras tier | there is no MilkDrop renderer in the app to use them | STATUS 4.62 |
 | The Settings screen **shows the GPU and the keyboard map** rather than letting them be chosen | PROJECT.md §8.16 lists GPU device selection and a shortcut map | Chromium chooses the WebGL device and offers no per-app switch; remapping needs a shortcut registry the studio does not have yet (the reference is accurate) | STATUS 4.59 |
@@ -200,17 +200,11 @@ it was made; they are collected here so none is a surprise.
 Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
 effect on a finished video last. Each is noted beside its requirement in §2.
 
-**Needs the machine fixed first** (STATUS header): update the NVIDIA driver to 580 or newer and put the
-repo at a path without spaces, then run `npm run setup`, `npm run check` and a real render. Until then
-real encodes, GPU stems and lyrics, and the new setup steps run as a whole are unverified here.
+**Before a public release:** a LICENSE file (the owner's choice); real renders, stems and lyrics
+through the chooser on a current driver (STATUS header); a PC with no NVIDIA card; moving the FFmpeg
+pin before BtbN drops it, around 2028.
 
-**Timeline:** multi-select; marquee select and a loop region
-in the lyrics lane; per-stem waveform rows; stem solo in the preview.
-
-**Lyrics:** contrast enforcement against the backdrop; gradient fills; `large-v3` and other languages
-need installing from Settings.
-
-**Modulation:** source sparkline; copy and paste of bindings; bindings on the global effect chain.
+**Timeline:** multi-select; marquee select and a loop region in the lyrics lane.
 
 **Export:** spatial supersampling (export-spec §9); presets that bring their images along.
 

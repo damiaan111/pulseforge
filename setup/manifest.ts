@@ -5,9 +5,9 @@
 // Checksums come from each project's published checksum files, not from our own
 // downloads — except where noted.
 
-export type Tier = 'core' | 'stems' | 'lyrics' | 'extras';
+export type Tier = 'core' | 'stems' | 'lyrics' | 'beats' | 'extras';
 /** What a plain `npm run setup` installs. */
-export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics'];
+export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics', 'beats'];
 /**
  * Installed only when asked for (D8: fast by default, quality one click away): `--tier extras`,
  * optionally narrowed with `--extras <list>`. The studio's Settings installs them one at a time.
@@ -59,14 +59,14 @@ export const FFMPEG: ArchiveArtefact = {
   kind: 'archive',
   id: 'ffmpeg',
   name: 'FFmpeg + FFprobe (LGPL, NVENC)',
-  version: 'n8.1.2-52-g5a03dfa0f6 (BtbN autobuild-2026-09-14-13-17)',
+  version: 'n8.1.3-9-g29e619e767 (BtbN autobuild-2026-09-30-13-08)',
   tier: 'core',
-  // BtbN prunes dated autobuilds after a while; the archive is kept in vendor/downloads/
-  // so this URL disappearing never blocks a rebuild (use --from for a fresh machine).
-  url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-14-13-17/ffmpeg-n8.1.2-52-g5a03dfa0f6-win64-lgpl-8.1.zip',
-  fileName: 'ffmpeg-n8.1.2-52-g5a03dfa0f6-win64-lgpl-8.1.zip',
-  sha256: '398be5fb6e09ff3ae419ad62436d566c62705b1cc59bd4f98e8cd79646d42708',
-  sizeBytes: 169_523_897,
+  // Always a month-end build: BtbN deletes daily autobuilds within weeks and keeps the last of each
+  // month for about two years. Move this pin forward before then. A public download depends on it.
+  url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-8.1.zip',
+  fileName: 'ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-8.1.zip',
+  sha256: '4a7642b2264c03e8a0ce8a3825b933ee5580656f45695a086fe7e294045ffc0a',
+  sizeBytes: 170_611_883,
   license: 'LGPL-2.1-or-later',
   installDir: 'ffmpeg',
   stripTopLevelDir: true,
@@ -406,10 +406,13 @@ export const PYTHON_PACKAGES_LYRICS = {
   approxWheelhouseBytes: 0.9 * 1024 ** 3,
 };
 
-/** librosa for beat tracking and structure (S16), resolved on top of the lyrics lock. */
+/**
+ * librosa for beat tracking and structure (S16). Runs on the CPU, so it stands alone: no torch and
+ * no NVIDIA card. Resolved with the lyrics lock as constraints, so what it shares keeps its version.
+ */
 export const PYTHON_PACKAGES_BEATS = {
-  tier: 'lyrics' as Tier,
-  approxWheelhouseBytes: 0.1 * 1024 ** 3,
+  tier: 'beats' as Tier,
+  approxWheelhouseBytes: 0.2 * 1024 ** 3,
 };
 
 /** Free space setup insists on before starting, per tier (downloads + install + temp). */
@@ -417,5 +420,6 @@ export const REQUIRED_FREE_BYTES: Readonly<Record<Tier, number>> = {
   core: 1 * 1024 ** 3,
   stems: 16 * 1024 ** 3,
   lyrics: 5 * 1024 ** 3,
+  beats: 1 * 1024 ** 3,
   extras: 7 * 1024 ** 3,
 };

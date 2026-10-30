@@ -47,14 +47,7 @@ export async function runPreflight(tiers: readonly Tier[], log: Logger): Promise
 
   checks.push({ name: 'Node.js', status: 'ok', detail: process.version });
 
-  if (/\s/.test(ROOT)) {
-    checks.push({
-      name: 'Repo path',
-      status: 'fail',
-      detail: `"${ROOT}" contains a space. Python tooling and FFmpeg arguments break on paths like this.`,
-      fix: ['Move the repo to a path without spaces, e.g. D:\\pulseforge (START-HERE.md §1).'],
-    });
-  } else if (!/^[\x20-\x7e]*$/.test(ROOT)) {
+  if (!/^[\x20-\x7e]*$/.test(ROOT)) {
     checks.push({ name: 'Repo path', status: 'warn', detail: `"${ROOT}" contains non-ASCII characters; some Python tools mishandle these.` });
   } else {
     checks.push({ name: 'Repo path', status: 'ok', detail: ROOT });
@@ -95,7 +88,7 @@ export async function runPreflight(tiers: readonly Tier[], log: Logger): Promise
   }
 
   let gpu: GpuInfo | undefined;
-  if (tiers.includes('stems')) {
+  if (tiers.some((tier) => tier === 'stems' || tier === 'lyrics' || tier === 'extras')) {
     gpu = await probeGpu(checks, log);
   }
 

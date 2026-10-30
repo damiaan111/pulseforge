@@ -32,6 +32,8 @@ export function StemsControls(): React.JSX.Element | null {
   const model = useStudio((s) => s.document.analysisSettings.stemModel);
   const setStemModel = useStudio((s) => s.setStemModel);
   const setSettingsOpen = useStudio((s) => s.setSettingsOpen);
+  const stemRows = useStudio((s) => s.stemRows);
+  const setStemRows = useStudio((s) => s.setStemRows);
   const [models, setModels] = useState<readonly string[]>([]);
   useEffect(() => {
     void window.pulseforge.settingsInfo().then((info) => setModels(info.stemModels)).catch(() => undefined);
@@ -51,6 +53,12 @@ export function StemsControls(): React.JSX.Element | null {
       ) : models.length === 1 && (
         <p className="dim stems-line">Finer stems, or guitar and piano: <button type="button" className="link" onClick={() => setSettingsOpen(true)}>install a model</button> in Settings.</p>
       )}
+      {stems.ready.length > 0 ? (
+        <label className="stems-line">
+          <input type="checkbox" data-action="stem-rows" checked={stemRows} onChange={(event) => setStemRows(event.target.checked)} />
+          {' '}Show on the timeline, and solo from there
+        </label>
+      ) : null}
       {stems.state === 'running' ? (
         <>
           <div className="progress"><div className="progress-fill" style={{ width: `${(stems.fraction * 100).toFixed(1)}%` }} /></div>

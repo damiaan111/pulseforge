@@ -340,3 +340,52 @@ export function describeSource(binding: ModulationBinding): string {
   if (choice?.audio === true) return `${name} · ${source.stem}`;
   return name;
 }
+
+/** Bindings on their way from one layer to another: what fits, and what does not and why. */
+export interface BindingPaste {
+  readonly bindings: readonly ModulationBinding[];
+  readonly skipped: readonly string[];
+}
+
+/**
+ * The target a copied binding should have on `ownerId`: the same parameter there, and for an effect
+ * parameter the destination's first effect of the same module. Undefined when there is no such thing.
+ */
+function retarget(document: ProjectDocument, source: ProjectDocument, target: string, ownerId: string): string | undefined {
+  const path = parseTarget(target);
+  if (path === undefined) return undefined;
+  if (path.layerProperty === true) return ownerId === GLOBAL_OWNER ? undefined : `layers.${ownerId}.opacity`;
+  if (path.effectId === null) return ownerId === GLOBAL_OWNER ? undefined : layerParamTarget(ownerId, path.key);
+  const chain = (id: string, from: ProjectDocument) => (id === GLOBAL_OWNER ? from.globalEffects : findAnyLayer(from.layers, id)?.effects ?? []);
+  const module = chain(path.layerId, source).find((effect) => effect.id === path.effectId)?.module;
+  const match = chain(ownerId, document).find((effect) => effect.module === module);
+  return match === undefined ? undefined : effectParamTarget(ownerId, match.id, path.key);
+}
+
+/**
+ * Copied bindings made ready for another layer, with new ids. A binding whose parameter does not
+ * exist on that layer is left behind and named, never pasted as a broken one. `source` is the
+ * document they were copied from, which may have changed since.
+ */
+export function planBindingPaste(
+  document: ProjectDocument,
+  source: ProjectDocument,
+  copied: readonly ModulationBinding[],
+  ownerId: string,
+  schemas: SchemaLookup,
+  newId: () => string,
+): BindingPaste {
+  const bindings: ModulationBinding[] = [];
+  const skipped: string[] = [];
+  for (const binding of copied) {
+    const target = retarget(document, source, binding.target, ownerId);
+    const info = target === undefined ? undefined : describeTarget(document, target, schemas);
+    if (target === undefined || info === undefined || info.problem !== null) {
+      skipped.push(describeTarget(source, binding.target, schemas).label);
+      continue;
+    }
+    bindings.push({ ...binding, id: newId(), target });
+  }
+  return { bindings, skipped };
+}
+

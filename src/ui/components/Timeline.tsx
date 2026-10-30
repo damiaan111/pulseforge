@@ -36,7 +36,8 @@ import { setAudio, setLayerTimeRange } from '../../project/commands.ts';
 import type { TimeRange } from '../../project/document.ts';
 import { dragLayerRange, layerDragKind, trimClip, type ClipPlacement, type LayerDragKind } from '../timeline-drag.ts';
 import { lyricTokens, wordSpans } from '../../engine/core/lyrics.ts';
-import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds } from '../../engine/core/time.ts';
+import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds, timelineToSourceSeconds } from '../../engine/core/time.ts';
+import type { Stem } from '../../engine/core/params.ts';
 import { onsetPeaks } from '../../lyrics/tap.ts';
 import { detectVocalSegments } from '../../lyrics/vocal-segments.ts';
 import { dragEdgeTicks, planLyricDrag, snapDelta, snapTargets, type LyricDrag } from '../../lyrics/timeline-edit.ts';
@@ -70,6 +71,8 @@ const SNAP_PX = 8;
 type Timed = LyricLine & { readonly startTicks: number; readonly endTicks: number };
 const isTimed = (line: LyricLine): line is Timed => line.startTicks !== null && line.endTicks !== null;
 
+/** How far from the left a press on a stem row is on its name. */
+const STEM_LABEL_PX = 70;
 /** How close to an edge a press takes the edge. */
 const EDGE_GRAB_PX = 6;
 
@@ -133,6 +136,10 @@ export function Timeline(): React.JSX.Element {
   const transport = useStudio((s) => s.transport);
   const selectedLayerId = useStudio((s) => s.selectedLayerId);
   const select = useStudio((s) => s.select);
+  const stemRows = useStudio((s) => s.stemRows);
+  const soloStem = useStudio((s) => s.soloStem);
+  const toggleSolo = useStudio((s) => s.toggleSolo);
+  const stemNames = useMemo(() => (stemRows && analysis !== null ? [...analysis.sources.keys()].filter((name) => name !== 'mix') : []), [stemRows, analysis]);
   const lyricsSelection = useStudio((s) => s.lyricsSelection);
   const setLyricsSelection = useStudio((s) => s.setLyricsSelection);
   const setLyricsOpen = useStudio((s) => s.setLyricsOpen);
@@ -425,7 +432,7 @@ export function Timeline(): React.JSX.Element {
 
     // Layer blocks, one row each, showing the time range the engine actually honours; under an
     // animated layer, a row per keyframe track.
-    const rows = timelineRows(document);
+    const rows = timelineRows(document, stemNames);
     const fits = Math.max(0, Math.floor((rect.height - top) / ROW_HEIGHT));
     for (const [row, entry] of rows.entries()) {
       const rowTop = top + row * ROW_HEIGHT;
@@ -437,6 +444,29 @@ export function Timeline(): React.JSX.Element {
         ctx.textBaseline = 'middle';
         ctx.fillText(`+${rows.length - fits + 1} more rows — select layers in the layer list`, PADDING + 6, rowTop + (ROW_HEIGHT - 4) / 2);
         break;
+      }
+      if (entry.kind === 'stem') {
+        const level = analysis?.sources.get(entry.stem as Stem)?.features.get('rms');
+        const solo = soloStem === entry.stem;
+        ctx.fillStyle = solo ? accent : control;
+        ctx.globalAlpha = soloStem === null || solo ? 0.75 : 0.3;
+        if (level !== undefined) {
+          const mid = rowTop + (ROW_HEIGHT - 4) / 2;
+          for (let column = Math.ceil(x(view.start)); column < Math.floor(x(view.start + view.span)); column += 1) {
+            const seconds = view.start + ((column - PADDING) / Math.max(1, rect.width - PADDING * 2)) * view.span;
+            const source = timelineToSourceSeconds(seconds, placement);
+            if (source === null) continue;
+            // A square root, so a quiet stem is still a shape and not a line.
+            const value = Math.sqrt(Math.min(1, level.data[Math.floor(source * level.rate)] ?? 0));
+            ctx.fillRect(column, mid - value * 6, 1, Math.max(1, value * 12));
+          }
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = solo ? text : dim;
+        ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${solo ? '◉' : '○'} ${entry.stem}`, PADDING + 4, rowTop + (ROW_HEIGHT - 4) / 2 + 0.5);
+        continue;
       }
       if (entry.kind === 'track') {
         drawTrack(ctx, entry.track, rowTop, { x, dim, control, accent, line, width: rect.width, selection: keySelection });
@@ -503,7 +533,7 @@ export function Timeline(): React.JSX.Element {
     ctx.lineTo(px, rect.height);
     ctx.stroke();
     ctx.lineWidth = 1;
-  }, [document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection, markerSelection]);
+  }, [stemNames, soloStem, document, peaks, analysis, sections, theme, timelineSeconds, selectedLayerId, duration, leadIn, placement, clipStart, clipEnd, view, hasLyricsLane, vocal, lyricsSelection, keySelection, markerSelection]);
 
   useEffect(() => {
     draw();
@@ -596,7 +626,7 @@ export function Timeline(): React.JSX.Element {
     return 'layers';
   }
 
-  const rowAt = (y: number) => timelineRows(document)[Math.floor((y - (LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0))) / ROW_HEIGHT)];
+  const rowAt = (y: number) => timelineRows(document, stemNames)[Math.floor((y - (LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0))) / ROW_HEIGHT)];
 
   /** The clip edge under a point on the waveform. */
   const clipEdgeAt = (g: Geometry, px: number): 'in' | 'out' | null => {
@@ -699,6 +729,12 @@ export function Timeline(): React.JSX.Element {
     // Below the lanes, the click picks a layer row — or, on a keyframe row, a key.
     const entry = rowAt(y);
     if (entry === undefined) return;
+    if (entry.kind === 'stem') {
+      // Its name toggles the solo; anywhere else on the row seeks, like the waveform.
+      if (px < PADDING + STEM_LABEL_PX) void toggleSolo(entry.stem);
+      else previewControls.seek(seconds);
+      return;
+    }
     if (entry.kind === 'layer') {
       select(entry.layer.id);
       const kind = event.button === 0 ? layerGrab(g, entry.layer, px) : null;
@@ -921,7 +957,7 @@ export function Timeline(): React.JSX.Element {
   }
 
   const lanes = LANES_TOP + (hasLyricsLane ? LYRIC_HEIGHT + 4 : 0);
-  const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, lanes + timelineRows(document).length * ROW_HEIGHT + 6));
+  const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, lanes + timelineRows(document, stemNames).length * ROW_HEIGHT + 6));
   const editingMarker = editing === null ? undefined : document.markers.find((m) => m.id === editing.id);
   return (
     <div className="timeline-wrap">
@@ -1009,11 +1045,11 @@ function layerRows(document: ProjectDocument): Layer[] {
   return [...walkLayers(document.layers)].map(({ layer }) => layer).reverse();
 }
 
-type Row = { readonly kind: 'layer'; readonly layer: Layer } | { readonly kind: 'track'; readonly layer: Layer | null; readonly track: AutomationTrack };
+type Row = { readonly kind: 'stem'; readonly stem: string } | { readonly kind: 'layer'; readonly layer: Layer } | { readonly kind: 'track'; readonly layer: Layer | null; readonly track: AutomationTrack };
 
-/** Each layer, then a row per keyframe track on it; the whole frame's tracks after all the layers. */
-function timelineRows(document: ProjectDocument): Row[] {
-  const rows: Row[] = [];
+/** The stems when they are shown, each layer, then a row per keyframe track on it; the whole frame's tracks after all the layers. */
+function timelineRows(document: ProjectDocument, stems: readonly string[]): Row[] {
+  const rows: Row[] = stems.map((stem) => ({ kind: 'stem', stem }));
   for (const layer of layerRows(document)) {
     rows.push({ kind: 'layer', layer });
     for (const track of document.automation) if (track.target.startsWith(`layers.${layer.id}.`)) rows.push({ kind: 'track', layer, track });
