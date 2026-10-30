@@ -204,6 +204,23 @@ effect on a finished video last. Each is noted beside its requirement in §2.
 through the chooser on a current driver (STATUS header); a PC with no NVIDIA card; moving the FFmpeg
 pin before BtbN drops it, around 2028.
 
+**Next, by the owner's request (2026-10-30): real visuals from open-source libraries,** because the
+built-in presets are generated and do not look good enough for strangers. Researched, not integrated:
+- **Butterchurn** (MilkDrop in WebGL2, MIT, 2.6.7) with **butterchurn-presets** (MIT package, about 1,750
+  presets). The strongest fit. This overrides C15's "not a target look". Read but not yet run: all its
+  randomness is `Math.random`, its clock can be passed to `render({ elapsedTime })`, and audio can be
+  passed as `audioLevels`. **Determinism is unproven**: the spike was not allowed to run, pending the
+  owner's approval to execute downloaded code. Open design points: it has its own WebGL2 context (copy
+  its canvas into the engine), each frame feeds on the last (replay from frame 0 on a seek, export-spec
+  §8), the host must supply it (`src/engine/` cannot import it, as with `TextRasterizer`), and it wants
+  real audio samples, which the analysis does not carry. The package's MIT line does not settle who
+  owns each artist's preset, so they should stay a separately chosen download, not in this repo.
+- **Vidvox ISF-Files** (MIT, 371 files): a standard format, close to the Shadertoy dialect (S2), so a
+  small job. Mostly video effects and generators rather than audio visualizers.
+- **Ruled out:** Hydra (AGPL would bind the whole app). **Unchecked:** LYGIA and gl-transitions, whose
+  licences GitHub does not identify. Shadertoy's site default is non-commercial, so nothing is bundled
+  from it without checking each shader.
+
 **Auto-director (Could-level in the spec):** `derive-from-image` palettes; "Extract as template";
 palette shifts at a chorus; converting arrangement curves to keyframes.
 
