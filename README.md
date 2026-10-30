@@ -2,16 +2,14 @@
 
 Turn a song into a music video, on your own machine, with your own GPU doing the work.
 
-<!-- Drop the screenshot in and uncomment this line.
-![The Pulseforge studio](docs/images/studio.png)
--->
+![The Pulseforge studio, playing a project the auto-director built with MilkDrop](docs/images/studio.png)
 
 ## What it is
 
 Pulseforge is a desktop app that takes an audio file and renders a finished music video from it.
 You build the look out of layers, you wire the music into it so things actually move with the
-track, and then you export a real MP4 at up to 4K60 using the hardware encoder on your graphics
-card.
+track, and then you export a real MP4 at up to 4K60, on your graphics card's encoder if it has a
+usable one and on the CPU if it does not.
 
 It runs entirely on your own computer. No account, no credits, no upload limit, no watermark, no
 queue except the one you make yourself. After the first setup it works with the network cable
@@ -52,36 +50,6 @@ delete bits of it, or hit Surprise Me and roll a completely different look from 
 **Export properly.** One project gives you landscape, vertical and square out of the same edit,
 because layers know how to move when the canvas changes shape. Queue up several exports and go to
 bed.
-
-## Screenshots
-
-None committed yet. The studio works now, so these just need taking: drop the images into
-`docs/images/` and uncomment the block below along with the one at the top of this file.
-(`npm run dev -- --smoke` with `PULSEFORGE_UI_TOUR=1` writes rough captures to `out/ui-tour/`, but
-they show the smoke check's test project, not a real one.)
-
-Four worth taking, and what each one should show:
-
-1. **`studio.png`** the main window with a real project open. Assets on the left, canvas in the
-   middle, layer settings on the right, timeline along the bottom.
-2. **`modulation.png`** the modulation matrix, with a few bindings wired up so you can see the
-   values moving against the sliders.
-3. **`lyrics.png`** lyrics being tapped into time, with the vocal stem waveform visible underneath.
-4. **`export.png`** the queue with a 4K render and a vertical cut of the same project lined up.
-
-A couple more that would sell it better than any words here. The aspect switcher flipping one
-project between 16:9 and 9:16 with the layers rearranging themselves. A before and after of a
-single effect. And the auto director's decision log, in plain English, explaining why it picked
-what it picked.
-
-<!--
-| | |
-|---|---|
-| ![Studio overview](docs/images/studio.png) | ![Modulation matrix](docs/images/modulation.png) |
-| The main window. | Wiring audio to parameters. |
-| ![Lyrics editor](docs/images/lyrics.png) | ![Export queue](docs/images/export.png) |
-| Tapping lyrics into time against the vocal stem. | Queueing two renders from one project. |
--->
 
 ## What you need
 
