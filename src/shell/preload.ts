@@ -36,6 +36,7 @@ const api: PulseforgeApi = {
   pickAudioFiles: () => ipcRenderer.invoke(IPC.audioPickMany) as ReturnType<PulseforgeApi['pickAudioFiles']>,
   prepareAudio: (path, picture) => ipcRenderer.invoke(IPC.audioPrepare, path, picture) as ReturnType<PulseforgeApi['prepareAudio']>,
   combineAudio: (paths) => ipcRenderer.invoke(IPC.audioCombine, paths) as ReturnType<PulseforgeApi['combineAudio']>,
+  pickMidi: () => ipcRenderer.invoke(IPC.midiPick) as ReturnType<PulseforgeApi['pickMidi']>,
   readAudio: (path) => ipcRenderer.invoke(IPC.audioRead, path) as ReturnType<PulseforgeApi['readAudio']>,
   readStemAudio: (path, stem, stemModel) => ipcRenderer.invoke(IPC.stemAudio, path, stem, stemModel) as ReturnType<PulseforgeApi['readStemAudio']>,
   refineBeats: (path, stemModel) => ipcRenderer.invoke(IPC.beatsRefine, path, stemModel) as ReturnType<PulseforgeApi['refineBeats']>,

@@ -654,6 +654,17 @@ function registerHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC.midiPick, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Import a MIDI file',
+      properties: ['openFile'],
+      filters: [{ name: 'MIDI', extensions: ['mid', 'midi', 'kar', 'smf'] }, { name: 'All files', extensions: ['*'] }],
+    });
+    const path = result.canceled ? undefined : result.filePaths[0];
+    if (path === undefined) return null;
+    return { name: basename(path), bytes: new Uint8Array(await readFile(path)) };
+  });
+
   ipcMain.handle(IPC.audioPickMany, async (): Promise<readonly string[]> => {
     const result = await dialog.showOpenDialog({
       title: 'Add files to combine',

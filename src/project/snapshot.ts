@@ -104,6 +104,7 @@ function toEngineBinding(binding: DocumentBinding): ModulationBinding {
       octaves: source.octaves,
       from: source.from,
       to: source.to,
+      ...(source.type === 'midi' ? { noteLow: source.noteLow, noteHigh: source.noteHigh, channel: source.channel } : {}),
     },
     target: binding.target,
     inputRange: binding.inputRange,
@@ -231,6 +232,9 @@ export function toRenderProject(document: ProjectDocument): SnapshotResult {
     globalEffects: document.globalEffects.map((effect) => toEngineEffect(effect, document.palette, `globalEffects.${effect.id}`, notes)),
     ...(document.lyrics.lines.length > 0 ? { lyrics: toRenderLyrics(document.lyrics) } : {}),
     ...(document.markers.length > 0 ? { markerTicks: document.markers.map((m) => m.ticks) } : {}),
+    ...(document.midi !== null && document.midi.notes.length > 0
+      ? { midiNotes: document.midi.notes.map((n) => ({ ticks: n.ticks, note: n.note, velocity: n.velocity, channel: n.channel })) }
+      : {}),
     // Keyframes (S1): enabled tracks with keys, palette links in colour keys resolved here, as
     // they are for parameters — the engine never learns palettes exist.
     ...(document.automation.some((t) => t.enabled && t.keyframes.length > 0)

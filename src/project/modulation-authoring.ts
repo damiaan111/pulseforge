@@ -12,7 +12,8 @@
 
 import type { ParamSpec } from '../engine/core/params.ts';
 import { createBinding } from './create.ts';
-import type { Layer, ModulationBinding, ProjectDocument } from './document.ts';
+import type { Layer, MidiClip, ModulationBinding, ProjectDocument } from './document.ts';
+import { noteName } from '../midi/parse.ts';
 import { walkLayers } from './document.ts';
 import { GLOBAL_OWNER } from './commands.ts';
 
@@ -43,6 +44,7 @@ export const SOURCE_CHOICES: readonly SourceChoice[] = [
   { type: 'wordActive', label: 'Words', hint: 'A short pulse on every sung word — karaoke-synced accents (needs timed lyrics).', audio: false },
   { type: 'marker', label: 'Markers', hint: 'A hit at every timeline marker — cut, flash or jump at the scene changes you placed (M adds one).', audio: false },
   { type: 'markerProgress', label: 'Scene progress', hint: 'Zero at a marker, one at the next: a move that plays out once per scene.', audio: false },
+  { type: 'midi', label: 'MIDI notes', hint: 'A hit on every note of an imported MIDI file, as hard as it was played. Choose a note, a range or a channel: the kick, the top line.', audio: false },
 ];
 
 /** guitar and piano need the 6-stem model (S6); on another, a binding to them reports the stem missing. */
@@ -104,7 +106,27 @@ export function defaultBinding(
     amount: roundAmount(paramSpan(spec) * 0.25, spec),
     ...(options.order === undefined ? {} : { order: options.order }),
   });
-  return sourceType === 'band' ? { ...binding, source: { ...binding.source, band: 'bass' } } : binding;
+  if (sourceType === 'band') return { ...binding, source: { ...binding.source, band: 'bass' } };
+  return sourceType === 'midi' ? asMidiBinding(binding) : binding;
+}
+
+/** MIDI is exact, not detected: there is no lag for the usual look-ahead to cancel. */
+export function asMidiBinding(binding: ModulationBinding): ModulationBinding {
+  return { ...binding, source: { ...binding.source, type: 'midi' }, lookAheadMs: 0 };
+}
+
+/** The filter as words: "All notes", "C2", "C2 to B2", each with its channel when it has one. */
+export function describeMidiFilter(source: Pick<ModulationBinding['source'], 'noteLow' | 'noteHigh' | 'channel'>): string {
+  const { noteLow, noteHigh, channel } = source;
+  const notes = noteLow === 0 && noteHigh === 127 ? 'All notes' : noteLow === noteHigh ? noteName(noteLow) : `${noteName(noteLow)} to ${noteName(noteHigh)}`;
+  return channel === null ? notes : `${notes}, channel ${channel + 1}`;
+}
+
+/** How many notes of the file each channel has, for the channel picker. */
+export function midiChannelCounts(clip: MidiClip): ReadonlyMap<number, number> {
+  const counts = new Map<number, number>();
+  for (const { channel } of clip.notes) counts.set(channel, (counts.get(channel) ?? 0) + 1);
+  return counts;
 }
 
 function roundAmount(value: number, spec: ParamSpec): number {
@@ -337,6 +359,7 @@ export function describeSource(binding: ModulationBinding): string {
   const name = choice?.label ?? source.type;
   if (source.type === 'band') return `${source.band ?? '?'} band · ${source.stem}`;
   if (source.type === 'lfo') return `LFO ${source.shape} ${source.rateHz} Hz`;
+  if (source.type === 'midi') return `MIDI · ${describeMidiFilter(source)}`;
   if (choice?.audio === true) return `${name} · ${source.stem}`;
   return name;
 }

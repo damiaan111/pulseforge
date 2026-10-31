@@ -41,6 +41,7 @@ export const IPC = {
   audioPrepare: 'pf:audio:prepare',
   audioCombine: 'pf:audio:combine',
   audioRead: 'pf:audio:read',
+  midiPick: 'pf:midi:pick',
   audioAnalyze: 'pf:audio:analyze',
   stemAudio: 'pf:audio:stem',
   beatsRefine: 'pf:beats:refine',
@@ -528,6 +529,8 @@ export interface PulseforgeApi {
   prepareAudio(path: string, picture: boolean): Promise<PreparedAudio>;
   /** Joins the files in order into one in the library (C13). */
   combineAudio(paths: readonly string[]): Promise<{ readonly path: string; readonly parts: readonly string[] }>;
+  /** Asks for a MIDI file (C3) and returns it to parse. Null when the user cancels. */
+  pickMidi(): Promise<{ readonly name: string; readonly bytes: Uint8Array } | null>;
   /** Raw file bytes, for a Blob URL the `<audio>` element can play. */
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */

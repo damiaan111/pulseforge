@@ -9,7 +9,7 @@ import type { VideoAssetRef } from './video.ts';
 import type { LutAssetRef } from './lut.ts';
 import type { LayerTransform } from './layout.ts';
 import type { RenderLyrics } from './lyrics.ts';
-import type { ModulationBinding } from './modulation.ts';
+import type { ModulationBinding, RenderMidiNote } from './modulation.ts';
 import type { Rational } from './time.ts';
 
 /**
@@ -170,4 +170,6 @@ export interface RenderProject {
   readonly automation?: readonly AutomationTrackSpec[];
   /** Timeline markers' ticks, sorted (S9): the `marker` and `markerProgress` sources' scene changes. */
   readonly markerTicks?: readonly number[];
+  /** An imported MIDI file's notes, sorted (C3): the `midi` source. Absent without one. */
+  readonly midiNotes?: readonly RenderMidiNote[];
 }

@@ -112,6 +112,10 @@ function bindingJson(binding: ModulationBinding): Json {
       to: binding.source.to,
       // Only a curve has points; every other binding saves exactly as before.
       ...(binding.source.points.length > 0 ? { points: binding.source.points.map((p) => ({ ticks: p.ticks, value: p.value })) } : {}),
+      // Likewise a MIDI filter: written only when it filters.
+      ...(binding.source.noteLow === 0 ? {} : { noteLow: binding.source.noteLow }),
+      ...(binding.source.noteHigh === 127 ? {} : { noteHigh: binding.source.noteHigh }),
+      ...(binding.source.channel === null ? {} : { channel: binding.source.channel }),
     }),
     inputRange: binding.inputRange === 'auto' ? 'auto' : rangeJson(binding.inputRange),
     curve: curveJson(binding.curve),
@@ -305,6 +309,13 @@ export function toJson(document: ProjectDocument): Json {
     ...(hasLyrics(document.lyrics) ? { lyrics: lyricsJson(document.lyrics) } : {}),
     // Only a project with keyframes carries them, so every file saved before S1 keeps its bytes.
     ...(document.automation.length > 0 ? { automation: document.automation.map(trackJson) } : {}),
+    // An imported MIDI file (C3) likewise.
+    ...(document.midi === null ? {} : {
+      midi: withExtra(document.midi.extra, {
+        name: document.midi.name,
+        notes: document.midi.notes.map((n) => ({ ticks: n.ticks, endTicks: n.endTicks, note: n.note, velocity: n.velocity, channel: n.channel })),
+      }),
+    }),
     // Markers (S9) likewise: absent from a project that has none.
     ...(document.markers.length > 0
       ? { markers: document.markers.map((m) => withExtra(m.extra, { id: m.id, ticks: m.ticks, name: m.name, ...(m.color === null ? {} : { color: m.color }) })) }

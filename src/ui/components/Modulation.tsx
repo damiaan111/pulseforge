@@ -21,9 +21,10 @@ import { GLOBAL_OWNER, addModulation, removeModulation, sequence, updateModulati
 import type { ModulationBinding } from '../../project/document.ts';
 import { newId } from '../../project/ids.ts';
 import {
-  LFO_SHAPES, RECIPES, SOURCE_CHOICES, STEM_CHOICES, allBindings, defaultBinding, describeSource, describeTarget,
+  LFO_SHAPES, RECIPES, SOURCE_CHOICES, STEM_CHOICES, allBindings, asMidiBinding, defaultBinding, describeSource, describeTarget,
   isImperceptible, paramSpan, planBindingPaste, suggestedSources, type SchemaLookup, type TargetInfo,
 } from '../../project/modulation-authoring.ts';
+import { MidiSourceFields } from './MidiControls.tsx';
 import { useModules } from '../modules.ts';
 import { useStudio } from '../store.ts';
 
@@ -254,7 +255,10 @@ function BindingEditor(props: { ownerId: string; binding: ModulationBinding; spe
         <select
           value={source.type}
           data-action="binding-source"
-          onChange={(e) => setSource({ type: e.target.value, ...(e.target.value === 'band' && source.band === null ? { band: bands[1]?.id ?? bands[0]?.id ?? 'bass' } : {}) })}
+          onChange={(e) => {
+            if (e.target.value === 'midi') patch(asMidiBinding(binding));
+            else setSource({ type: e.target.value, ...(e.target.value === 'band' && source.band === null ? { band: bands[1]?.id ?? bands[0]?.id ?? 'bass' } : {}) });
+          }}
         >
           {SOURCE_CHOICES.map((c) => <option key={c.type} value={c.type}>{c.label}</option>)}
           {choice === undefined && <option value={source.type}>{source.type}</option>}
@@ -289,6 +293,7 @@ function BindingEditor(props: { ownerId: string; binding: ModulationBinding; spe
           <Knob label="Rate" value={source.rateHz} min={0.01} max={8} step={0.01} unit=" Hz" onChange={(v, seal) => patch({ source: { ...source, rateHz: v } }, seal)} />
         </>
       )}
+      {source.type === 'midi' && <MidiSourceFields source={source} setSource={setSource} />}
       {source.type === 'noise' && (
         <Knob label="Speed" value={source.noiseScale} min={0.01} max={8} step={0.01} unit=" /s" onChange={(v, seal) => patch({ source: { ...source, noiseScale: v } }, seal)} />
       )}

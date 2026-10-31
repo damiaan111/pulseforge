@@ -22,6 +22,7 @@ import { useModules } from '../modules.ts';
 import { adoptFile } from '../audio-import.ts';
 import { isVideoFile } from '../../assets/media-types.ts';
 import { CombineAudio } from './CombineAudio.tsx';
+import { MidiFileControls } from './MidiControls.tsx';
 import { useState } from 'react';
 
 /** The drag payload for reordering layers: a layer id, under a type nothing else uses. */
@@ -116,6 +117,7 @@ export function LeftRail(): React.JSX.Element {
       <BeatControls />
       <ClipControls />
       <StemsControls />
+      <MidiFileControls />
       {analysisMessage !== null && (
         <p className={analysisState === 'error' ? 'bad' : analysisState === 'working' ? 'dim' : 'ok'}>
           {analysisMessage}

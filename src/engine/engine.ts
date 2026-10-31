@@ -290,6 +290,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       seed: project.seed,
       ...(project.lyrics === undefined ? {} : { lyrics: project.lyrics }),
       ...(project.markerTicks === undefined ? {} : { markers: project.markerTicks }),
+      ...(project.midiNotes === undefined ? {} : { midiNotes: project.midiNotes }),
       placement: project.audio,
     });
     compiled = { project, analysis, program };

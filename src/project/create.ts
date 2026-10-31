@@ -92,6 +92,7 @@ export function createDocument(options: CreateDocumentOptions = {}): ProjectDocu
     lyrics: EMPTY_LYRICS,
     automation: [],
     markers: [],
+    midi: null,
     director: null,
     extra: {},
   };
@@ -200,6 +201,9 @@ export function createBinding(target: string, options: CreateBindingOptions = {}
       octaves: 1,
       from: 0,
       to: 1,
+      noteLow: 0,
+      noteHigh: 127,
+      channel: null,
       extra: {},
     },
     target,
