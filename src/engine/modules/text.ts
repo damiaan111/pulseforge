@@ -18,6 +18,9 @@
 // updated per frame — then rebuilds the mipmaps, so blur never smears hidden words into streaks.
 // The same id map is what the karaoke fill will use (lyrics-spec §4).
 //
+// A colour glyph is the one exception to "colour is a uniform": it brings a texture of its own, which
+// replaces the fill colour under the same masks, so everything above still works on it.
+//
 // Missing fonts draw with the default font and **say so** (§8.13: reported, never silently
 // substituted). A host without a rasteriser draws nothing and says so.
 
@@ -68,7 +71,13 @@ export const textManifest: ModuleManifest = {
       key: 'align', label: 'Align', group: 'Text', type: 'enum', default: 'center',
       options: [{ value: 'left', label: 'Left' }, { value: 'center', label: 'Centre' }, { value: 'right', label: 'Right' }],
     },
-    { key: 'maxWidth', label: 'Max width', group: 'Text', type: 'float', default: 0.9, min: 0.05, max: 1, aspectOverridable: true, modulatable: false, description: 'Wrap width, as a fraction of the canvas width' },
+    { key: 'maxWidth', label: 'Max width', group: 'Text', type: 'float', default: 0.9, min: 0.05, max: 1, aspectOverridable: true, modulatable: false, description: 'Wrap width, as a fraction of the canvas width; for vertical text, the column height as a fraction of its height' },
+    { key: 'colorEmoji', label: 'Colour emoji', group: 'Text', type: 'bool', default: false, modulatable: false, description: 'Emoji in their own colours, not the fill. Needs the Colour emoji component. This layer only: lyrics stay one colour' },
+    {
+      key: 'direction', label: 'Direction', group: 'Text', type: 'enum', default: 'horizontal', modulatable: false,
+      options: [{ value: 'horizontal', label: 'Horizontal' }, { value: 'vertical', label: 'Vertical' }],
+      description: 'Vertical stacks upright characters top to bottom, in columns from the right. This layer only: lyrics stay horizontal',
+    },
 
     {
       key: 'fillMode', label: 'Fill', group: 'Fill', type: 'enum', default: 'solid',
@@ -91,6 +100,11 @@ export const textManifest: ModuleManifest = {
     { key: 'glowColor', label: 'Glow colour', group: 'Glow', type: 'color', default: '#ff2d95', paletteRole: 'glow' },
     { key: 'glowRadius', label: 'Radius', group: 'Glow', type: 'float', default: 0.25, min: 0.02, max: 1, unit: 'em' },
 
+    // Slices of the same masks, marched in the shader, so depth can follow the beat without a new raster.
+    { key: 'depth', label: 'Depth', group: 'Extrude', type: 'float', default: 0, min: 0, max: 1, softMax: 0.5, unit: 'em', modulatable: true, description: 'Pulls a solid side out of the letters, for a 3D look' },
+    { key: 'depthAngle', label: 'Direction', group: 'Extrude', type: 'float', default: 45, min: 0, max: 360, unit: '°', modulatable: true, description: 'Where the side falls: 0 is right, 90 down' },
+    { key: 'depthColor', label: 'Side colour', group: 'Extrude', type: 'color', default: '#555555', description: 'At the front edge; the side darkens away from it' },
+
     { key: 'plate', label: 'Plate', group: 'Plate', type: 'bool', default: false, description: 'A rounded panel behind the text' },
     { key: 'plateColor', label: 'Plate colour', group: 'Plate', type: 'color', default: '#000000', visibleWhen: { param: 'plate', equals: true } },
     { key: 'plateOpacity', label: 'Plate opacity', group: 'Plate', type: 'float', default: 0.55, min: 0, max: 1, visibleWhen: { param: 'plate', equals: true } },
@@ -106,6 +120,11 @@ export const textManifest: ModuleManifest = {
 };
 
 const easeOut = (x: number) => 1 - (1 - x) ** 3;
+
+const MAX_SLICES = 64;
+
+/** Scripts whose letters change shape with their neighbours, which vertical text cannot give them. */
+const JOINED_SCRIPT = /[\p{Script=Arabic}\p{Script=Syriac}\p{Script=Nko}\p{Script=Mongolian}]/u;
 
 export interface AnimationState {
   readonly opacity: number;
@@ -205,6 +224,10 @@ uniform vec2 u_glow;        // intensity, lod
 uniform vec3 u_plateColor;
 uniform vec3 u_plate;       // opacity, padding px, radius px
 uniform vec4 u_anim;        // offset y px, scale, blur lod, opacity
+uniform sampler2D u_emoji;  // colour glyphs, sRGB-decoded on read; alpha 0 everywhere else
+uniform int u_hasEmoji;
+uniform vec4 u_extrude;     // dx, dy (px), slices, lod
+uniform vec3 u_extrudeColor;
 out vec4 outColor;
 
 ${TEXT_SAMPLING_GLSL}
@@ -221,6 +244,10 @@ void main() {
   float strokeA = m.g;
   float g = clamp((q.y - u_origin.y - u_content.y) / max(u_content.w, 1.0), 0.0, 1.0);
   vec3 fillColor = u_gradient == 1 ? mix(u_colorA, u_colorB, g) : u_colorA;
+  if (u_hasEmoji == 1) {
+    vec4 e = textureLod(u_emoji, uv, 0.0);
+    if (e.a > 0.0 && inside(uv) > 0.0) fillColor = e.rgb;
+  }
   vec4 glyph = vec4(fillColor * fillA, fillA) + vec4(u_strokeColor * strokeA, strokeA) * (1.0 - fillA);
 
   vec4 color = vec4(0.0);
@@ -240,6 +267,18 @@ void main() {
     color.rgb += u_glowColor * halo * u_glow.x;
     color.a = min(1.0, color.a + halo * u_glow.x * 0.25);
   }
+  if (u_extrude.z > 0.0) {
+    // Furthest slice first, each covering the one behind it, darkening with distance from the face.
+    vec2 reach = u_extrude.xy / u_anim.y / u_bitmap;
+    vec4 side = vec4(0.0);
+    for (float i = u_extrude.z; i >= 1.0; i -= 1.0) {
+      float f = i / u_extrude.z;
+      vec2 s = maskAt(uv - reach * f, u_extrude.w + blur);
+      float a = max(s.r, s.g);
+      side = vec4(u_extrudeColor * mix(1.0, 0.3, f) * a, a) + side * (1.0 - a);
+    }
+    color = side + color * (1.0 - side.a);
+  }
   color = glyph + color * (1.0 - glyph.a);
   outColor = color * u_anim.w;
 }
@@ -250,7 +289,7 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
   const maskPass = createWordMaskPass(gl, textManifest.id);
   const names = [
     'u_canvas', 'u_mask', 'u_bitmap', 'u_origin', 'u_content', 'u_colorA', 'u_colorB', 'u_gradient', 'u_strokeColor',
-    'u_shadow', 'u_shadowColor', 'u_glowColor', 'u_glow', 'u_plateColor', 'u_plate', 'u_anim',
+    'u_shadow', 'u_shadowColor', 'u_glowColor', 'u_glow', 'u_plateColor', 'u_plate', 'u_anim', 'u_extrude', 'u_extrudeColor', 'u_emoji', 'u_hasEmoji',
   ] as const;
   const u = Object.fromEntries(names.map((name) => [name, uniformLocation(gl, program, name)])) as Record<(typeof names)[number], WebGLUniformLocation>;
   const vao = gl.createVertexArray();
@@ -304,6 +343,8 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
         48,
       )));
 
+      const vertical = str(params, 'direction') === 'vertical';
+      if (vertical && JOINED_SCRIPT.test(text)) ctx.warn('text: vertical text draws each character apart, so these letters do not join');
       const request: TextRequest = {
         text,
         fontHash: font.hash,
@@ -314,12 +355,15 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
         maxWidthPx: num(params, 'maxWidth') * ctx.canvas.width,
         strokePx,
         paddingPx,
+        ...(vertical ? { vertical: { maxHeightPx: num(params, 'maxWidth') * ctx.canvas.height } } : {}),
+        ...(params['colorEmoji'] === true ? { colorEmoji: true as const } : {}),
       };
       const key = JSON.stringify(request);
       const current = uploaded?.key === key ? uploaded : upload(key, rasterizer.rasterize(request), strokePx);
       const { raster } = current;
       if (!raster.fontFound && font.missing === undefined) ctx.warn(`text: font "${font.name}" could not be used; drawing with the default font`);
       if (raster.missingGlyphs !== undefined && raster.missingGlyphs.length > 0) ctx.warn(`text: no font has ${raster.missingGlyphs.join(' ')}; drawn as a box. Choose a font that does`);
+      if (raster.colorEmojiMissing === true) ctx.warn('text: colour emoji are not installed (Settings, Components); drawing them in the text colour');
       if (raster.clamped) ctx.warn('text: the text block is larger than the maximum texture size and was scaled down');
 
       const animation = textAnimation(ctx.time.t, ctx.layer, str(params, 'animIn'), str(params, 'animOut'), num(params, 'animSeconds'), raster.words.length);
@@ -344,6 +388,11 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       const shc = linearHex(str(params, 'shadowColor'), '#000000');
       const gc = linearHex(str(params, 'glowColor'), '#ff2d95');
       const pc = linearHex(str(params, 'plateColor'), '#000000');
+      const dc = linearHex(str(params, 'depthColor'), '#555555');
+      const depthPx = num(params, 'depth') * em;
+      const depthAngle = (num(params, 'depthAngle') * Math.PI) / 180;
+      // One slice a pixel, up to a limit; past it, slices come from a softer mip so no gaps show.
+      const slices = depthPx > 0 ? Math.min(MAX_SLICES, Math.ceil(depthPx)) : 0;
 
       gl.disable(gl.BLEND);
       gl.useProgram(program);
@@ -362,9 +411,14 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       gl.uniform3f(u.u_plateColor, pc[0], pc[1], pc[2]);
       gl.uniform3f(u.u_plate, params['plate'] === true ? num(params, 'plateOpacity') : 0, num(params, 'platePadding') * em, num(params, 'plateRadius') * em);
       gl.uniform4f(u.u_anim, animation.offsetEm * em, Math.max(0.01, animation.scale), animation.blurLod, animation.opacity);
+      gl.uniform4f(u.u_extrude, Math.cos(depthAngle) * depthPx, Math.sin(depthAngle) * depthPx, slices, slices > 0 ? lodFor(depthPx / slices) : 0);
+      gl.uniform3f(u.u_extrudeColor, dc[0], dc[1], dc[2]);
       bindTexture(gl, 0, mask, u.u_mask);
+      // Something valid on the unit either way; the uniform decides whether it is read.
+      bindTexture(gl, 1, current.color ?? mask, u.u_emoji);
+      gl.uniform1i(u.u_hasEmoji, current.color === null ? 0 : 1);
       drawFullscreenTriangle(gl, vao);
-      unbindTextures(gl, 1);
+      unbindTextures(gl, 2);
       gl.useProgram(null);
     },
 

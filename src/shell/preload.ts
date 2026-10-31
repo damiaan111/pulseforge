@@ -130,6 +130,7 @@ const api: PulseforgeApi = {
   loadLut: (path, projectPath) => ipcRenderer.invoke(IPC.lutLoad, path, projectPath) as ReturnType<PulseforgeApi['loadLut']>,
   defaultFont: () => ipcRenderer.invoke(IPC.fontDefault) as ReturnType<PulseforgeApi['defaultFont']>,
   fallbackFonts: () => ipcRenderer.invoke(IPC.fontFallbacks) as ReturnType<PulseforgeApi['fallbackFonts']>,
+  colorEmojiFont: () => ipcRenderer.invoke(IPC.fontColorEmoji) as ReturnType<PulseforgeApi['colorEmojiFont']>,
   importImage: () => ipcRenderer.invoke(IPC.imageImport) as ReturnType<PulseforgeApi['importImage']>,
   loadImage: (path, projectPath) => ipcRenderer.invoke(IPC.imageLoad, path, projectPath) as ReturnType<PulseforgeApi['loadImage']>,
   environment: () => ipcRenderer.invoke(IPC.environment) as ReturnType<PulseforgeApi['environment']>,

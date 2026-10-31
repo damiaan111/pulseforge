@@ -17,7 +17,7 @@ import { encodeAnalysis } from '../../src/analysis/container.ts';
 import type { DecodedImage } from '../../src/engine/core/image.ts';
 import type { ShaderModuleSource } from '../../src/engine/modules/shader-module.ts';
 import { existsSync } from 'node:fs';
-import { defaultFontFile, fallbackFontFiles } from '../../src/assets/fonts.ts';
+import { colorEmojiFontFile, defaultFontFile, fallbackFontFiles } from '../../src/assets/fonts.ts';
 import { DEFAULT_FONT_FILE, MILKDROP_JS_DIR } from '../../setup/lib/paths.ts';
 import type { FontFileRef, FramesConfig, ImageFile, SpikeFramesResult, VideoSequenceFile } from '../electron/protocol.ts';
 import { SPIKE_OUT, runElectron } from '../harness.ts';
@@ -91,6 +91,11 @@ function frameAt(width: number, pixels: Uint8Array) {
   };
 }
 
+function colorEmojiConfig(): { colorEmoji?: FontFileRef } {
+  const font = colorEmojiFontFile();
+  return font === null ? {} : { colorEmoji: font };
+}
+
 export async function renderFrames(options: FramesOptions): Promise<FramesSummary> {
   const rawDir = join(SPIKE_OUT, `frames-${options.name}`);
   await rm(rawDir, { recursive: true, force: true });
@@ -118,7 +123,7 @@ export async function renderFrames(options: FramesOptions): Promise<FramesSummar
     rawDir,
     project: options.project,
     ...(images.length > 0 ? { images } : {}),
-    ...(existsSync(DEFAULT_FONT_FILE) ? { text: { default: defaultFontFile(), fallbacks: [...fallbackFontFiles()], fonts: [...(options.fonts ?? [])] } } : {}),
+    ...(existsSync(DEFAULT_FONT_FILE) ? { text: { default: defaultFontFile(), fallbacks: [...fallbackFontFiles()], fonts: [...(options.fonts ?? [])], ...colorEmojiConfig() } } : {}),
     ...(options.videos !== undefined && options.videos.length > 0 ? { videos: [...options.videos] } : {}),
     ...(options.modules !== undefined && options.modules.length > 0 ? { modules: [...options.modules] } : {}),
     frames: [...options.frames],

@@ -314,7 +314,7 @@ function SetupSection(): React.JSX.Element {
       <div className="setup-actions">
         <button type="button" data-action="setup-verify" disabled={running} onClick={() => void run({ mode: 'verify' })}>Verify installation</button>
         <button type="button" data-action="setup-rebuild-check" disabled={running} title="Builds a second Python environment from the kept wheels with the network made unusable, checks it imports and loads, then deletes it (a few minutes, about 4.4 GB of temporary space)" onClick={() => void run({ mode: 'rebuild-check' })}>Offline rebuild check</button>
-        {(['core', 'stems', 'lyrics', 'beats', 'milkdrop'] as const).map((tier) => (
+        {(['core', 'stems', 'lyrics', 'beats', 'milkdrop', 'isf', 'emoji'] as const).map((tier) => (
           <button key={tier} type="button" disabled={running} data-action={`setup-repair-${tier}`} onClick={() => void run({ mode: 'repair', tier })}>Repair {tier}</button>
         ))}
         {running && <button type="button" onClick={() => void window.pulseforge.cancelSetup()}>Cancel</button>}

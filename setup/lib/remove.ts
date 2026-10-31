@@ -1,6 +1,6 @@
 import { readdir, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { EXTRA_ARTEFACTS, MILKDROP_PRESETS, type ExtraId } from '../manifest.ts';
+import { COLOR_EMOJI_FONT, EXTRA_ARTEFACTS, ISF_FILES, MILKDROP_PRESETS, type ExtraId } from '../manifest.ts';
 import { dropArtefacts, readVendorLock, writeVendorLock } from './lockfile.ts';
 import { createLogger } from './log.ts';
 import { MODELS, SETUP_LOG, VENDOR, insideVendor } from './paths.ts';
@@ -21,7 +21,13 @@ export async function removeComponent(id: string): Promise<void> {
     await writeVendorLock(lock);
     return;
   }
-  const files = EXTRA_ARTEFACTS[id as ExtraId];
+  if (id === 'isf') {
+    await rm(insideVendor(join(VENDOR, ISF_FILES.installDir)), { recursive: true, force: true });
+    dropArtefacts(lock, new Set([ISF_FILES.id]));
+    await writeVendorLock(lock);
+    return;
+  }
+  const files = id === 'emoji' ? [COLOR_EMOJI_FONT] : EXTRA_ARTEFACTS[id as ExtraId];
   if (files === undefined) throw new Error(`"${id}" cannot be removed on its own.`);
   for (const file of files) {
     await rm(insideVendor(join(VENDOR, file.installDir, file.fileName)), { force: true });

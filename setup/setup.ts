@@ -13,6 +13,8 @@ import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
 import { NON_COMMERCIAL_NOTICE, resolveChoice } from './components.ts';
 import { fallbackFontsStep } from './steps/fallback-fonts.ts';
+import { colorEmojiStep } from './steps/color-emoji.ts';
+import { isfStep } from './steps/isf.ts';
 import { milkdropStep } from './steps/milkdrop.ts';
 import { lyricsModelsStep } from './steps/lyrics-models.ts';
 import { extraInstalled, extraSteps } from './steps/extras.ts';
@@ -27,7 +29,7 @@ const STEPS: readonly Step[] = [
   { ...uvStep, alsoFor: ['lyrics', 'beats'] },
   // The lyrics environment is the stems one plus WhisperX.
   { ...pythonEnvStep, alsoFor: ['lyrics'] },
-  demucsModelStep, pythonLyricsEnvStep, pythonBeatsEnvStep, lyricsModelsStep, milkdropStep, ...extraSteps,
+  demucsModelStep, pythonLyricsEnvStep, pythonBeatsEnvStep, lyricsModelsStep, milkdropStep, isfStep, colorEmojiStep, ...extraSteps,
 ];
 
 const USAGE = `

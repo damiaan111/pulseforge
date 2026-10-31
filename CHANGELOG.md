@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **ISF shaders:** drop a `.fs` file in the modules folder, or add Vidvox's library as a component. Files
+  that cannot run are listed with the reason.
+- **Titles** can run vertically, grow a solid 3D side that follows the beat, and draw emoji in colour
+  (with the Colour emoji component).
+
 ## 1.0.0
 
 The first version meant for other people.

@@ -44,6 +44,8 @@ export interface FontsConfig {
   fonts: FontFileRef[];
   /** The bundled chain for scripts the others lack (S17), in order. */
   fallbacks?: FontFileRef[];
+  /** Only for titles that ask for it: never part of the fallback chain. */
+  colorEmoji?: FontFileRef;
 }
 
 export interface DeterminismConfig {

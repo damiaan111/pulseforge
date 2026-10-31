@@ -99,6 +99,7 @@ export const IPC = {
   fontLoad: 'pf:font:load',
   fontDefault: 'pf:font:default',
   fontFallbacks: 'pf:font:fallbacks',
+  fontColorEmoji: 'pf:font:color-emoji',
   imageImport: 'pf:image:import',
   imageLoad: 'pf:image:load',
   environment: 'pf:app:environment',
@@ -565,7 +566,7 @@ export interface PulseforgeApi {
   /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */
   revealPath(which: 'userData' | 'settings'): Promise<void>;
   /** Runs `npm run setup -- --verify` or `--tier <tier>`; output arrives through `onSetupOutput`. */
-  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'components'; readonly components: readonly string[]; readonly acceptNonCommercial: boolean } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
+  runSetup(request: { readonly mode: 'verify' } | { readonly mode: 'rebuild-check' } | { readonly mode: 'components'; readonly components: readonly string[]; readonly acceptNonCommercial: boolean } | { readonly mode: 'repair'; readonly tier: 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' | 'isf' | 'emoji' } | { readonly mode: 'extra'; readonly extra: string }): Promise<{ readonly code: number | null }>;
   cancelSetup(): Promise<void>;
   onSetupOutput(listener: (line: string) => void): () => void;
   /** Shows an open dialog for a lyrics file (.lrc, .srt, .vtt, .ttml, .txt). Null when cancelled. */
@@ -631,6 +632,8 @@ export interface PulseforgeApi {
   defaultFont(): Promise<FontBytes>;
   /** The bundled fallback chain (S17), in order. */
   fallbackFonts(): Promise<readonly { readonly hash: string; readonly bytes: Uint8Array }[]>;
+  /** Null until the Colour emoji component is installed. */
+  colorEmojiFont(): Promise<{ readonly hash: string; readonly bytes: Uint8Array } | null>;
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
   importImage(): Promise<ImageBytes | null>;
   /** Decodes an asset the project already references; the path may be relative to `projectPath`. */

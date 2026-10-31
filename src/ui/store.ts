@@ -190,6 +190,7 @@ export interface StudioState {
   reanalyse(): Promise<void>;
   /** The bundled fallback chain (S17), in order; empty until loaded. */
   fallbackFonts: readonly { readonly hash: string; readonly bytes: Uint8Array }[];
+  colorEmojiFont: { readonly hash: string; readonly bytes: Uint8Array } | null;
   loadDefaultFont(): Promise<void>;
   /** Loads every image and font the document references that is not loaded yet. `recheck` retries failed ones. */
   loadAssets(recheck?: boolean): Promise<void>;
@@ -494,6 +495,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   luts: new Map(),
   defaultFont: null,
   fallbackFonts: [],
+  colorEmojiFont: null,
   loop: null,
   setLoop(loop) {
     set({ loop });
@@ -717,8 +719,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   async loadDefaultFont() {
     if (get().defaultFont !== null) return;
     try {
-      const [font, fallbackFonts] = await Promise.all([window.pulseforge.defaultFont(), window.pulseforge.fallbackFonts()]);
-      set({ defaultFont: { hash: font.hash, bytes: font.bytes }, fallbackFonts });
+      const [font, fallbackFonts, colorEmojiFont] = await Promise.all([window.pulseforge.defaultFont(), window.pulseforge.fallbackFonts(), window.pulseforge.colorEmojiFont()]);
+      set({ defaultFont: { hash: font.hash, bytes: font.bytes }, fallbackFonts, colorEmojiFont });
     } catch (error) {
       // A fresh download has no fonts yet, and the setup screen is already on its way.
       const text = describeError(error, 'Loading the default font');

@@ -29,6 +29,13 @@ export interface TextRequest {
   readonly strokePx: number;
   /** Empty margin around the text inside the bitmap, so blur and shadow have room. */
   readonly paddingPx: number;
+  /**
+   * Set columns instead of lines: top to bottom, right to left, wrapping at this height. Absent, so
+   * horizontal requests and their cache keys are what they always were.
+   */
+  readonly vertical?: { readonly maxHeightPx: number };
+  /** Give emoji their own colours: the raster then carries `color`. Absent, so nothing else changes. */
+  readonly colorEmoji?: true;
 }
 
 export interface TextBox {
@@ -64,6 +71,14 @@ export interface TextRaster {
   readonly fill: Uint8Array;
   /** A8 outline coverage, or null when `strokePx` was 0. */
   readonly stroke: Uint8Array | null;
+  /**
+   * Asked for with `colorEmoji`: straight-alpha sRGB RGBA8, set only where a colour glyph drew. It only
+   * says what colour those pixels are: `fill` still covers them, so every effect that works on the
+   * masks (outline, shadow, glow, per-word animation) treats an emoji like any letter.
+   */
+  readonly color?: Uint8Array;
+  /** `colorEmoji` was asked for and this host has no colour emoji font. */
+  readonly colorEmojiMissing?: true;
   /** The laid-out text without padding: what alignment and the background plate measure against. */
   readonly content: TextBox;
   readonly lines: readonly TextLine[];
@@ -72,6 +87,8 @@ export interface TextRaster {
   readonly fontFound: boolean;
   /** True when the bitmap hit the size limit and the text was scaled down to fit. */
   readonly clamped: boolean;
+  /** Set in columns: `lines` are columns then, and `line` on a word is its column. */
+  readonly vertical?: true;
   /**
    * Characters no bundled or chosen font has, up to a handful; they are drawn as a box. Reported
    * rather than left to the canvas, which would take them from whatever the machine has installed.

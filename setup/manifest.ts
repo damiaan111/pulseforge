@@ -5,9 +5,9 @@
 // Checksums come from each project's published checksum files, not from our own
 // downloads — except where noted.
 
-export type Tier = 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' | 'extras';
+export type Tier = 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' | 'isf' | 'emoji' | 'extras';
 /** What a plain `npm run setup` installs. */
-export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics', 'beats', 'milkdrop'];
+export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics', 'beats', 'milkdrop', 'isf', 'emoji'];
 /**
  * Installed only when asked for (D8: fast by default, quality one click away): `--tier extras`,
  * optionally narrowed with `--extras <list>`. The studio's Settings installs them one at a time.
@@ -223,6 +223,45 @@ export const MILKDROP_PRESETS: ArchiveArtefact = {
   expectFile: 'package.json',
 };
 
+/**
+ * The colour emoji, kept out of the fallback chain on purpose: every existing frame has its emoji from
+ * Noto Emoji, the monochrome font. A title asks for this one by name (S17 stays the default).
+ */
+export const COLOR_EMOJI_FONT: FileArtefact = {
+  kind: 'file',
+  id: 'font-noto-color-emoji',
+  name: 'Noto Color Emoji',
+  version: '6157dfaa',
+  tier: 'emoji',
+  url: 'https://raw.githubusercontent.com/google/fonts/6157dfaa640ca5738b4d1a7070fe389c3036d7fc/ofl/notocoloremoji/NotoColorEmoji-Regular.ttf',
+  fileName: 'NotoColorEmoji-Regular.ttf',
+  sha256: '4d82a18d8d95f60ba883ce242bbadbf84a576e987745dd7ba38d71c67cff2d73',
+  sizeBytes: 25_332_736,
+  license: 'OFL-1.1',
+  installDir: 'fonts/emoji',
+};
+
+/**
+ * Vidvox's ISF shader library, from the repository at a fixed commit. The checksum is of this
+ * archive as GitHub generated it on download (2026-10-31): it is what the pin protects, so if GitHub
+ * ever regenerates archives differently, setup stops and says so rather than taking other bytes.
+ */
+export const ISF_FILES: ArchiveArtefact = {
+  kind: 'archive',
+  id: 'isf-files',
+  name: 'Vidvox ISF-Files',
+  version: '395072d',
+  tier: 'isf',
+  url: 'https://github.com/Vidvox/ISF-Files/archive/395072d48b3ce7351ccb20a5fda54470591324df.tar.gz',
+  fileName: 'ISF-Files-395072d.tar.gz',
+  sha256: 'dea95599a75dd1eb47f7e17cc3f34f021e4fcbaab087c727ae38ebe8f3dbad14',
+  sizeBytes: 346_802,
+  license: 'MIT',
+  installDir: 'isf',
+  stripTopLevelDir: true,
+  expectFile: 'LICENSE',
+};
+
 // ---------------------------------------------------------------------------
 // Lyrics tier (P6, M26): transcription and forced alignment
 // ---------------------------------------------------------------------------
@@ -393,7 +432,7 @@ export const EXTRA_ARTEFACTS: Readonly<Record<ExtraId, readonly FileArtefact[]>>
   'align-it': [ALIGN_MODELS.it],
 };
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, ...FALLBACK_FONTS, MILKDROP_PRESETS, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, ...FALLBACK_FONTS, MILKDROP_PRESETS, ISF_FILES, COLOR_EMOJI_FONT, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
 
 export const PYTHON_PACKAGES = {
   tier: 'stems' as Tier,
@@ -442,5 +481,7 @@ export const REQUIRED_FREE_BYTES: Readonly<Record<Tier, number>> = {
   lyrics: 5 * 1024 ** 3,
   beats: 1 * 1024 ** 3,
   milkdrop: 0.1 * 1024 ** 3,
+  isf: 0.05 * 1024 ** 3,
+  emoji: 0.1 * 1024 ** 3,
   extras: 7 * 1024 ** 3,
 };

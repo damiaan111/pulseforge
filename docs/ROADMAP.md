@@ -170,7 +170,7 @@ it was made; they are collected here so none is a surprise.
 | **Software H.264 where NVENC will not open** | PROJECT.md and export-spec: NVENC, no CPU fallback | an app that cannot export on most PCs is no release; NVENC stays first wherever it works | STATUS 4.85 |
 | **MilkDrop is in** (C15 was last in line), through Butterchurn; its presets run as code from a pinned package; no checkpoints, a final render replays from frame 0 | PROJECT.md C15: not a target look, determinism-hostile; export-spec §8 asks for checkpoints | the owner asked for well-made visuals; seeding `Math.random` and a fixed step made it byte-identical; replay meets the contract at the cost of time on a late start | STATUS 4.83 |
 | **librosa only**, no madmom; refinement is **stored in the project** and **offered, not automatic** | D28 and PROJECT.md S16 name both tools and "an optional pass" | madmom has no Windows wheels, and the lock is wheels only; a render must not need Python; for music on a click the built-in grid is only as good as its tempo, but refining is still an edit to the project | STATUS 4.77 |
-| **Emoji are monochrome**, and one CJK font (Japanese forms) serves Chinese and Korean | PROJECT.md S17 lists emoji and non-Latin scripts without saying how | text effects work from coverage masks, which colour bitmaps do not have; a project can choose its own font, which goes first | STATUS 4.76 |
+| **Emoji are monochrome** unless a title asks for colour (STATUS 4.89), and one CJK font (Japanese forms) serves Chinese and Korean | PROJECT.md S17 lists emoji and non-Latin scripts without saying how | text effects work from coverage masks, which colour bitmaps do not have; a project can choose its own font, which goes first | STATUS 4.76 |
 | The **vignette now darkens and keeps alpha** (it used to fade the edges to transparent) | module-spec §6 says only "darkens toward the edges" | a LUT after it graded see-through corners; on a layer, darkening is what "vignette" means | STATUS 4.73 |
 | **Dropped audio files open the Batch dialog**, even one; a CLI folder is read **one level deep**; "shut down when done" waits **two minutes** | export-spec §12 says "optional shutdown-when-done" and nothing about drops or folders | the dialog is where the folder and preset are chosen; a library's subfolders are albums; two minutes to see it and cancel | STATUS 4.68 |
 | Motion-blur subframes **keep the frame's index** (only `t` moves), and one **before the timeline is held at 0** | export-spec §9 gives the shutter interval only | a video layer has one decoded frame per frame and its own motion blur; grain keyed on the frame should not smear; frame 0 has nothing before it | STATUS 4.66 |
@@ -210,15 +210,17 @@ read (STATUS 4.86).
 stems and lyrics through the chooser from a fresh clone (done with the setup command, not the chooser); moving
 the FFmpeg pin before BtbN drops it, around 2028.
 
-**Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). Vidvox ISF-Files (MIT, 371 files,
-close to the Shadertoy dialect) is the next source, mostly video effects. Hydra is ruled out (AGPL would bind
+**Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). ISF is in as a dialect and an optional
+component (STATUS 4.89): 105 of Vidvox's 327 files run; point2D inputs, more image inputs and passes are what
+would bring in the rest. The Shadertoy `input` channel darkens what it reads (mid-grey 128 comes out 55): fixing
+it changes existing projects, so it waits for the owner. Hydra is ruled out (AGPL would bind
 the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site default is
 non-commercial, so nothing is bundled from it without checking each shader.
 
 **Auto-director (Could-level in the spec):** `derive-from-image` palettes; "Extract as template";
 palette shifts at a chorus; converting arrangement curves to keyframes.
 
-**Text:** colour emoji, vertical text, Thai word segmentation.
+**Text:** colour emoji in lyrics, vertical lyrics (STATUS 4.89 did titles), Thai word segmentation.
 
 **Components:** removing one from the app (today: delete its folder under `vendor/`).
 

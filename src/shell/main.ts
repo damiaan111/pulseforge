@@ -27,10 +27,10 @@ import { existsSync, readFileSync, watch } from 'node:fs';
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, MODULE_LIBRARIES, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
-import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
+import { FONT_EXTENSIONS, colorEmojiFontFile, fallbackFontFiles } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { readTemplateFiles } from '../director/template-store.ts';
@@ -964,7 +964,7 @@ function registerHandlers(): void {
     const chosen = (request as { components?: unknown }).components;
     const args = request.mode === 'verify' ? ['--verify', '--components', installed.join(',')]
       : request.mode === 'rebuild-check' ? ['--rebuild-check']
-      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats', 'milkdrop'].includes(request.tier) ? ['--components', request.tier]
+      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats', 'milkdrop', 'isf', 'emoji'].includes(request.tier) ? ['--components', request.tier]
         : request.mode === 'components' && Array.isArray(chosen) && chosen.every((id) => typeof id === 'string')
           ? ['--components', resolveChoice(chosen as string[]).components.map((c) => c.id).join(','), ...((request as { acceptNonCommercial?: unknown }).acceptNonCommercial === true ? ['--accept-non-commercial'] : [])]
           : null;
@@ -1142,7 +1142,7 @@ function registerHandlers(): void {
 
   // Drop-in modules (M35): scanned on request, so the studio's reload is a fresh read of the folder.
   const builtinIds = new Set(BUILTIN_MODULES.map((m) => m.manifest.id));
-  ipcMain.handle(IPC.modulesList, async (): Promise<ModuleScan> => scanModules(MODULES_DIR, builtinIds));
+  ipcMain.handle(IPC.modulesList, async (): Promise<ModuleScan> => scanModules(MODULES_DIR, builtinIds, MODULE_LIBRARIES));
   ipcMain.handle(IPC.modulesReveal, async (): Promise<void> => {
     await mkdir(MODULES_DIR, { recursive: true });
     await shell.openPath(MODULES_DIR);
@@ -1154,7 +1154,7 @@ function registerHandlers(): void {
     const cleaned = [...(typeof request.name === 'string' ? request.name : '')]
       .filter((ch) => ch.charCodeAt(0) >= 32 && !'<>:"/\\|?*'.includes(ch)).join('').trim().replace(/[. ]+$/, '').slice(0, 80) || 'Shadertoy';
     await mkdir(MODULES_DIR, { recursive: true });
-    const scanned = await scanModules(MODULES_DIR, builtinIds);
+    const scanned = await scanModules(MODULES_DIR, builtinIds, MODULE_LIBRARIES);
     const takenIds = new Set([...builtinIds, ...scanned.modules.map((m) => m.manifest.id)]);
     let name = cleaned;
     for (let n = 2; existsSync(join(MODULES_DIR, `${name}.glsl`)) || takenIds.has(shadertoyFileSource(`${name}.glsl`, '').manifest.id); n += 1) name = `${cleaned} ${n}`;
@@ -1380,6 +1380,10 @@ function registerHandlers(): void {
   });
 
   ipcMain.handle(IPC.fontFallbacks, () => fallbackFontFiles().map((font) => ({ hash: font.hash, bytes: readFileSync(font.file) })));
+  ipcMain.handle(IPC.fontColorEmoji, () => {
+    const font = colorEmojiFontFile();
+    return font === null ? null : { hash: font.hash, bytes: readFileSync(font.file) };
+  });
 
   ipcMain.handle(IPC.imageImport, async (): Promise<ImageBytes | null> => {
     const result = await dialog.showOpenDialog({
@@ -1476,7 +1480,7 @@ function registerBatchHandlers(renders: RenderService, onChange: (status: BatchS
     async directTrack(track, options) {
       // Read per track: a template or module added mid-batch is used by the tracks after it.
       const templates = loadTemplates(await templateFiles()).templates.map((t) => t.template);
-      const scanned = await scanModules(MODULES_DIR, builtinIds);
+      const scanned = await scanModules(MODULES_DIR, builtinIds, MODULE_LIBRARIES);
       const manifests = [...BUILTIN_MODULES, ...scanned.modules.map(shaderModuleDefinition)].map((m) => m.manifest);
       const byId = new Map(manifests.map((m) => [m.id, m]));
       const settings = currentSettings;

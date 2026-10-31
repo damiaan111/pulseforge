@@ -27,7 +27,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { pythonEnv } from '../../setup/lib/env.ts';
-import { DATA_ROOT, FFMPEG_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { DATA_ROOT, FFMPEG_EXE, MODELS, MODULES_DIR, MODULE_LIBRARIES, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
 import { directTrack, type DirectedTrack } from '../batch/direct-track.ts';
 import { isBatchAudio, planBatch, type BatchTrack } from '../batch/plan.ts';
 import { loadTemplates } from '../director/template-library.ts';
@@ -146,7 +146,7 @@ export async function batch(argv: readonly string[]): Promise<number> {
   if (options.templateId !== null && !templates.some((t) => t.id === options.templateId)) {
     throw new CliError(`Unknown template "${options.templateId}".`, [`Use one of ${templates.map((t) => t.id).join(', ')}`, 'Or leave --template out for each track\'s best match']);
   }
-  const scanned = await scanModules(MODULES_DIR, new Set(BUILTIN_MODULES.map((m) => m.manifest.id)));
+  const scanned = await scanModules(MODULES_DIR, new Set(BUILTIN_MODULES.map((m) => m.manifest.id)), MODULE_LIBRARIES);
   // Drop-in modules count: a template may name one (M35), and the render path compiles them the same way.
   const manifests = [...BUILTIN_MODULES, ...scanned.modules.map(shaderModuleDefinition)].map((m) => m.manifest);
   const byId = new Map(manifests.map((m) => [m.id, m]));
