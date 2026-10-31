@@ -710,11 +710,11 @@ export function replaceLook(
 
 /**
  * The auto-director's result (M21, M22), as one undo step: the look — layers, both global lists,
- * palette, seed — and the director's record. Everything else (audio, lyrics, assets, canvas, name)
- * is the project's own and stays as it is at the moment the command runs.
+ * keyframes, palette, seed — and the director's record. Everything else (audio, lyrics, assets,
+ * canvas, name) is the project's own and stays as it is at the moment the command runs.
  */
 export function applyDirection(
-  result: Pick<ProjectDocument, 'seed' | 'palette' | 'layers' | 'globalEffects' | 'globalModulations' | 'director'>,
+  result: Pick<ProjectDocument, 'seed' | 'palette' | 'layers' | 'globalEffects' | 'globalModulations' | 'automation' | 'director'>,
   label = 'Generate project',
 ): Command {
   return {
@@ -726,6 +726,7 @@ export function applyDirection(
       layers: result.layers,
       globalEffects: result.globalEffects,
       globalModulations: result.globalModulations,
+      automation: result.automation,
       director: result.director,
     }),
   };

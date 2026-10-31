@@ -18,9 +18,9 @@ const section = (startSeconds: number, endSeconds: number, label: Section['label
 
 const ARRANGEMENT: TemplateArrangement = {
   sections: {
-    intro: { intensity: 0.3, addLayers: [], removeLayers: [] },
-    main: { intensity: 1, addLayers: ['ACCENT'], removeLayers: [] },
-    breakdown: { intensity: 0.4, addLayers: [], removeLayers: ['ACCENT'] },
+    intro: { intensity: 0.3, addLayers: [], removeLayers: [], paletteShift: null },
+    main: { intensity: 1, addLayers: ['ACCENT'], removeLayers: [], paletteShift: 'accent' },
+    breakdown: { intensity: 0.4, addLayers: [], removeLayers: ['ACCENT'], paletteShift: null },
   },
   intensityTargets: [],
   floor: 0.35,

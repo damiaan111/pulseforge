@@ -9,6 +9,8 @@
 //  - **presence**: optional layers fade in and out on section boundaries (an opacity curve).
 //  - **drops**: a short spike exactly on the detected transient.
 //  - **text hold**: the title clears before the first vocal.
+//  - **palette shift**: each section says which colour the primary trades with (palette-shift.ts
+//    turns that into keyframes).
 //
 // The two rules the spec names are enforced here: anti-chaos (no scene change within 8 s of the
 // last, at most two layers entering or leaving at one boundary) and anti-monotony (two adjacent
@@ -18,7 +20,7 @@ import type { Section, SectionLabel } from '../analysis/sections.ts';
 import type { CurvePoint } from '../engine/core/modulation.ts';
 import { secondsToTicks, sourceToTimelineSeconds, type AudioPlacement } from '../engine/core/time.ts';
 import type { VocalSegment } from '../lyrics/vocal-segments.ts';
-import type { TemplateArrangement } from './template.ts';
+import type { ShiftRole, TemplateArrangement } from './template.ts';
 
 /** D32: the minimum time between scene changes. */
 export const MIN_CHANGE_SECONDS = 8;
@@ -55,6 +57,7 @@ export interface ArrangedSection {
   readonly label: SectionLabel;
   readonly intensity: number;
   readonly present: readonly string[];
+  readonly paletteShift: ShiftRole | null;
 }
 
 export type Presence =
@@ -162,6 +165,7 @@ export function arrange(input: ArrangeInput): Arrangement {
     label: s.label,
     intensity: Number(intensities[i]!.toFixed(3)),
     present: [...presentBy[i]!].sort(),
+    paletteShift: input.arrangement.sections[s.label]?.paletteShift ?? null,
   }));
 
   // The intensity curve: held within a section, ramped across boundaries; a build rises into the

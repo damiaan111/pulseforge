@@ -48,6 +48,10 @@ export const RESPONSES = {
 } as const;
 export type Response = keyof typeof RESPONSES;
 
+/** What a section may trade the primary with (§6). Never background or text: those carry legibility. */
+export const SHIFT_ROLES = ['secondary', 'accent', 'glow'] as const;
+export type ShiftRole = (typeof SHIFT_ROLES)[number];
+
 export const SECTION_STATES = ['intro', 'build', 'main', 'breakdown', 'outro'] as const satisfies readonly SectionLabel[];
 
 /** `derive-from-image`: from the project's background image (§5.3); `generate-from-style` stands in without one. */
@@ -162,6 +166,8 @@ export interface SectionState {
   readonly intensity: number;
   readonly addLayers: readonly string[];
   readonly removeLayers: readonly string[];
+  /** The role the primary trades places with for this section; null leaves the colours alone. */
+  readonly paletteShift: ShiftRole | null;
 }
 
 export interface TemplateArrangement {
@@ -493,8 +499,13 @@ function arrangement(r: Reader): TemplateArrangement {
       continue;
     }
     const s = rawSections.child(key);
-    s.unknown(['intensity', 'addLayers', 'removeLayers']);
-    sections[key as SectionLabel] = { intensity: s.num('intensity', 0.6, 0, 1), addLayers: s.strings('addLayers'), removeLayers: s.strings('removeLayers') };
+    s.unknown(['intensity', 'addLayers', 'removeLayers', 'paletteShift']);
+    sections[key as SectionLabel] = {
+      intensity: s.num('intensity', 0.6, 0, 1),
+      addLayers: s.strings('addLayers'),
+      removeLayers: s.strings('removeLayers'),
+      paletteShift: s.nullableOneOf('paletteShift', SHIFT_ROLES),
+    };
   }
   const drop = r.has('drop') ? r.child('drop') : null;
   drop?.unknown(['targets', 'amount', 'decaySeconds']);

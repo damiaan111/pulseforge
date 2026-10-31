@@ -7,11 +7,13 @@
 // its inputs and a seed: the same track, template, seed and locks make the same project on any
 // machine — ids included, which come from the seed rather than the clock.
 //
-// Rerolls (§9) keep what the user has touched. Every layer, global effect and global binding the
-// director writes is recorded with a fingerprint of its content (fingerprint.ts). On the next run
-// anything still matching its fingerprint is the director's to replace; anything that no longer
-// matches was edited and is kept, still filling its slot. Layers the user added are kept where
-// they were, relative to the director's.
+// Rerolls (§9) keep what the user has touched. Every layer, global effect, global binding and
+// keyframe track the director writes is recorded with a fingerprint of its content (fingerprint.ts).
+// On the next run anything still matching its fingerprint is the director's to replace; anything
+// that no longer matches was edited and is kept, still filling its slot. Keys live beside the layer
+// they animate, out of its fingerprint's sight, so keys the user set on a generated layer or effect
+// count as an edit to it: replacing it would orphan them. Layers the user added are kept where they
+// were, relative to the director's.
 
 import { keyName } from '../analysis/key.ts';
 import type { Section } from '../analysis/sections.ts';
@@ -27,12 +29,13 @@ import { GLOBAL_OWNER } from '../project/commands.ts';
 import { createBinding, createEffect, createModuleLayer } from '../project/create.ts';
 import {
   DIRECTOR_HISTORY_LIMIT, IDENTITY_TRANSFORM, aspectBucket, walkLayers,
-  type AspectBucket, type AspectOverride, type DecisionEntry, type DecisionStep, type DirectorAspect, type DirectorLock,
+  type AspectBucket, type AspectOverride, type AutomationTrack, type DecisionEntry, type DecisionStep, type DirectorAspect, type DirectorLock,
   type DirectorRoll, type EffectSpec, type GeneratedMark, type Layer, type ModulationBinding, type ModuleLayer,
   type Palette, type ProjectDocument, type Transform,
 } from '../project/document.ts';
 import { createIdFactory } from '../project/ids.ts';
-import { OPACITY_SPEC, paramSpan } from '../project/modulation-authoring.ts';
+import { OPACITY_SPEC, paramSpan, parseTarget } from '../project/modulation-authoring.ts';
+import { linkedRole, resolveRole, roleLink } from '../project/palette.ts';
 import { timelineDurationTicks } from '../project/snapshot.ts';
 import { arrange } from './arrange.ts';
 import { calibrate, sourceTrack, trackStats } from './calibrate.ts';
@@ -40,7 +43,8 @@ import { describeStyle, type StyleVector, type TrackDigest } from './digest.ts';
 import { fingerprint } from './fingerprint.ts';
 import { rankTemplates, type DirectorModules, type TemplateScore } from './match.ts';
 import { chooseLook, milkdropLooks } from './milkdrop.ts';
-import { derivePalette, generatePalette, hexToHsl, hueName, type GeneratedPalette } from './palette.ts';
+import { contrastRatio, derivePalette, generatePalette, hexToHsl, hueName, type GeneratedPalette } from './palette.ts';
+import { roleKeys, worstContrast } from './palette-shift.ts';
 import {
   parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
 } from './template.ts';
@@ -244,15 +248,24 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   const marks = new Map((previous?.generated ?? []).map((m) => [m.id, m]));
   const keptMarks: GeneratedMark[] = [];
   const keptBySlot = new Map<string, ModuleLayer>();
+  const isDirectorTrack = (t: AutomationTrack) => {
+    const mark = marks.get(t.id);
+    return mark?.kind === 'track' && mark.fingerprint === fingerprint(t);
+  };
+  /** The user's keys under a target prefix: a generated layer's fingerprint cannot see them. */
+  const userKeyed = (prefix: string) => document.automation.some((t) => t.target.startsWith(prefix) && !isDirectorTrack(t));
+  /** Whose own track of the director's stays with it: an edited layer or effect is left as it is. */
+  const keptOwners: string[] = [];
   /** User layers, each with the slot of the layer it sat on (null: at the bottom). */
   const userLayers: { layer: Layer; anchor: string | null }[] = [];
   let anchor: string | null = null;
   for (const layer of document.layers) {
     const mark = marks.get(layer.id);
     if (mark !== undefined && mark.kind === 'layer') {
-      if (mark.fingerprint !== fingerprint(layer) && layer.kind === 'module') {
+      if ((mark.fingerprint !== fingerprint(layer) || userKeyed(`layers.${layer.id}.`)) && layer.kind === 'module') {
         keptBySlot.set(mark.slot, layer);
         keptMarks.push(mark);
+        keptOwners.push(`layers.${layer.id}.`);
         note('keep', `Kept "${layer.name}" in ${mark.slot}: you edited it after it was generated.`, { layer: layer.id, slot: mark.slot });
       }
       anchor = mark.slot;
@@ -264,9 +277,10 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   for (const effect of document.globalEffects) {
     const mark = marks.get(effect.id);
     if (mark === undefined) userGlobalEffects.push(effect);
-    else if (mark.fingerprint !== fingerprint(effect)) {
+    else if (mark.fingerprint !== fingerprint(effect) || userKeyed(`global.effects.${effect.id}.`)) {
       userGlobalEffects.push(effect);
       keptMarks.push(mark);
+      keptOwners.push(`global.effects.${effect.id}.`);
       note('keep', `Kept the edited ${effect.name || effect.module} on the whole frame.`);
     }
   }
@@ -280,8 +294,19 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     }
   }
 
+  // The user's tracks stay, and the director's own stay with what they animate if that was kept.
+  const keptTracks = document.automation.filter((t) => !isDirectorTrack(t) || keptOwners.some((prefix) => t.target.startsWith(prefix)));
+  for (const t of keptTracks) {
+    const mark = marks.get(t.id);
+    if (mark !== undefined && isDirectorTrack(t)) keptMarks.push(mark);
+  }
+
   // Deterministic ids: from the seed, never the clock; never one already in the document.
   const used = new Set<string>();
+  for (const t of document.automation) {
+    used.add(t.id);
+    t.keyframes.forEach((k) => used.add(k.id));
+  }
   for (const { layer } of walkLayers(document.layers)) {
     used.add(layer.id);
     layer.effects.forEach((e) => used.add(e.id));
@@ -411,6 +436,13 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     note('populate', `${slot.id}: ${label}${candidates.length > 1 ? ` (weight ${c.weight} of ${total} across ${candidates.length} candidates)` : ''}.`, {
       slot: slot.id, module: manifest.id, candidates: candidates.map((x) => x.manifest.id),
     });
+  }
+
+  // A kept layer whose slot this template does not fill is still the user's: it stays as their own.
+  for (const [slot, layer] of keptBySlot) {
+    if (filled.get(slot)?.layer.id === layer.id) continue;
+    userLayers.push({ layer, anchor: null });
+    note('keep', `"${layer.name}" stays as your own layer: ${template.name} has no place for it in ${slot}.`, { layer: layer.id, slot });
   }
 
   // Budget (§5.1 step 5, §7): drop the lowest-priority optional slots until it fits.
@@ -718,12 +750,74 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   layers.push(...userLayers.filter((u) => u.anchor !== null && !slotsPresent.has(u.anchor)).map((u) => u.layer));
   if (fadeLayer !== null) layers.push(fadeLayer);
 
+  // Palette shifts (§6): the colours trade places section by section, as ordinary keyframes on the
+  // parameters that link to a role. Last, so a template without them draws no ids and changes nothing.
+  const shiftTracks: { track: AutomationTrack; slot: string }[] = [];
+  const shifting = arrangement.sections.filter((s) => s.paletteShift !== null);
+  if (shifting.length > 0) {
+    const backgroundHex = resolveRole(palette, 'background');
+    const textHex = resolveRole(palette, 'text');
+    const minimum = template.palette.minTextContrast;
+    const shiftParams = (target: string, specs: readonly ParamSpec[], params: Readonly<Record<string, unknown>>, slot: string, label: string, role: SlotRole | null, overridden: ReadonlySet<string>) => {
+      for (const spec of specs) {
+        if (spec.type !== 'color' || overridden.has(spec.key)) continue;
+        const base = linkedRole(params[spec.key]);
+        if (base === undefined) continue;
+        const keys = roleKeys(base, arrangement.sections);
+        if (keys.length === 0) continue;
+        const baseHex = resolveRole(palette, base);
+        // Text must stay as readable through the crossing as it was or as the template demands,
+        // and so must text over a backdrop whose colour is the one moving.
+        const ground = role === 'TEXT' || role === 'LYRICS' ? backgroundHex : role === 'BACKDROP' ? textHex : undefined;
+        if (ground !== undefined && baseHex !== undefined) {
+          const worst = worstContrast(palette, keys, ground);
+          if (worst === null || worst < Math.min(minimum, contrastRatio(baseHex, ground)) - 0.01) {
+            note('guardrail', `Left ${label} › ${spec.label} out of the palette shift: the text would drop to ${(worst ?? 0).toFixed(1)}:1 on the way (minimum ${minimum}:1).`);
+            continue;
+          }
+        }
+        const track: AutomationTrack = {
+          id: newId(),
+          target: `${target}${spec.key}`,
+          enabled: true,
+          keyframes: keys.map((k) => ({ id: newId(), ticks: k.ticks, value: roleLink(k.role), easing: 'easeInOut' as const, extra: {} })),
+          extra: {},
+        };
+        shiftTracks.push({ track, slot });
+      }
+    };
+    for (const f of finalOrdered) {
+      if (f.kept) continue;
+      const overridden = new Set(Object.values(f.layer.aspectOverrides).flatMap((o) => Object.keys(o?.params ?? {})));
+      shiftParams(`layers.${f.layer.id}.params.`, f.manifest.params, f.layer.params, f.slot.id, f.label, f.slot.role, overridden);
+      for (const effect of f.effects.values()) {
+        shiftParams(`layers.${f.layer.id}.effects.${effect.id}.params.`, modules.get(effect.module)?.params ?? [], effect.params, f.slot.id, f.label, f.slot.role, new Set());
+      }
+    }
+    for (const effect of postKept) {
+      shiftParams(`global.effects.${effect.id}.params.`, modules.get(effect.module)?.params ?? [], effect.params, 'POST', modules.get(effect.module)?.name ?? effect.module, null, new Set());
+    }
+    if (shiftTracks.length > 0) {
+      note('arrange', `The colours trade places in ${shifting.map((s) => `${s.label} ${clock(s.startSeconds)} (primary with ${s.paletteShift ?? ''})`).join(', ')}: ${shiftTracks.length} colour track${shiftTracks.length === 1 ? '' : 's'} of ordinary keyframes.`, { tracks: shiftTracks.length });
+    }
+  }
+
+  // A track of yours that points at something gone is kept and reported, never dropped (CLAUDE.md #4).
+  const present = new Set([...walkLayers(layers)].map(({ layer }) => layer.id));
+  const presentEffects = new Set(globalEffects.map((e) => e.id));
+  for (const t of keptTracks) {
+    const path = parseTarget(t.target);
+    if (path !== undefined && (path.layerId === GLOBAL_OWNER ? path.effectId !== null && presentEffects.has(path.effectId) : present.has(path.layerId))) continue;
+    note('keep', `Your keyframes on ${t.target} point at something no longer in the project: they are kept, and do nothing.`, { track: t.id });
+  }
+
   const generated: GeneratedMark[] = [
     ...keptMarks.filter((m) => m.kind !== 'layer' || finalOrdered.some((f) => f.kept && f.layer.id === m.id)),
     ...finalOrdered.filter((f) => !f.kept).map((f): GeneratedMark => ({ id: f.layer.id, kind: 'layer', slot: f.slot.id, fingerprint: fingerprint(f.layer) })),
     ...(fadeLayer === null ? [] : [{ id: fadeLayer.id, kind: 'layer' as const, slot: 'FADE', fingerprint: fingerprint(fadeLayer) }]),
     ...postKept.map((e): GeneratedMark => ({ id: e.id, kind: 'effect', slot: 'POST', fingerprint: fingerprint(e) })),
     ...generatedGlobalBindings.map((b): GeneratedMark => ({ id: b.id, kind: 'binding', slot: 'POST', fingerprint: fingerprint(b) })),
+    ...shiftTracks.map(({ track, slot }): GeneratedMark => ({ id: track.id, kind: 'track', slot, fingerprint: fingerprint(track) })),
   ];
 
   const heroFilled = finalOrdered.find((f) => f.slot.role === 'HERO') ?? finalOrdered.find((f) => f.slot.role === 'LYRICS');
@@ -746,6 +840,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     layers,
     globalEffects,
     globalModulations: [...userGlobalBindings, ...generatedGlobalBindings],
+    automation: [...keptTracks, ...shiftTracks.map((s) => s.track)],
     director: { current: roll, history, log, generated, extra: previous?.extra ?? {} },
   };
   return { document: result, roll, log, template, ranked };

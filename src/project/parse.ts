@@ -721,7 +721,7 @@ function parseDirector(node: Node): DirectorState {
     })),
     generated: node.children('generated').map((n): GeneratedMark => ({
       id: n.str('id', ''),
-      kind: n.oneOf('kind', ['layer', 'effect', 'binding'] as const, 'layer'),
+      kind: n.oneOf('kind', ['layer', 'effect', 'binding', 'track'] as const, 'layer'),
       slot: n.str('slot', ''),
       fingerprint: n.str('fingerprint', ''),
     })),
