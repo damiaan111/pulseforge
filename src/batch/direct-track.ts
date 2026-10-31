@@ -95,6 +95,8 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
     title: track.name,
     milkdropPresets: options.milkdropPresets,
   }, { seed: track.seed, templateId: options.templateId });
+  // A batch decodes no images: a template that wants its colours from one falls back, and says so.
+  for (const entry of directed.log) if (entry.data['imageFallback'] === true) notes.push(entry.text);
 
   await writeProjectText(track.projectPath, stringifyDocument(withStoredPaths(directed.document, track.projectPath)));
   return { document: directed.document, templateName: directed.template.name, summary: directed.roll.summary, notes, durationSeconds };

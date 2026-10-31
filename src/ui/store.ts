@@ -113,6 +113,13 @@ function stemsFromPayload(payload: AnalysisPayload, model: string): StemsState {
   return { ...NO_STEMS, state: 'none', ready, message: pending ? 'A previous separation did not finish.' : null };
 }
 
+/** A picture chosen as the colour source for Auto: a file, or the art embedded in the loaded song. */
+export interface AutoColourSource {
+  readonly name: string;
+  readonly image: DecodedImage;
+  readonly origin: 'file' | 'cover';
+}
+
 export interface StudioState {
   /** Bumped on every document mutation; components read it to know they must re-render. */
   version: number;
@@ -158,6 +165,11 @@ export interface StudioState {
    * records which file, this holds the pixels, and the pixels are never undoable state.
    */
   images: ReadonlyMap<string, DecodedImage>;
+  /**
+   * The picture Auto takes its colours from, when one was chosen. Session state like `images`: the
+   * palette it produces is what the project stores, and a roll restores that without the picture.
+   */
+  autoColourSource: AutoColourSource | null;
   /** Per asset id: loaded, missing, changed on disk, or unreadable — shown, never silent (M40). */
   assetStatus: Readonly<Record<string, AssetStatus>>;
   /** Font file bytes by content hash, for the preview's text rasteriser. */
@@ -490,6 +502,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   stats: null,
 
   images: new Map(),
+  autoColourSource: null,
   fonts: new Map(),
   luts: new Map(),
   defaultFont: null,

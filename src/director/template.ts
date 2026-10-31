@@ -46,7 +46,8 @@ export type Response = keyof typeof RESPONSES;
 
 export const SECTION_STATES = ['intro', 'build', 'main', 'breakdown', 'outro'] as const satisfies readonly SectionLabel[];
 
-export const PALETTE_STRATEGIES = ['generate-from-style', 'fixed', 'user'] as const;
+/** `derive-from-image`: from the project's background image (§5.3); `generate-from-style` stands in without one. */
+export const PALETTE_STRATEGIES = ['generate-from-style', 'derive-from-image', 'fixed', 'user'] as const;
 export type PaletteStrategy = (typeof PALETTE_STRATEGIES)[number];
 /** `split`: secondary a quarter turn on, accent the other way — magenta, orange and cyan: synthwave. */
 export const HARMONIES = ['analogous', 'complementary', 'triad', 'split', 'duotone', 'mono'] as const;

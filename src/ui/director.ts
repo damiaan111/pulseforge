@@ -71,6 +71,8 @@ export function directorInput(state: StudioState, document: ProjectDocument = st
     vocalSegments: vocals === undefined ? [] : detectVocalSegments(vocals.data, vocals.rate),
     title: titleOf(state),
     milkdropPresets: state.milkdropPresets,
+    images: state.images,
+    colourImage: state.autoColourSource,
   };
 }
 

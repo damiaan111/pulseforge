@@ -15,6 +15,7 @@
 
 import type { Section } from '../analysis/sections.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
+import type { DecodedImage } from '../engine/core/image.ts';
 import type { CurvePoint } from '../engine/core/modulation.ts';
 import type { ModuleManifest } from '../engine/core/module.ts';
 import type { ParamSpec } from '../engine/core/params.ts';
@@ -38,7 +39,7 @@ import { describeStyle, type StyleVector, type TrackDigest } from './digest.ts';
 import { fingerprint } from './fingerprint.ts';
 import { rankTemplates, type DirectorModules, type TemplateScore } from './match.ts';
 import { chooseLook, milkdropLooks } from './milkdrop.ts';
-import { generatePalette, hexToHsl, hueName } from './palette.ts';
+import { derivePalette, generatePalette, hexToHsl, hueName, type GeneratedPalette } from './palette.ts';
 import {
   parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
 } from './template.ts';
@@ -59,6 +60,10 @@ export interface DirectorInput {
   readonly title: string;
   /** The MilkDrop presets installed here, by name; empty when the component is not. */
   readonly milkdropPresets: readonly string[];
+  /** Decoded image assets by content hash; absent where nothing decoded them (a batch). */
+  readonly images?: ReadonlyMap<string, DecodedImage>;
+  /** A picture the user chose as the colour source: it leads any palette that is not fixed. */
+  readonly colourImage?: { readonly name: string; readonly image: DecodedImage } | null;
 }
 
 export interface DirectOptions {
@@ -191,6 +196,13 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   };
   const seeds: Record<DirectorAspect, number> = { palette: seedFor('palette'), layout: seedFor('layout'), motion: seedFor('motion') };
 
+  // The picture a `$backgroundImage` token resolves to. Above the palette, because a palette derived
+  // from the background must be derived from the one the layer shows: same seed, same key.
+  const images = document.assets.filter((a) => a.kind === 'image');
+  const logo = images.find((a) => /logo/i.test(a.name));
+  const backgrounds = images.filter((a) => a !== logo);
+  const backgroundFor = (key: string) => (backgrounds.length === 0 ? undefined : backgrounds[Math.floor(random01(seeds.layout, 'image', key) * backgrounds.length)]);
+
   // --- palette --------------------------------------------------------------------------------
   let palette: Palette;
   if (restore !== undefined && restore.palette.length === document.palette.colors.length && restore.palette.length > 0) {
@@ -202,10 +214,27 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   } else if (template.palette.strategy === 'user') {
     palette = document.palette;
     note('palette', `${template.name} uses the project's own palette.`);
+    if (input.colourImage != null) note('palette', `"${input.colourImage.name}" was not used: ${template.name} keeps the project's palette.`);
   } else {
-    const generated = generatePalette(template.palette, style, seeds.palette, template.variation.hueJitter);
-    palette = generated.palette;
-    generated.notes.forEach((text, i) => note('palette', text, i === 0 ? generated.data : {}));
+    let generated: GeneratedPalette | null = null;
+    const strategy = template.palette.strategy;
+    const chosenImage = strategy === 'fixed' ? null : input.colourImage ?? null;
+    if (strategy === 'fixed' && input.colourImage != null) note('palette', `"${input.colourImage.name}" was not used: ${template.name} fixes its colours.`);
+    if (chosenImage !== null) {
+      generated = derivePalette(template.palette, chosenImage.image, chosenImage.name, style, seeds.palette);
+      if (generated === null) note('palette', `"${chosenImage.name}" has nothing visible in it: generated the colours from the track instead.`, { imageFallback: true });
+    } else if (strategy === 'derive-from-image') {
+      const asset = backgroundFor(backgroundImageKey(template));
+      const pixels = asset === undefined ? undefined : input.images?.get(asset.hash);
+      if (asset !== undefined && pixels !== undefined) generated = derivePalette(template.palette, pixels, asset.name, style, seeds.palette);
+      // Said out loud, with a flag a batch can read: these are not the colours the template asked for.
+      if (generated === null) {
+        note('palette', `${template.name} takes its colours from a background image, but ${asset === undefined ? 'the project has none' : `"${asset.name}" is not available as pixels here`}: generated them from the track instead.`, { imageFallback: true });
+      }
+    }
+    const made = generated ?? generatePalette(template.palette, style, seeds.palette, template.variation.hueJitter);
+    palette = made.palette;
+    made.notes.forEach((text, i) => note('palette', text, i === 0 ? made.data : {}));
   }
 
   // --- what stays from before -----------------------------------------------------------------
@@ -275,9 +304,6 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     }
   };
 
-  const images = document.assets.filter((a) => a.kind === 'image');
-  const logo = images.find((a) => /logo/i.test(a.name));
-  const backgrounds = images.filter((a) => a !== logo);
   const looks = milkdropLooks(input.milkdropPresets);
   const paletteHue = hexToHsl(palette.colors[palette.roles['primary'] ?? 0] ?? '#808080').h;
   const chosenLooks = new Map<string, string>();
@@ -297,9 +323,8 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     for (const [name, value] of Object.entries(params)) {
       if (value === '$title') out[name] = input.title;
       else if (value === '$logo') out[name] = logo?.id ?? '';
-      else if (value === '$backgroundImage') {
-        out[name] = backgrounds.length === 0 ? '' : backgrounds[Math.floor(random01(seeds.layout, 'image', key) * backgrounds.length)]!.id;
-      } else if (value === '$seed') out[name] = 1 + (hash32(seeds.layout, 'seed', key) % 9999);
+      else if (value === '$backgroundImage') out[name] = backgroundFor(key)?.id ?? '';
+      else if (value === '$seed') out[name] = 1 + (hash32(seeds.layout, 'seed', key) % 9999);
       else if (value === '$milkdrop') out[name] = milkdropFor(key);
       else out[name] = value;
     }
@@ -791,6 +816,13 @@ function clock(seconds: number): string {
 function numeric(value: unknown, spec: ParamSpec): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return typeof spec.default === 'number' ? spec.default : 0;
+}
+
+/** The key the first `$backgroundImage` token will draw with: its slot's id, as tokens() is given. */
+function backgroundImageKey(template: Template): string {
+  const wants = (params: Readonly<Record<string, unknown>>) => Object.values(params).includes('$backgroundImage');
+  const slot = template.slots.find((s) => wants(s.params) || s.candidates.some((c) => wants(c.params)));
+  return slot?.id ?? 'BACKDROP';
 }
 
 function conditionText(condition: Condition): string {
