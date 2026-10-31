@@ -1,6 +1,6 @@
 // Transport (ui-spec §1, §9): play/pause, timecode, and the honest preview-fps readout.
 
-import { actionForKey, keyName } from '../shortcuts.ts';
+import { actionForKey, dialogOpen, keyName } from '../shortcuts.ts';
 import { useEffect } from 'react';
 
 import { ticksToSeconds } from '../../engine/core/time.ts';
@@ -22,7 +22,7 @@ export function TransportBar(): React.JSX.Element {
       const target = event.target as HTMLElement | null;
       const typing = target !== null
         && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
-      if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (typing || dialogOpen() || event.ctrlKey || event.metaKey || event.altKey) return;
       const action = actionForKey(keyName(event), useStudio.getState().settings?.shortcuts ?? {});
       if (action === 'play') {
         event.preventDefault();

@@ -109,6 +109,17 @@ describe('a MilkDrop card', () => {
     expect(milkdropLayer(after, 'Two')).toBeDefined();
   });
 
+  it('changes the MilkDrop layer already there when nothing is selected, instead of stacking', () => {
+    const one = pickMilkdrop(empty, null, 'One', kindOf, false, newId);
+    const first = one.command.apply(empty);
+    const two = pickMilkdrop(first, null, 'Two', kindOf, false, newId);
+    const after = two.command.apply(first);
+    expect(after.layers).toHaveLength(1);
+    expect(milkdropLayer(after, 'Two')?.id).toBe(one.select);
+    const stacked = pickMilkdrop(after, null, 'Three', kindOf, true, newId).command.apply(after);
+    expect(stacked.layers).toHaveLength(2);
+  });
+
   it('takes the place of another visual, and never of a background', () => {
     const bars = withLayer(BARS);
     expect(pickMilkdrop(bars, 'L', 'One', kindOf, false, newId).command.apply(bars).layers).toHaveLength(1);

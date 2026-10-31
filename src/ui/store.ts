@@ -23,7 +23,7 @@ import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { Section as AnalysisSection } from '../analysis/sections.ts';
 import { withAbsolutePaths, withStoredPaths } from '../project/asset-paths.ts';
 import { setBeatRefinement,
-  addAsset, addLayer, findAssetByHash, relinkAsset, sequence, setStemModel, type EditTarget,
+  addAsset, addLayer, findAssetByHash, relinkAsset, renameProject, sequence, setStemModel, type EditTarget,
 } from '../project/commands.ts';
 import { createDocument, createModuleLayer } from '../project/create.ts';
 import { timelineDurationTicks, toRenderProject } from '../project/snapshot.ts';
@@ -1130,6 +1130,11 @@ export const useStudio = create<StudioState>((set, get) => ({
       const clean = history.current.name.replace(/[^\w\- ]+/g, '');
       const target = await window.pulseforge.pickProjectSavePath(`${clean === '' ? 'untitled' : clean}.pvproj`);
       if (target === null) return;
+      // A project that never had a name takes the file's, or every render says "Untitled".
+      if (history.current.name === 'Untitled') {
+        const name = (target.split(/[\\/]/).pop() ?? '').replace(/\.pvproj$/i, '');
+        if (name !== '') get().run(renameProject(name));
+      }
       // Serialised only now, against the chosen file: that decides which paths become relative.
       const result = await window.pulseforge.saveProject({ path: target, text: stringifyDocument(withStoredPaths(history.current, target)) });
       history.markSaved();

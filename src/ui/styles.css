@@ -154,6 +154,8 @@ h2 {
 /* --- left rail ----------------------------------------------------------- */
 
 .left-rail { background: var(--bg); padding: 8px 10px; overflow-y: auto; overflow-x: hidden; }
+.left-rail select, .left-rail input { max-width: 100%; min-width: 0; }
+.left-rail .empty { overflow-wrap: anywhere; }
 .module-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 dl.compact { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 6px 0; font-size: 11.5px; }
 dl.compact dt { color: var(--text-dim); }
@@ -200,7 +202,7 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .layer-name .name { font-weight: 600; }
 .layer-name .meta { color: var(--text-dim); font-size: 11px; }
 .eye { background: none; border: none; padding: 0 8px; }
-.layer-actions { display: flex; gap: 4px; margin-top: 8px; }
+.layer-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 /* "Whole frame": looks like a layer row, but is not one (it selects the global effect chain). */
 .frame-row { display: flex; width: 100%; padding: 0; margin-bottom: 2px; border: 1px solid transparent; border-radius: var(--radius); background: none; color: inherit; font: inherit; cursor: pointer; }
 .frame-row:hover { background: var(--panel); }
@@ -405,8 +407,8 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 
 .presets-head { display: flex; align-items: center; gap: 6px; }
 .presets-head h2 { margin-right: auto; }
-.presets-filters { display: flex; gap: 4px; margin: 6px 0; }
-.presets-filters button { flex: 1; }
+.presets-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.presets-filters button { flex: 1 1 auto; min-width: 0; }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .chip { padding: 1px 7px; font-size: 11px; border-radius: 10px; }
 .preset-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 360px; overflow-y: auto; }

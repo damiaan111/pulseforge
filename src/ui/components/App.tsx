@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ComponentChooser } from './ComponentChooser.tsx';
 
 import { useStudio } from '../store.ts';
+import { dialogOpen } from '../shortcuts.ts';
 import { CanvasPane } from './CanvasPane.tsx';
 import { BatchDialog } from './BatchDialog.tsx';
 import { ShadertoyDialog } from './ShadertoyDialog.tsx';
@@ -180,7 +181,7 @@ export function App(): React.JSX.Element {
       const target = event.target as HTMLElement | null;
       const typing = target !== null
         && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-      if (typing) return;
+      if (typing || dialogOpen()) return;
       if (!event.ctrlKey && !event.metaKey) return;
       const key = event.key.toLowerCase();
       if (key === 'z') {

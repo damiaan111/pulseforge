@@ -24,6 +24,11 @@ export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
 export type ShortcutMap = Readonly<Record<string, string>>;
 
 /** A key event's name in this table, or null for a modifier or a dead key on its own. */
+/** A dialog is open: keys belong to it, not to the studio behind it. */
+export function dialogOpen(): boolean {
+  return document.querySelector('.modal-backdrop') !== null;
+}
+
 export function keyName(event: Pick<KeyboardEvent, 'key'>): string | null {
   if (event.key === ' ') return 'space';
   if (event.key === 'Dead' || ['Shift', 'Control', 'Alt', 'Meta', 'Escape', 'Tab', 'Enter'].includes(event.key)) return null;

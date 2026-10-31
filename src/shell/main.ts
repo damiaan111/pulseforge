@@ -279,6 +279,8 @@ function lockDownSession(): void {
   });
 }
 
+let lastRendererRestart = 0;
+
 function guardWebContents(): void {
   app.on('web-contents-created', (_event, contents) => {
     // The studio's own warnings and errors reach the log (M34); its info lines only at debug level.
@@ -292,6 +294,11 @@ function guardWebContents(): void {
     });
     contents.on('render-process-gone', (_e, details) => {
       log().error('studio', `the renderer process ended: ${details.reason} (exit code ${details.exitCode})`);
+      // A blank window with the work out of reach is the worst outcome: come back, and the recovery
+      // dialog offers the autosave. Not twice in a minute, or a page that dies at once loops for ever.
+      if (details.reason === 'clean-exit' || contents.isDestroyed() || Date.now() - lastRendererRestart < 60_000) return;
+      lastRendererRestart = Date.now();
+      contents.reload();
     });
     contents.on('will-navigate', (event, url) => {
       // The app is one local page; there is no legitimate navigation.
@@ -2373,6 +2380,9 @@ app.whenReady().then(async () => {
       const beatsUi = beatStates.every((step) => step === true);
       if (!beatsUi) console.error('[smoke] beatsUi steps ' + JSON.stringify(beatStates) + ' state ' + beatState());
       // Dragging a layer's block on the timeline (M9): its start moves, and one undo puts it back.
+      // Keys do not reach a studio behind a dialog, and this check leaves the recovery dialog up until
+      // its own step: from here on it stops counting as one, so the shortcut checks can run.
+      document.querySelector('#app .recovery-dialog')?.closest('.modal-backdrop')?.classList.remove('modal-backdrop');
       console.log('[smoke] step: layerDragUi');
       const rowTimeline = document.querySelector('#app [data-testid="timeline"]');
       const rowBox = rowTimeline.getBoundingClientRect();

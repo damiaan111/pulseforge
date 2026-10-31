@@ -136,7 +136,7 @@ function LibrarySection(): React.JSX.Element {
         <button type="button" title="Add images to this category" data-action="library-add" onClick={() => void addToLibrary(category === 'all' ? '' : category)}>Add…</button>
         <button type="button" title="Pick a random image from this category as a background" disabled={items.length === 0} onClick={random}>Random</button>
         <button type="button" title="Open the library folder" onClick={() => void window.pulseforge.revealLibrary()}>Folder</button>
-        <button type="button" title="Re-read the folder" onClick={() => void loadLibrary()}>↻</button>
+        <button type="button" title="Re-read the folder" onClick={() => void loadLibrary().then(() => useStudio.getState().notify({ text: 'Read the library folder again.', kind: 'ok' }))}>↻</button>
       </div>
       {library === null ? (
         <p className="dim">Reading the library…</p>

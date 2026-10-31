@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1328 of 1328 with
+> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1348 of 1348 with
 > nothing skipped; golden 29/29 identical; smoke 45/45 (46/46 with a real queued render and an
 > auto-directed batch render, the day before); `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
@@ -187,6 +187,7 @@
 | 4.84 | The generated presets retired; the auto-director uses MilkDrop |
 | 4.85 | Exporting without NVENC |
 | 4.86 | Two real songs, start to finish: three fixes |
+| 4.87 | Every control pressed in the real studio; disk use |
 
 ---
 
@@ -4666,6 +4667,30 @@ drunk"). Lyrics over a busy MilkDrop preset can be hard to read, worse with heav
 makes files large: 658 MB against 130 MB for one song. **Wider tempo question:** 76 bpm on the second song against
 librosa's 101: the detected grid sits closer to the drum hits (76% within 30 ms against 55%), so it stays. No ear
 has judged either.
+
+### 4.87 Every control pressed in the real studio; disk use
+
+**How.** Electron with a remote-debugging port and real mouse and key input, in its own settings and profile, with native
+dialogs answered by the test (`out/audit/`, not in the repo). A crawl pressed 536 controls in every panel, drawer and dialog;
+function checks looked for what each thing should do; a journey went from an empty studio through import, stems, transcription,
+Auto, Surprise me, save and a queued render to a verified MP4. No exception, no error in the console.
+
+**Fixed.** Keys reached the studio behind an open dialog: Space played, Delete could remove keyframes (`dialogOpen`). A MilkDrop
+click with nothing selected stacked a second full-frame layer. The layer action row and the fade select ran past the left rail,
+and the filter buttons cut "MilkDrop" off. The Auto offer sat below 1,754 presets, out of sight: it scrolls into view. Saving an
+Untitled project now takes the file's name, or every render said "Untitled". The three Reload buttons say they did something.
+A render left its scratch folder behind, 95 of them and 812 MB: removed on success, and swept at start (`sweepWork`).
+
+**Crash, not understood.** The renderer ended twice (`crashed`, exit code 143) about 2.5 minutes into the same crawl of the
+Lyrics panel, then not on a third full run, nor in 60 edits with memory held flat at 410 MB of heap. Cause unknown. The window
+now reloads after one (at most once a minute), and the recovery dialog offers the autosave; before, it stayed blank.
+
+**The 31 fps here is Remote Desktop.** This machine shows through the Microsoft Remote Display Adapter at 32 Hz, so
+`requestAnimationFrame` runs at 32 ms and the preview reports frames as dropped. Exports are unaffected. Earlier notes of 32 fps
+previews were this.
+
+**Disk.** 15 GB is `vendor/`: Python and torch 4.7, Whisper 4.4 (large-v3 is 2.9 and optional), alignment 1.8 (four optional
+languages 1.4), the wheelhouse and archives 2.9 (kept on purpose, PROJECT.md), the rest under 1.5.
 
 ## 5. Measured results
 

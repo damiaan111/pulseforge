@@ -35,7 +35,7 @@ import { peaksForRange } from '../../analysis/peaks.ts';
 import { sequence, setAudio, setLayerTimeRange } from '../../project/commands.ts';
 import type { TimeRange } from '../../project/document.ts';
 import { setLoopEnd, toggleLoop } from '../loop-region.ts';
-import { actionForKey, keyName } from '../shortcuts.ts';
+import { actionForKey, dialogOpen, keyName } from '../shortcuts.ts';
 import { dragLayerRange, dragLayersTogether, layerDragKind, linesInRange, trimClip, type ClipPlacement, type LayerDragKind } from '../timeline-drag.ts';
 import { lyricTokens, wordSpans } from '../../engine/core/lyrics.ts';
 import { sourceToTimelineSeconds, TICKS_PER_SECOND, ticksToSeconds, timelineToSourceSeconds } from '../../engine/core/time.ts';
@@ -584,7 +584,7 @@ export function Timeline(): React.JSX.Element {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
-      if (typing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (typing || dialogOpen() || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
       const action = actionForKey(keyName(event), useStudio.getState().settings?.shortcuts ?? {});
       if (action === 'fit') setView(fitView(duration));
       else if (action === 'loopIn' || action === 'loopOut') {
@@ -608,7 +608,7 @@ export function Timeline(): React.JSX.Element {
     const onDelete = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
-      if (typing || event.key !== 'Delete') return;
+      if (typing || dialogOpen() || event.key !== 'Delete') return;
       const state = useStudio.getState();
       if (state.keySelection.length === 0 && state.markerSelection !== null) {
         event.preventDefault();

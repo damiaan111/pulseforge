@@ -390,7 +390,7 @@ function ModulesPanel(): React.JSX.Element {
         </span>
         <span className="spacer" />
         <button type="button" title="Paste a shader from shadertoy.com; it becomes a layer" data-action="shadertoy-paste" onClick={() => useStudio.getState().setShadertoyOpen(true)}>Paste Shadertoy…</button>
-        <button type="button" title="Read modules/ again" data-action="modules-reload" onClick={() => void loadModules()}>Reload</button>
+        <button type="button" title="Read modules/ again" data-action="modules-reload" onClick={() => void loadModules().then(() => useStudio.getState().notify({ text: 'Read the modules folder again.', kind: 'ok' }))}>Reload</button>
         <button type="button" title="Open the modules folder" onClick={() => void window.pulseforge.revealModules()}>Folder</button>
       </div>
       {problems.map((problem) => (

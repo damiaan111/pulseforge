@@ -12,7 +12,7 @@
 // Everything the director writes is an ordinary layer, effect or binding: the panel says so, and a
 // reroll keeps whatever the user has edited since.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { DIRECTOR_LOCKS, type DecisionStep, type DirectorLock, type DirectorRoll } from '../../project/document.ts';
 import { directorBlocker, drawRollThumbnail, rankedTemplates, rollKey, runDirector } from '../director.ts';
@@ -171,7 +171,7 @@ export function AutoDrawer(): React.JSX.Element | null {
           </p>
         ))}
         <p className="dim">Everything generated is ordinary layers, effects and modulations — edit freely; a reroll keeps what you changed.</p>
-        <button type="button" onClick={() => void loadTemplates()} title="Read the template folders again">Reload templates</button>
+        <button type="button" onClick={() => void loadTemplates().then(() => useStudio.getState().notify({ text: 'Read the template folders again.', kind: 'ok' }))} title="Read the template folders again">Reload templates</button>
         <button type="button" onClick={() => void window.pulseforge.revealTemplates()} title={templatesFolder ?? ''}>Open templates folder</button>
       </div>
     </aside>
@@ -225,9 +225,14 @@ export function AutoOffer(): React.JSX.Element | null {
   const offer = useStudio((s) => s.autoOffer);
   const setOpen = useStudio((s) => s.setAutoOpen);
   const dismiss = useStudio((s) => s.dismissAutoOffer);
+  // The audio section sits below the preset browser: an offer out of sight is no offer.
+  const place = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (offer) place.current?.scrollIntoView({ block: 'center' });
+  }, [offer]);
   if (!offer) return null;
   return (
-    <div className="auto-offer" data-testid="auto-offer">
+    <div className="auto-offer" data-testid="auto-offer" ref={place}>
       <span>Make a project from this track?</span>
       <button type="button" className="primary" data-action="auto-offer-open" onClick={() => setOpen(true)}>✦ Auto…</button>
       <button type="button" title="Not now" onClick={dismiss}>✕</button>

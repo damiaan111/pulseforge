@@ -8,6 +8,7 @@
 // the app. The main process wires its `onChange` to the renderer.
 
 import type { MotionBlur } from '../engine/core/time.ts';
+import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { findExportPreset } from '../export/export-presets.ts';
@@ -18,6 +19,12 @@ import { renderDocument } from '../export/render-document.ts';
 import { aspectBucket } from '../project/document.ts';
 import { newId } from '../project/ids.ts';
 import { loadDocument } from '../project/load.ts';
+
+/** Scratch no job needs any more: a finished render's, or one taken off the list. */
+export async function sweepWork(workRoot: string, keep: ReadonlySet<string>): Promise<void> {
+  const names = await readdir(workRoot).catch(() => [] as string[]);
+  await Promise.all(names.filter((name) => !keep.has(name)).map((name) => rm(join(workRoot, name), { recursive: true, force: true }).catch(() => undefined)));
+}
 
 export interface RenderServiceOptions {
   /** `queue.json` and the document snapshots. */
@@ -131,6 +138,8 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         tracker ??= new ProgressTracker({ total: result.frames, now: () => performance.now() });
         tracker.update(result.frames);
         report(tracker.snapshot);
+        // Scratch for this render alone; a failed job keeps its own, to retry and to read.
+        await rm(join(options.workRoot, job.id), { recursive: true, force: true }).catch(() => undefined);
         return { reportPath: result.reportPath };
       } finally {
         clearInterval(poll);
@@ -138,6 +147,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
     },
   });
   await queue.load();
+  await sweepWork(options.workRoot, new Set(queue.list().filter((job) => job.status !== 'done').map((job) => job.id)));
 
   const kick = () => {
     queue.drain().catch((error: unknown) => {

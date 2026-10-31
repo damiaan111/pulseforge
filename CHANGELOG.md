@@ -13,6 +13,8 @@ The first version meant for other people.
 - **The generated presets are gone.** Save your own, or start from MilkDrop.
 - **A launcher:** `Pulseforge.cmd` downloads what it needs, and you choose the components. MIT licence.
 - Fixed: renders that stalled for two minutes at random, when two started as the app rebuilt its render page.
+- Fixed: keys acting on the studio behind an open dialog; a MilkDrop click stacking a second layer; panels running
+  off the left rail; render scratch folders piling up. A crashed window reloads and offers the autosave.
 - Fixed: the beat grid drifting off the music over a song; long lyric lines cut off in Lyric Focus; a sung "I" or
   "a" costing its whole line the word timing.
 

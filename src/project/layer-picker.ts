@@ -92,12 +92,22 @@ export function milkdropLayer(document: ProjectDocument, preset: string): Module
   return undefined;
 }
 
+/** The MilkDrop layer on top that can still be changed. */
+function topMilkdropLayer(document: ProjectDocument): ModuleLayer | undefined {
+  let top: ModuleLayer | undefined;
+  for (const { layer } of walkLayers(document.layers)) {
+    if (layer.kind === 'module' && layer.module === MILKDROP_MODULE && !layer.locked) top = layer;
+  }
+  return top;
+}
+
 /** A click on a MilkDrop card: the same rules as `pickLayer`, with the preset as the choice. */
 export function pickMilkdrop(document: ProjectDocument, selectedLayerId: string | null, preset: string, kindOf: KindLookup, stack: boolean, newId: () => string): PickResult {
   const inUse = stack ? undefined : milkdropLayer(document, preset);
   if (inUse !== undefined && !inUse.locked) return { command: { ...removeLayer(inUse.id), label: `Remove ${preset}` }, select: null, note: null };
 
-  const selected = target(document, selectedLayerId);
+  // With nothing selected a click means the picture already there, not a second one over it.
+  const selected = target(document, selectedLayerId) ?? (stack ? undefined : topMilkdropLayer(document));
   if (!stack && selected?.module === MILKDROP_MODULE) {
     const layer: ModuleLayer = { ...selected, name: preset, params: { ...selected.params, preset } };
     return { command: replaceLayer(selected.id, layer, `Use ${preset}`), select: selected.id, note: null };
