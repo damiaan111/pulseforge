@@ -6,6 +6,14 @@
   that cannot run are listed with the reason.
 - **Titles** can run vertically, grow a solid 3D side that follows the beat, and draw emoji in colour
   (with the Colour emoji component).
+- **A real Windows app:** `Pulseforge-Setup-1.0.0.exe` installs Pulseforge with a Start menu and desktop shortcut, and
+  `.pvproj` files open in it. Components live outside the program, in a folder you can choose, so updates leave them alone.
+- **Remove optional models and libraries** from the app, and install them again whenever you like.
+- **Auto:** colours from an image or the song's cover, the musical key, palette shifts at a chorus, Extract as template,
+  and arrangement curves to keyframes.
+- **MIDI files** drive parameters, note by note. **Combine audio files** into one track. **A video file** works as audio,
+  and can stay as the background. **A/B render** puts two versions side by side. A read-only **node view** of the project.
+- Thai breaks between words; the MilkDrop preset field is a searchable list; new visuals stay under the words.
 
 ## 1.0.0
 

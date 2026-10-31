@@ -57,6 +57,8 @@ through Butterchurn (STATUS 4.83). ROADMAP §6 lists what is left. `npm run test
   that dies leaves the old one behind.
 - The end goal is a clean public repo: `Pulseforge.cmd` starts everything from nothing, and the app
   offers components (`setup/components.ts`). Nothing may assume the owner's PC, path or tools.
+- `npm run dist` builds the installer. Anything the app writes goes under `DATA_ROOT`, never `ROOT`: installed, `ROOT` is
+  the program and an update replaces it (`setup/lib/paths.ts`).
 
 - MilkDrop is in, the director uses it (`src/director/milkdrop-catalogue.ts` is generated: `npm run
   milkdrop:measure -- --write`), and video exports on the CPU where NVENC will not open (STATUS 4.84, 4.85).

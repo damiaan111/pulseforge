@@ -9,8 +9,8 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1355 of 1355 with
-> nothing skipped; golden 29/29 identical; smoke 45/45 (46/46 with a real queued render and an
+> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1553 passed and 13 skipped (optional
+> components; see 4.92); golden 29/29 identical; smoke 46/46 (46/46 with a real queued render and an
 > auto-directed batch render, the day before); `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
 >
@@ -192,6 +192,7 @@
 | 4.89 | ISF shaders; vertical, extruded and colour titles |
 | 4.90 | Video as audio, combined audio, A/B render, MIDI, the node view |
 | 4.91 | The auto-director's Could-level list: image palettes, cover art, key, palette shifts, extract, curves to keyframes |
+| 4.92 | A real Windows app; removing components; the whole thing tested again |
 
 ---
 
@@ -4823,6 +4824,34 @@ sections; the panel says so and a test pins it. Stored documents are not migrate
 keyframes and Extract as template in the real studio, with its own template folder. **Not verified:**
 how any of it looks: no shift or derived palette has been judged by eye on a real song, and key
 accuracy has only been measured on synthetic chords.
+
+### 4.92 A real Windows app; removing components; the whole thing tested again
+
+**The exe.** `npm run dist` runs electron-builder: `release/Pulseforge-Setup-1.0.0.exe` (116 MB, NSIS, per user, folder
+choosable, unsigned) and `release/win-unpacked/Pulseforge.exe`. No asar: setup and the sidecar need real files in
+`resources/app`, and nothing from `node_modules` is needed at run time. `setup/lib/paths.ts` now splits **ROOT** (the program)
+from **DATA_ROOT** (everything written). From source they are the same folder. Installed, data is
+`%LOCALAPPDATA%\Pulseforge`, or what `%APPDATA%\Pulseforge\data-location.txt` names (Change... in the chooser), or
+`PULSEFORGE_DATA`, which child processes inherit. One studio per person when installed: a second double-click opens the
+project in the first window. No menu bar. `scripts/make-icon.mjs` draws `assets/icon.png`.
+
+**Removing.** `setup/lib/remove.ts` takes an optional model or MilkDrop off the disk with its lock lines; a setting that named
+it falls back to the default. The owner's seven unused models went this way (4.7 GB). A uv cache of 4.15 GB in `vendor/.cache` is
+hard links into `vendor/python`: Explorer counts those files twice, which is what the unexplained gap in 4.87 was.
+
+**Tested on this machine, driver 621.01, Remote Desktop.** `npm run check` 1566: 1553 passed, 13 skipped, all for optional
+components not installed here; those 13 pass when installed in a scratch folder (ISF, emoji) or through the exe (6 stems).
+Golden 29/29 identical. Smoke 46/46 from source. Setup through `Pulseforge.exe` from
+an empty folder: core, stems, lyrics, beats, MilkDrop and 6 stems, 14 GB, everything loads offline on the GPU. Silent install and
+uninstall: shortcuts come and go, the data stays; the installed app's first start shows the chooser and seeds `modules/`; a second
+launch with a project opens it in the first window. Real input in the real app: 563 controls, no exception; the
+picker (a half-typed name applies nothing), MIDI import, node view, colours from an image, Extract as template, Combine with two
+real songs (3:30 FLAC), the video choice. A rendered MIDI binding flashes on exactly 0, 0.5 and 1.0 s.
+
+**Known.** Uninstalling leaves the `.pvproj` registry key. `program not linked` WebGL warnings come with a MilkDrop project and
+never in an empty studio; the preset is not identified. A CQ 17 export of a busy MilkDrop preset ran to 40 Mbit/s (383 MB for 79 s).
+
+**Final build.** Packaged smoke 46/46. The journey, empty studio to a verified 4744-frame MP4, 18/18.
 
 ## 5. Measured results
 

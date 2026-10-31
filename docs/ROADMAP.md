@@ -122,7 +122,7 @@
 | S16 Beat and structure refinement | ✅ | 4.77 — librosa (madmom has no Windows wheels), stored in the project; F 0.98 against 0.20–0.40 on known tracks; not in batch or the auto-director |
 | S17 Unicode & font fallback | ✅ | 4.76 — bundled Noto chain, right-to-left layout and karaoke, CJK line breaks, a report instead of system fonts; emoji are monochrome |
 
-Could-haves: C1 (key only, not chords or ML structure) and C7 are done (STATUS 4.89); the rest are untouched.
+Could-haves: see §6.
 
 ---
 
@@ -206,9 +206,10 @@ effect on a finished video last. Each is noted beside its requirement in §2.
 **Lyrics:** transcribed line breaks follow Whisper's segments, and text over a busy MilkDrop preset can be hard to
 read (STATUS 4.86).
 
-**Before a public release:** a PC with no NVIDIA card has not been tried, only this one with NVENC unusable;
-stems and lyrics through the chooser from a fresh clone (done with the setup command, not the chooser); moving
-the FFmpeg pin before BtbN drops it, around 2028.
+**Before a public release:** a PC with no NVIDIA card has not been tried, only this one with NVENC unusable; the
+installer is unsigned, so Windows SmartScreen warns about it until there is a code-signing certificate; the app's own
+Install button from an empty folder (setup itself ran that way through the exe, STATUS 4.92); moving the FFmpeg pin
+before BtbN drops it, around 2028.
 
 **Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). ISF is in as a dialect and an optional
 component (STATUS 4.89): 105 of Vidvox's 327 files run; point2D inputs, more image inputs and passes are what
@@ -217,13 +218,13 @@ it changes existing projects, so it waits for the owner. Hydra is ruled out (AGP
 the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site default is
 non-commercial, so nothing is bundled from it without checking each shader.
 
-**Auto-director:** the Could-level list is done (STATUS 4.89). Left: choosing which built-in templates
+**Auto-director:** the Could-level list is done (STATUS 4.91). Left: choosing which built-in templates
 follow the key or shift their palette, which is taste, not engineering.
 
-**Text:** colour emoji in lyrics, vertical lyrics (STATUS 4.89 did titles), Thai word segmentation.
+**Text:** colour emoji in lyrics, vertical lyrics (STATUS 4.89 did titles).
 
-**Components:** removing one from the app (today: delete its folder under `vendor/`).
+**Components:** stems, lyrics and beats cannot be removed one at a time, since they share a Python environment.
 
 **The owner's decisions:** §4, above all whether to keep offering the non-commercial alignment models.
 
-**Could-haves:** C1's key and C7 are done (STATUS 4.89); the rest are optional and not started.
+**Could-haves:** C1's key, C2 (read-only), C3, C7, C9, C10, C12, C13, C14 and C15 are done. Left, each deliberately: **C4** live input (the engine has no live path, by constraint 1, so it would be a second product); **C6** WebGPU (a second renderer that could not stay byte-identical with the first); **C8** NDI and Spout (native addons under the NDI SDK's own licence, which does not sit with an MIT repo, and nothing here to test against). Also left: chords and ML structure in C1.

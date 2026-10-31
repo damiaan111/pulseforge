@@ -71,6 +71,13 @@ You do not need Node, Python, FFmpeg or git. The launcher fetches what is missin
 
 ## Install
 
+**The easy way:** run `Pulseforge-Setup-1.0.0.exe`, from `npm run dist` or a release. It installs for you alone, needs no
+administrator rights, and adds a Start menu and desktop shortcut. The first start offers the components. They go to
+`%LOCALAPPDATA%\Pulseforge` unless you choose another folder there, and uninstalling leaves them. The installer is not
+code-signed, so Windows may warn the first time: choose More info, then Run anyway.
+
+**From source:**
+
 1. Download this repository (**Code → Download ZIP** on GitHub, or `git clone`) and unzip it
    anywhere you like.
 2. Double-click **`Pulseforge.cmd`**.
