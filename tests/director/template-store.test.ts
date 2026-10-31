@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { loadTemplates } from '../../src/director/template-library.ts';
-import { readTemplateFiles } from '../../src/director/template-store.ts';
+import { readTemplateFiles, writeUserTemplate } from '../../src/director/template-store.ts';
 import { TEMPLATE_DIR } from './fixture.ts';
 
 describe('the template library', () => {
@@ -25,6 +25,17 @@ describe('the template library', () => {
     expect(pulse.origin).toBe('user');
     expect(pulse.template.name).toBe('My Pulse');
     expect(problems.map((p) => p.path)).toEqual([join(user, 'broken.json')]);
+  });
+
+  it('writes a draft where the library reads it, and never over another file', async () => {
+    const user = join(await mkdtemp(join(tmpdir(), 'pf-templates-')), 'not-yet');
+    const text = JSON.stringify({ formatVersion: 1, id: 'tpl.user.draft', name: 'Draft', slots: [{ id: 'HERO', role: 'HERO', required: true, candidates: [{ module: 'core.visualizer.bars' }] }] });
+    const path = await writeUserTemplate(user, 'draft', text);
+    expect(path).toBe(join(user, 'draft.json'));
+    const { templates } = loadTemplates(await readTemplateFiles({ builtin: TEMPLATE_DIR, user }));
+    expect(templates.find((t) => t.template.id === 'tpl.user.draft')?.origin).toBe('user');
+    await expect(writeUserTemplate(user, 'draft', '{}')).rejects.toThrow();
+    await expect(writeUserTemplate(user, '../escape', '{}')).rejects.toThrow('not a template file name');
   });
 
   it('a missing user folder is simply empty', async () => {

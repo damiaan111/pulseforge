@@ -89,7 +89,7 @@ export function hueName(hex: string): string {
 }
 
 /** Hue offsets of secondary and accent from the primary. */
-const HARMONY: Record<Harmony, readonly [number, number]> = {
+export const HARMONY: Record<Harmony, readonly [number, number]> = {
   analogous: [35, -35],
   complementary: [180, 30],
   triad: [120, 240],

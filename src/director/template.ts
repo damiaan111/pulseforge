@@ -37,6 +37,9 @@ export type SlotRole = (typeof SLOT_ROLES)[number];
 export const CONDITIONS = ['hasTitle', 'hasLyrics', 'noLyrics', 'hasLogo', 'hasStems', 'hasBackgroundImage', 'hasMilkdrop'] as const;
 export type Condition = (typeof CONDITIONS)[number];
 
+/** A module's share of the budget, by its declared GPU cost (§5.1 step 5). */
+export const GPU_COST = { low: 1, medium: 2, high: 4 } as const;
+
 export const INTENSITIES = { subtle: 0.08, medium: 0.25, strong: 0.6 } as const;
 export type Intensity = keyof typeof INTENSITIES;
 

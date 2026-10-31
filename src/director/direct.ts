@@ -46,7 +46,7 @@ import { chooseLook, milkdropLooks } from './milkdrop.ts';
 import { contrastRatio, derivePalette, generatePalette, hexToHsl, hueName, type GeneratedPalette } from './palette.ts';
 import { roleKeys, worstContrast } from './palette-shift.ts';
 import {
-  parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
+  GPU_COST, parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
 } from './template.ts';
 
 export interface DirectorInput {
@@ -98,7 +98,6 @@ export class DirectorError extends Error {
   }
 }
 
-const COST = { low: 1, medium: 2, high: 4 } as const;
 const ROLE_MODULE: Partial<Record<SlotRole, string>> = { TEXT: 'core.text.title', LYRICS: 'core.text.lyrics', LOGO: 'core.source.logo' };
 /** What a layer is called when neither the slot nor the candidate names it. */
 const ROLE_NAME: Partial<Record<SlotRole, string>> = { TEXT: 'Title', LYRICS: 'Lyrics', LOGO: 'Logo' };
@@ -441,14 +440,14 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   // A kept layer whose slot this template does not fill is still the user's: it stays as their own.
   for (const [slot, layer] of keptBySlot) {
     if (filled.get(slot)?.layer.id === layer.id) continue;
-    userLayers.push({ layer, anchor: null });
+    userLayers.push({ layer, anchor: slot });
     note('keep', `"${layer.name}" stays as your own layer: ${template.name} has no place for it in ${slot}.`, { layer: layer.id, slot });
   }
 
   // Budget (§5.1 step 5, §7): drop the lowest-priority optional slots until it fits.
   const pixelScale = Math.max(1, (document.canvas.width * document.canvas.height) / (1920 * 1080));
-  const costOf = () => [...filled.values()].reduce((sum, f) => sum + COST[f.manifest.capabilities.gpuCost] * pixelScale, 0)
-    + post.reduce((sum, p) => sum + (COST[modules.get(p.effect.module)?.capabilities.gpuCost ?? 'low'] * pixelScale) / 2, 0);
+  const costOf = () => [...filled.values()].reduce((sum, f) => sum + GPU_COST[f.manifest.capabilities.gpuCost] * pixelScale, 0)
+    + post.reduce((sum, p) => sum + (GPU_COST[modules.get(p.effect.module)?.capabilities.gpuCost ?? 'low'] * pixelScale) / 2, 0);
   const layerCount = () => filled.size + userLayers.length;
   for (;;) {
     const over = layerCount() > template.budget.maxLayers ? 'layers' : costOf() > template.budget.maxCost ? 'cost' : null;
@@ -685,7 +684,8 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   const fadeIn = template.arrangement.fadeIn;
   const fadeOut = template.arrangement.fadeOut;
   let fadeLayer: ModuleLayer | null = null;
-  if ((fadeIn > 0 || fadeOut > 0) && durationSeconds > fadeIn + fadeOut + 1 && modules.get('core.source.background') !== undefined) {
+  // A kept Fade layer is doing this already; a second would darken the same seconds twice.
+  if (!keptBySlot.has('FADE') && (fadeIn > 0 || fadeOut > 0) && durationSeconds > fadeIn + fadeOut + 1 && modules.get('core.source.background') !== undefined) {
     const id = newId();
     const points: CurvePoint[] = [];
     const at = (s: number, v: number) => points.push({ ticks: secondsToTicks(s), value: v });
@@ -753,7 +753,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   // Palette shifts (§6): the colours trade places section by section, as ordinary keyframes on the
   // parameters that link to a role. Last, so a template without them draws no ids and changes nothing.
   const shiftTracks: { track: AutomationTrack; slot: string }[] = [];
-  const shifting = arrangement.sections.filter((s) => s.paletteShift !== null);
+  const shifting = arrangement.sections.filter((s, i) => s.paletteShift !== null && s.paletteShift !== arrangement.sections[i - 1]?.paletteShift);
   if (shifting.length > 0) {
     const backgroundHex = resolveRole(palette, 'background');
     const textHex = resolveRole(palette, 'text');
@@ -798,7 +798,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
       shiftParams(`global.effects.${effect.id}.params.`, modules.get(effect.module)?.params ?? [], effect.params, 'POST', modules.get(effect.module)?.name ?? effect.module, null, new Set());
     }
     if (shiftTracks.length > 0) {
-      note('arrange', `The colours trade places in ${shifting.map((s) => `${s.label} ${clock(s.startSeconds)} (primary with ${s.paletteShift ?? ''})`).join(', ')}: ${shiftTracks.length} colour track${shiftTracks.length === 1 ? '' : 's'} of ordinary keyframes.`, { tracks: shiftTracks.length });
+      note('arrange', `The colours trade places from ${shifting.map((s) => `${s.label} ${clock(s.startSeconds)} (primary with ${s.paletteShift ?? ''})`).join(', ')}: ${shiftTracks.length} colour track${shiftTracks.length === 1 ? '' : 's'} of ordinary keyframes.`, { tracks: shiftTracks.length });
     }
   }
 

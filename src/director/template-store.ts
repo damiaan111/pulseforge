@@ -6,10 +6,22 @@
 // parse is listed as a problem with its reason rather than skipped (CLAUDE.md #4). Plain Node: the
 // main process reads the folders; the studio parses what it is sent (template-library.ts).
 
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { TemplateFile } from './template-library.ts';
+
+/**
+ * A new template in the user's folder, as `<stem>.json`. Refuses to replace a file: a draft must
+ * never quietly overwrite something already there, so a clash is the caller's to name differently.
+ */
+export async function writeUserTemplate(folder: string, stem: string, text: string): Promise<string> {
+  if (!/^[a-z0-9][a-z0-9.-]{0,79}$/.test(stem)) throw new Error(`"${stem}" is not a template file name.`);
+  await mkdir(folder, { recursive: true });
+  const path = join(folder, `${stem}.json`);
+  await writeFile(path, text, { encoding: 'utf8', flag: 'wx' });
+  return path;
+}
 
 /** Every `.json` in the two folders, as text. A missing folder is simply empty. */
 export async function readTemplateFiles(folders: { readonly builtin: string; readonly user: string }): Promise<TemplateFile[]> {

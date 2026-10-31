@@ -196,6 +196,15 @@ describe('rerolls and keyframes', () => {
     expect(second.log.some((e) => e.step === 'keep' && e.text.includes('no longer in the project'))).toBe(true);
   });
 
+  it('a kept Fade layer is not doubled by a new one', () => {
+    const first = direct(directorInput(), { seed: 5, templateId: NEON }).document;
+    const fade = first.director!.generated.find((m) => m.slot === 'FADE')!;
+    const keyed = setKeyframe(`layers.${fade.id}.opacity`, 0, 1, { newId }).apply(first);
+    const second = direct(directorInput(keyed), { seed: 6, templateId: NEON }).document;
+    expect(second.layers.filter((l) => l.name === 'Fade').map((l) => l.id)).toEqual([fade.id]);
+    expect(second.layers.at(-1)!.id).toBe(fade.id);
+  });
+
   it('a kept layer survives a template with no slot for it, keys and all', () => {
     const first = direct(directorInput(), { seed: 5, templateId: 'tpl.neon.pulse' }).document;
     const accentMark = first.director!.generated.find((m) => m.kind === 'layer' && m.slot === 'ACCENT');
