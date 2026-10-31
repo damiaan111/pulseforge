@@ -188,6 +188,7 @@
 | 4.85 | Exporting without NVENC |
 | 4.86 | Two real songs, start to finish: three fixes |
 | 4.87 | Every control pressed in the real studio; disk use |
+| 4.88 | Video as audio, combined audio, A/B render, MIDI, the node view |
 
 ---
 
@@ -4711,6 +4712,29 @@ row dragging, through the browser's drag protocol (plain synthetic mouse events 
 
 One full `npm run check` failed four GPU tests with "the sidecar did not report ready within 60s"; they passed alone in 25 s and
 in the next full run, 1355 of 1355. A cold Python start under the whole suite's load, seen once.
+
+### 4.88 Video as audio, combined audio, A/B render, MIDI, the node view
+
+Five Could-haves. `document.audio` stays one file; C14 and C13 bring more in as one.
+
+- **Video as audio (C14):** Import audio takes video files and asks: sound only, or sound and picture. The sound goes to a 24-bit
+  FLAC in the library's `Audio` folder (`assets/audio-work.ts`), as does any format the preview cannot play (AIFF). The picture is a
+  bottom layer, in one undo step with the audio (`project/audio-import.ts`).
+- **Combine audio files (C13):** a list in the audio panel, in the order shown, joined at 48 kHz stereo into a FLAC whose file name
+  and comment say what went in. Lossy sources hotter than full scale clip at 24-bit integer; a float WAV was not worth ten times the size.
+- **A/B render (C10):** in the export dialog, against the last saved version or another project. A queue job with a second snapshot;
+  both sides are `renderDocument`, joined by `hstack` (`export/comparison.ts`). The right takes the left's size and frame rate, the
+  length is the shorter timeline, the sound is the left's. Twice the width, scaled evenly past 4096 for H.264 and 8192 for HEVC. No
+  engine change. Motion blur, supersampling and the range apply to both sides; a range past the shorter length fails with the reason.
+- **MIDI (C3):** `src/midi/parse.ts` reads formats 0 and 1 (and SMPTE timing); format 2 is refused. Times come from the tempo map in
+  exact BigInt arithmetic, rounded once. The notes live in the document (`midi`, absent from a project without one, no migration).
+  The `midi` source is velocity with a 0.25 s linear fall, the strongest of overlapping notes, placed like the audio; look-ahead 0.
+  Note, range and channel in the binding editor. Note length is stored and not used yet.
+- **Node view (C2):** Nodes in the top bar. `project/node-graph.ts` is the pure layout; read-only, and a click selects the layer.
+
+Verified: a real A/B job through `createRenderService` (two documents of different sizes, rates and lengths gave 1280×360, 30 fps,
+30 frames, verified) and the smoke check's new `importExtras`, 46 of 46. Combining and MIDI import have no file dialog in the smoke:
+their code runs in unit tests against real FFmpeg and hand-built files, the buttons with chosen files have not been pressed.
 
 ## 5. Measured results
 

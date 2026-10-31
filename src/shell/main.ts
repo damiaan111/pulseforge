@@ -3340,6 +3340,9 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
     await js(click('#app header button[data-action="modulation-matrix"]'));
     await snap(`${label}-7c-modulation-matrix`);
     await js(click('#app header button[data-action="modulation-matrix"]'));
+    await js(click('#app header button[data-action="node-view"]'));
+    await snap(`${label}-7d-node-view`);
+    await js(click('#app header button[data-action="node-view"]'));
     // Lyrics (P6): the drawer's three tabs, a selected line's words, and tap-to-sync running. The
     // smoke's own lyrics are still in the project (three lines, two timed).
     await js(click('#app header button[data-action="lyrics-drawer"]'));
