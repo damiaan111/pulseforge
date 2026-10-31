@@ -45,7 +45,7 @@ import { decodeMono48k } from '../analysis/decode.ts';
 import { encodePeaks } from '../analysis/peaks.ts';
 import {
   IPC, type AnalysisPayload, type AudioBytes, type CollectSummary, type EnvironmentReport, type FolderSearchResult, type FontBytes, type FontLoadResult, type LutFile, type LutLoadResult,
-  type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
+  type ImageBytes, type ImageLoadResult, type LibraryListing, type PreparedAudio, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
   type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob, type RenderReadiness, type ComponentsInfo,
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
@@ -56,6 +56,8 @@ import { addToLibrary, listLibrary } from '../assets/library.ts';
 import {
   PROXY_WIDTH, VIDEO_EXTENSIONS, extractSequence, framePath, hashVideoFile, probeVideo, sequenceDir,
 } from '../assets/video-cache.ts';
+import { combineAudio, extractAudio, type CombinedAudio } from '../assets/audio-work.ts';
+import { AUDIO_EXTENSIONS, needsWorkingAudio } from '../assets/media-types.ts';
 import { loadDocument } from '../project/load.ts';
 import { scanModules, type ModuleScan } from '../modules-folder/scan.ts';
 import { motionBlurProblems } from '../engine/core/time.ts';
@@ -623,11 +625,51 @@ function registerHandlers(): void {
       title: 'Import audio',
       properties: ['openFile'],
       filters: [
-        { name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'm4a', 'ogg', 'opus', 'aac', 'aiff'] },
+        { name: 'Audio or video', extensions: [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS] },
         { name: 'All files', extensions: ['*'] },
       ],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+
+  // Working audio (assets/audio-work.ts): in the library, because a project keeps pointing at it.
+  const workingAudioFolder = () => join(libraryFolder(), 'Audio');
+  const videoFileAt = async (path: string): Promise<VideoFile> => {
+    const info = await probeVideo(FFPROBE_EXE, path);
+    const { size } = await stat(path);
+    return { path, hash: await hashVideoFile(path), size, name: basename(path), width: info.width, height: info.height, durationSeconds: info.durationSeconds };
+  };
+
+  ipcMain.handle(IPC.audioPrepare, async (_event, path: unknown, picture: unknown): Promise<PreparedAudio> => {
+    if (typeof path !== 'string') throw new Error('prepareAudio needs a path');
+    try {
+      return {
+        path: needsWorkingAudio(path)
+          ? await extractAudio({ ffmpegExe: FFMPEG_EXE, input: path, folder: workingAudioFolder(), contentHash: await hashVideoFile(path) })
+          : path,
+        video: picture === true ? await videoFileAt(path) : null,
+      };
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
+  ipcMain.handle(IPC.audioPickMany, async (): Promise<readonly string[]> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Add files to combine',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Audio or video', extensions: [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS] }, { name: 'All files', extensions: ['*'] }],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
+
+  ipcMain.handle(IPC.audioCombine, async (_event, paths: unknown): Promise<CombinedAudio> => {
+    if (!Array.isArray(paths) || !paths.every((p): p is string => typeof p === 'string')) throw new Error('combineAudio needs a list of paths');
+    try {
+      return await combineAudio({ ffmpegExe: FFMPEG_EXE, inputs: paths, folder: workingAudioFolder() });
+    } catch (error) {
+      throw describe(error);
+    }
   });
 
   ipcMain.handle(IPC.audioRead, async (_event, path: unknown): Promise<AudioBytes> => {
@@ -1255,9 +1297,7 @@ function registerHandlers(): void {
     const path = result.canceled ? undefined : result.filePaths[0];
     if (path === undefined) return null;
     try {
-      const info = await probeVideo(FFPROBE_EXE, path);
-      const { size } = await stat(path);
-      return { path, hash: await hashVideoFile(path), size, name: basename(path), width: info.width, height: info.height, durationSeconds: info.durationSeconds };
+      return await videoFileAt(path);
     } catch (error) {
       throw describe(error);
     }

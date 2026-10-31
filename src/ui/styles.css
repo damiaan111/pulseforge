@@ -204,6 +204,10 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .layer-name .meta { color: var(--text-dim); font-size: 11px; }
 .eye { background: none; border: none; padding: 0 8px; }
 .layer-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.video-choice, .combine-audio { margin: 6px 0; }
+.combine-list { list-style: none; margin: 4px 0; padding: 0; }
+.combine-list li { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; }
+.combine-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* "Whole frame": looks like a layer row, but is not one (it selects the global effect chain). */
 .frame-row { display: flex; width: 100%; padding: 0; margin-bottom: 2px; border: 1px solid transparent; border-radius: var(--radius); background: none; color: inherit; font: inherit; cursor: pointer; }
 .frame-row:hover { background: var(--panel); }

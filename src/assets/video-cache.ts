@@ -28,7 +28,7 @@ import { join } from 'node:path';
 import { renameIntoPlace, tempPathFor } from '../node/rename-into-place.ts';
 import type { Rational } from '../engine/core/time.ts';
 
-export const VIDEO_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'mpg', 'mpeg', 'wmv'] as const;
+export { VIDEO_EXTENSIONS } from './media-types.ts';
 
 /** Preview runs from a narrower sequence; export always uses the project's own width. */
 export const PROXY_WIDTH = 640;

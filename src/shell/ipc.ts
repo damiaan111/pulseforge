@@ -37,6 +37,9 @@ export const IPC = {
   libraryThumbnail: 'pf:library:thumbnail',
   libraryReveal: 'pf:library:reveal',
   audioPick: 'pf:audio:pick',
+  audioPickMany: 'pf:audio:pick-many',
+  audioPrepare: 'pf:audio:prepare',
+  audioCombine: 'pf:audio:combine',
   audioRead: 'pf:audio:read',
   audioAnalyze: 'pf:audio:analyze',
   stemAudio: 'pf:audio:stem',
@@ -359,6 +362,13 @@ export type FontLoadResult =
   | { readonly status: 'error'; readonly path: string; readonly message: string };
 
 /** A video file chosen for import: identified and measured, not yet extracted (M39). */
+/** A chosen file made ready to be the project's audio (C14). */
+export interface PreparedAudio {
+  readonly path: string;
+  /** The picture, when it was asked for. */
+  readonly video: VideoFile | null;
+}
+
 export interface VideoFile {
   readonly path: string;
   /** SHA-256 of the file's bytes: the asset hash and the frame-cache key. */
@@ -512,6 +522,12 @@ export interface PulseforgeApi {
   revealLibrary(): Promise<void>;
   /** Shows an open dialog for audio. Resolves to null when the user cancels. */
   pickAudio(): Promise<string | null>;
+  /** Several files at once, for Combine audio files; empty when the user cancels. */
+  pickAudioFiles(): Promise<readonly string[]>;
+  /** The file to use as audio for `path`: a working copy if the preview cannot play it, with its video when asked. */
+  prepareAudio(path: string, picture: boolean): Promise<PreparedAudio>;
+  /** Joins the files in order into one in the library (C13). */
+  combineAudio(paths: readonly string[]): Promise<{ readonly path: string; readonly parts: readonly string[] }>;
   /** Raw file bytes, for a Blob URL the `<audio>` element can play. */
   readAudio(path: string): Promise<AudioBytes>;
   /** Decode + analyse through the shared cache. Slow on a miss, instant on a hit. */

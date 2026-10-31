@@ -1,10 +1,9 @@
 // The left rail (ui-spec §5): the audio panel and the layer list.
 
 import { pickLayer } from '../../project/layer-picker.ts';
-import { secondsToTicks } from '../../engine/core/time.ts';
 import {
   addPaletteColor, duplicateLayer, findLayer, groupLayers, moveLayer, removeLayer,
-  removePaletteColor, sequence, setAudio, setLayerFlag, setPaletteColor, setPaletteRole, ungroupLayer,
+  removePaletteColor, sequence, setLayerFlag, setPaletteColor, setPaletteRole, ungroupLayer,
 } from '../../project/commands.ts';
 import { PALETTE_ROLES } from '../../project/palette.ts';
 import { createGroupLayer } from '../../project/create.ts';
@@ -20,6 +19,9 @@ import { StemsControls } from './StemsControls.tsx';
 import { LyricsSection } from './LyricsPanel.tsx';
 import { AutoOffer } from './AutoPanel.tsx';
 import { useModules } from '../modules.ts';
+import { adoptFile } from '../audio-import.ts';
+import { isVideoFile } from '../../assets/media-types.ts';
+import { CombineAudio } from './CombineAudio.tsx';
 import { useState } from 'react';
 
 /** The drag payload for reordering layers: a layer id, under a type nothing else uses. */
@@ -39,7 +41,9 @@ export function LeftRail(): React.JSX.Element {
   const extendLayerSelection = useStudio((s) => s.extendLayerSelection);
   const select = useStudio((s) => s.select);
   const run = useStudio((s) => s.run);
-  const loadAudio = useStudio((s) => s.loadAudio);
+  // A video was chosen as audio: its sound alone, or its picture too, is asked before anything runs.
+  const [videoChoice, setVideoChoice] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
 
   const { all, manifests } = useModules();
   const VISUALIZERS = all.filter((m) => (LAYER_KINDS as readonly string[]).includes(m.manifest.kind));
@@ -53,18 +57,18 @@ export function LeftRail(): React.JSX.Element {
   async function importAudio(): Promise<void> {
     const path = await window.pulseforge.pickAudio();
     if (path === null) return;
-    await loadAudio(path);
-    const loaded = useStudio.getState().audio;
-    // Only if this file actually loaded. After a failure the store still holds the previous
-    // track, and recording the new path with the old track's length made a document whose
-    // timeline and file disagree.
-    if (loaded === null || loaded.path !== path) return;
-    // Record the clip in the document so the timeline has a length and export knows the file.
-    run(setAudio({
-      path,
-      durationTicks: secondsToTicks(loaded.durationSeconds),
-      clipOutTicks: null,
-    }));
+    if (isVideoFile(path)) setVideoChoice(path);
+    else await prepare(path, false);
+  }
+
+  async function prepare(path: string, picture: boolean): Promise<void> {
+    setVideoChoice(null);
+    setPreparing(true);
+    try {
+      await adoptFile(path, picture);
+    } finally {
+      setPreparing(false);
+    }
   }
 
   function pick(moduleId: string, stack: boolean): void {
@@ -82,6 +86,18 @@ export function LeftRail(): React.JSX.Element {
       <button type="button" className="wide" data-action="import-audio" onClick={() => void importAudio()}>
         {audio === null ? 'Import audio…' : 'Replace audio…'}
       </button>
+      {videoChoice !== null && (
+        <div className="video-choice" data-testid="video-audio-choice">
+          <p className="dim note">{videoChoice.split(/[/\\]/).pop()} is a video. Its sound becomes the project's audio. Use its picture as well, under everything else?</p>
+          <div className="layer-actions">
+            <button type="button" data-action="video-audio-picture" onClick={() => void prepare(videoChoice, true)}>Sound and picture</button>
+            <button type="button" data-action="video-audio-only" onClick={() => void prepare(videoChoice, false)}>Sound only</button>
+            <button type="button" data-action="video-audio-cancel" onClick={() => setVideoChoice(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {preparing && <p className="dim note" data-testid="audio-preparing">Taking the sound out of the file…</p>}
+      <CombineAudio />
       {audio === null ? (
         <p className="empty">No audio yet. The preview runs, but nothing reacts.</p>
       ) : (
