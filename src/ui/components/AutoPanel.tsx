@@ -3,6 +3,7 @@
 // Four things, top to bottom, in the order they are used:
 //  - **Templates**, ranked for this track with their scores and why — the director's first choice
 //    is marked, but any available one can be picked. Unavailable ones say what they are missing.
+//  - **Colours**: optionally, a picture of the user's or the song's own cover, for the palette.
 //  - **Generate** with the picked template, and **Surprise me** with its locks (keep template,
 //    palette, layout, motion) and the roulette toggle (may change template).
 //  - **The history strip**: the last rolls as thumbnails, each restorable.
@@ -57,6 +58,10 @@ export function AutoDrawer(): React.JSX.Element | null {
   const setAutoLocks = useStudio((s) => s.setAutoLocks);
   const autoRoulette = useStudio((s) => s.autoRoulette);
   const setAutoRoulette = useStudio((s) => s.setAutoRoulette);
+  const colourSource = useStudio((s) => s.autoColourSource);
+  const chooseColourImage = useStudio((s) => s.chooseAutoColourImage);
+  const useCoverColours = useStudio((s) => s.useCoverArtColours);
+  const clearColourSource = useStudio((s) => s.clearAutoColourSource);
   const blocker = directorBlocker(useStudio.getState());
   // Ranking reads the analysis and the templates, not the layers: recomputed only when those change.
   const ranked = useMemo(
@@ -117,6 +122,18 @@ export function AutoDrawer(): React.JSX.Element | null {
                 onClick={() => runDirector({ kind: 'generate', templateId: choice })}>
                 {director === null ? 'Generate project' : 'Generate again'}
               </button>
+            </div>
+          </section>
+
+          <section className="auto-colours" data-testid="auto-colours">
+            <h3>Colours</h3>
+            <p className="dim" data-testid="auto-colour-source">
+              {colourSource === null ? 'From the template and the track.' : `From ${colourSource.name}, on the next roll.`}
+            </p>
+            <div className="auto-actions">
+              <button type="button" data-action="auto-colour-image" onClick={() => void chooseColourImage()} title="Choose a picture on this computer: its dominant colours become the palette. Your file is read here and goes nowhere.">Choose image…</button>
+              <button type="button" data-action="auto-colour-cover" onClick={() => void useCoverColours()} title="Use the picture embedded in the song's file, if it has one. Nothing is looked up online.">Use song cover</button>
+              {colourSource !== null && <button type="button" data-action="auto-colour-clear" onClick={clearColourSource} title="Back to the colours the template makes from the track">Clear</button>}
             </div>
           </section>
 

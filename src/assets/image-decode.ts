@@ -57,6 +57,45 @@ export function decodeSize(width: number, height: number, maxSide = MAX_IMAGE_SI
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+/** Art embedded in a song is only read for its colours: this is plenty, and cheap to cluster. */
+const ATTACHED_PICTURE_SIDE = 1024;
+
+/**
+ * The picture embedded in an audio file (cover art), or null when it has none. Found by its
+ * `attached_pic` disposition rather than as stream v:0: a video track is not cover art, and a file
+ * may carry the picture on any stream index. Local only, and the hash is over the decoded pixels,
+ * because the file's own hash would be the song's.
+ */
+export async function decodeAttachedPicture(ffmpegExe: string, ffprobeExe: string, path: string, maxSide = ATTACHED_PICTURE_SIDE): Promise<ImportedImage | null> {
+  const probe = await run(ffprobeExe, ['-v', 'error', '-select_streams', 'v', '-show_entries', 'stream=index,width,height:stream_disposition=attached_pic', '-of', 'json', path]);
+  if (probe.code !== 0) throw new ImageDecodeError(`Could not read ${basename(path)}: ${probe.stderr.trim().split('\n').pop() ?? `exit ${probe.code}`}`);
+  const streams = (JSON.parse(probe.stdout.toString()) as { streams?: { index?: number; width?: number; height?: number; disposition?: { attached_pic?: number } }[] }).streams ?? [];
+  const stream = streams.find((s) => s.disposition?.attached_pic === 1);
+  if (stream?.index === undefined || stream.width === undefined || stream.height === undefined) return null;
+
+  const size = decodeSize(stream.width, stream.height, maxSide);
+  const scale = size.width !== stream.width || size.height !== stream.height ? ['-vf', `scale=${size.width}:${size.height}:flags=lanczos`] : [];
+  const decoded = await run(ffmpegExe, ['-v', 'error', '-nostdin', '-i', path, '-map', `0:${stream.index}`, '-frames:v', '1', ...scale, '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
+  if (decoded.code !== 0) {
+    throw new ImageDecodeError(`FFmpeg could not decode the picture in ${basename(path)}: ${decoded.stderr.trim().split('\n').pop() ?? `exit ${decoded.code}`}`);
+  }
+  const expected = size.width * size.height * 4;
+  if (decoded.stdout.length !== expected) {
+    throw new ImageDecodeError(`The picture in ${basename(path)} decoded to ${decoded.stdout.length} bytes, expected ${expected} for ${size.width}×${size.height}`);
+  }
+  const pixels = new Uint8Array(decoded.stdout);
+  return {
+    width: size.width,
+    height: size.height,
+    pixels,
+    sha256: createHash('sha256').update(pixels).digest('hex'),
+    fileSize: pixels.length,
+    name: basename(path),
+    sourceWidth: stream.width,
+    sourceHeight: stream.height,
+  };
+}
+
 export async function decodeImageFile(ffmpegExe: string, ffprobeExe: string, path: string, maxSide = MAX_IMAGE_SIDE): Promise<ImportedImage> {
   let bytes: Buffer;
   try {

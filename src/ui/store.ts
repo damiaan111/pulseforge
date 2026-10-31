@@ -170,6 +170,11 @@ export interface StudioState {
    * palette it produces is what the project stores, and a roll restores that without the picture.
    */
   autoColourSource: AutoColourSource | null;
+  /** Lets the user pick a picture as Auto's colour source. */
+  chooseAutoColourImage(): Promise<void>;
+  /** The picture embedded in the loaded song, as Auto's colour source; says so when there is none. */
+  useCoverArtColours(): Promise<void>;
+  clearAutoColourSource(): void;
   /** Per asset id: loaded, missing, changed on disk, or unreadable — shown, never silent (M40). */
   assetStatus: Readonly<Record<string, AssetStatus>>;
   /** Font file bytes by content hash, for the preview's text rasteriser. */
@@ -503,6 +508,33 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   images: new Map(),
   autoColourSource: null,
+  async chooseAutoColourImage() {
+    try {
+      const picked = await window.pulseforge.importImage();
+      if (picked === null) return;
+      set({ autoColourSource: { name: picked.name, image: imageOf(picked), origin: 'file' }, toast: { text: `Auto takes its colours from ${picked.name} on the next roll.`, kind: 'ok' } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the image'), kind: 'bad' } });
+    }
+  },
+  async useCoverArtColours() {
+    const audio = get().audio;
+    if (audio === null) return;
+    try {
+      const cover = await window.pulseforge.loadCoverArt(audio.path);
+      if (get().audio?.path !== audio.path) return;
+      if (cover === null) {
+        set({ toast: { text: `${audio.path.split(/[/\\]/).pop() ?? 'This file'} has no picture in it. Choose an image instead.`, kind: 'warn' } });
+        return;
+      }
+      set({ autoColourSource: { name: `cover of ${cover.name}`, image: imageOf(cover), origin: 'cover' }, toast: { text: 'Auto takes its colours from the song\'s cover on the next roll.', kind: 'ok' } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the cover art'), kind: 'bad' } });
+    }
+  },
+  clearAutoColourSource() {
+    set({ autoColourSource: null });
+  },
   fonts: new Map(),
   luts: new Map(),
   defaultFont: null,
@@ -1042,6 +1074,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       selectedLayerIds: [],
       toast: null,
       images: new Map(),
+      autoColourSource: null,
       fonts: new Map(),
       videos: new Map(),
       assetStatus: {},
@@ -1094,7 +1127,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       if (previous !== null) URL.revokeObjectURL(previous.url);
       set({ audio: null, analysis: null, peaks: null, sections: [], onsetTimes: [], analysisState: 'idle', analysisMessage: null });
     }
-    set({ images: new Map(), fonts: new Map(), videos: new Map(), assetStatus: {} });
+    set({ images: new Map(), autoColourSource: null, fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
   },
 
@@ -1206,6 +1239,8 @@ export const useStudio = create<StudioState>((set, get) => ({
         autoOffer: history.current.layers.length === 0 && history.current.director === null,
         analysisState: 'ready',
         analysisMessage: payload.fromCache ? 'Analysis: cache hit' : 'Analysed and cached',
+        // The cover belonged to the song that was here; a picture the user chose outlives it.
+        autoColourSource: get().autoColourSource?.origin === 'cover' ? null : get().autoColourSource,
         stems: stemsFromPayload(payload, history.current.analysisSettings.stemModel),
       });
     } catch (error) {

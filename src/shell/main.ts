@@ -48,7 +48,7 @@ import {
   type ImageBytes, type ImageLoadResult, type LibraryListing, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
   type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob, type RenderReadiness, type ComponentsInfo,
 } from './ipc.ts';
-import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
+import { IMAGE_EXTENSIONS, decodeAttachedPicture, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
 import { collectProject } from '../assets/collect-files.ts';
 import { findFilesInFolder } from '../assets/find-in-folder.ts';
@@ -1394,6 +1394,19 @@ function registerHandlers(): void {
     if (path === undefined) return null;
     try {
       return await decodeForRenderer(path);
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
+  ipcMain.handle(IPC.imageCoverArt, async (_event, audioPath: unknown): Promise<ImageBytes | null> => {
+    if (typeof audioPath !== 'string') throw new Error('loadCoverArt needs a path');
+    if (!existsSync(FFMPEG_EXE) || !existsSync(FFPROBE_EXE)) {
+      throw new Error('The vendored FFmpeg is missing.\n\nTry:\n• Run `npm run setup` to provision vendor/');
+    }
+    try {
+      const image = await decodeAttachedPicture(FFMPEG_EXE, FFPROBE_EXE, audioPath);
+      return image === null ? null : { path: audioPath, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
     } catch (error) {
       throw describe(error);
     }

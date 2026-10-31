@@ -100,6 +100,8 @@ export const IPC = {
   fontDefault: 'pf:font:default',
   fontFallbacks: 'pf:font:fallbacks',
   imageImport: 'pf:image:import',
+  /** The picture embedded in an audio file, read locally for the director's colours. */
+  imageCoverArt: 'pf:image:cover-art',
   imageLoad: 'pf:image:load',
   environment: 'pf:app:environment',
   renderPickOutput: 'pf:render:pick-output',
@@ -633,6 +635,8 @@ export interface PulseforgeApi {
   fallbackFonts(): Promise<readonly { readonly hash: string; readonly bytes: Uint8Array }[]>;
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
   importImage(): Promise<ImageBytes | null>;
+  /** The picture embedded in this audio file; null when it has none. Never looks further than the file. */
+  loadCoverArt(audioPath: string): Promise<ImageBytes | null>;
   /** Decodes an asset the project already references; the path may be relative to `projectPath`. */
   loadImage(path: string, projectPath: string | null): Promise<ImageLoadResult>;
   environment(): Promise<EnvironmentReport>;
