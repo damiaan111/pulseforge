@@ -394,6 +394,23 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
   border-left: 1px solid var(--line);
   z-index: 15;
 }
+.node-drawer { width: min(1100px, calc(100vw - 40px)); z-index: 16; }
+.node-graph { display: block; margin-top: 10px; }
+.node-edge { fill: none; stroke: var(--control); stroke-width: 1.5; }
+.node-edge.modulation { stroke: var(--accent); stroke-dasharray: 4 3; }
+.node-edge.dimmed { opacity: 0.35; }
+.node rect { fill: var(--panel-raised); stroke: var(--line); }
+.node.source rect { stroke: var(--accent); }
+.node.output rect { stroke: var(--text-dim); }
+.node.clickable { cursor: pointer; }
+.node.clickable:hover rect, .node.clickable:focus-visible rect { fill: var(--hover-bg); stroke: var(--hover-line); }
+.node.selected rect { fill: var(--selected-bg); stroke: var(--accent); stroke-width: 2; }
+.node:focus { outline: none; }
+.node.dimmed { opacity: 0.45; }
+.node-text { display: flex; flex-direction: column; justify-content: center; height: 100%; padding: 0 8px; box-sizing: border-box; pointer-events: none; }
+.node-label, .node-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-label { font-size: 12px; color: var(--text); }
+.node-detail { font-size: 10px; color: var(--text-dim); }
 .queue-head { display: flex; align-items: center; gap: 6px; }
 .queue-head h2 { margin: 0; font-size: 14px; }
 .queue-head .spacer { flex: 1; }

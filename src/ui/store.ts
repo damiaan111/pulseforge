@@ -315,6 +315,9 @@ export interface StudioState {
   /** The modulation matrix panel (ui-spec §6). */
   matrixOpen: boolean;
   setMatrixOpen(open: boolean): void;
+  /** The node view (C2): a wider drawer, over the others. */
+  nodeViewOpen: boolean;
+  setNodeViewOpen(open: boolean): void;
 
   /** The auto-director's drawer (M21, M22, D9: offered on import, always available). */
   autoOpen: boolean;
@@ -1316,6 +1319,11 @@ export const useStudio = create<StudioState>((set, get) => ({
   setMatrixOpen(open) {
     // One drawer at a time on the right edge.
     set(open ? { matrixOpen: true, queueOpen: false, lyricsOpen: false, autoOpen: false } : { matrixOpen: false });
+  },
+
+  nodeViewOpen: false,
+  setNodeViewOpen(open) {
+    set({ nodeViewOpen: open });
   },
 
   autoOpen: false,

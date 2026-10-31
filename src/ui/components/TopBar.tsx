@@ -26,6 +26,8 @@ export function TopBar(): React.JSX.Element {
   const setQueueOpen = useStudio((s) => s.setQueueOpen);
   const matrixOpen = useStudio((s) => s.matrixOpen);
   const setMatrixOpen = useStudio((s) => s.setMatrixOpen);
+  const nodeViewOpen = useStudio((s) => s.nodeViewOpen);
+  const setNodeViewOpen = useStudio((s) => s.setNodeViewOpen);
   const setSettingsOpen = useStudio((s) => s.setSettingsOpen);
   const autoOpen = useStudio((s) => s.autoOpen);
   const setAutoOpen = useStudio((s) => s.setAutoOpen);
@@ -92,6 +94,9 @@ export function TopBar(): React.JSX.Element {
       </button>
       <button type="button" data-action="modulation-matrix" className={matrixOpen ? 'active' : ''} title="Every modulation binding in the project" onClick={() => setMatrixOpen(!matrixOpen)}>
         ∿ Modulation
+      </button>
+      <button type="button" data-action="node-view" className={nodeViewOpen ? 'active' : ''} title="The project as a graph of sources, layers and effects. Read-only" onClick={() => setNodeViewOpen(!nodeViewOpen)}>
+        Nodes
       </button>
       <button type="button" data-action="render-queue" className={queueOpen ? 'active' : ''} onClick={() => setQueueOpen(!queueOpen)}>
         Renders{activeRenders > 0 ? ` (${activeRenders})` : ''}

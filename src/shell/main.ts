@@ -462,6 +462,9 @@ let rendersForDiagnostics: (() => readonly RenderJob[]) | null = null;
 
 /** Set in smoke mode: "Import audio…" answers with this file instead of opening a dialog. */
 let smokeAudioPath: string | null = null;
+/** Set in smoke mode: the second "Import audio…" answers with this video, for the video-as-audio check. */
+let smokeSoundClip: string | null = null;
+let smokeAudioPicks = 0;
 /** Set in smoke mode: "Choose a LUT" answers with this generated .cube instead of a dialog (S11). */
 let smokeLutPath: string | null = null;
 
@@ -620,7 +623,10 @@ function registerHandlers(): void {
 
   ipcMain.handle(IPC.audioPick, async (): Promise<string | null> => {
     // The smoke check's own song (smokeSong), instead of a dialog nobody is there to answer.
-    if (smokeAudioPath !== null) return smokeAudioPath;
+    if (smokeAudioPath !== null) {
+      smokeAudioPicks += 1;
+      return smokeAudioPicks === 2 && smokeSoundClip !== null ? smokeSoundClip : smokeAudioPath;
+    }
     const result = await dialog.showOpenDialog({
       title: 'Import audio',
       properties: ['openFile'],
@@ -1848,6 +1854,12 @@ app.whenReady().then(async () => {
       spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30:duration=2', '-c:v', 'mpeg4', '-q:v', '4', clip], { windowsHide: true });
     }
     if (existsSync(clip)) process.env['PULSEFORGE_SMOKE_CLIP'] = JSON.stringify({ path: clip, hash: await hashVideoFile(clip) });
+    // And one with sound, for the video-as-audio check.
+    const soundClip = join(DATA_ROOT, 'out', 'smoke-sound-clip.mp4');
+    if (!existsSync(soundClip) && existsSync(FFMPEG_EXE)) {
+      spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30:duration=2', '-f', 'lavfi', '-i', 'sine=f=220:d=2', '-c:v', 'mpeg4', '-q:v', '4', '-c:a', 'aac', '-shortest', soundClip], { windowsHide: true });
+    }
+    if (existsSync(soundClip)) smokeSoundClip = soundClip;
   }
 
   // The queue's state and scratch live on the repo's drive, not in the profile: scratch holds a
@@ -2484,6 +2496,75 @@ app.whenReady().then(async () => {
         if (!autoUi) console.error('[smoke] autoUi steps ' + JSON.stringify(steps));
       }
 
+      // The sound and picture of a video (C14), Combine audio files (C13), a MIDI binding's filter
+      // (C3) and the node view (C2), each through its real controls. Every edit is undone.
+      console.log('[smoke] step: importExtras');
+      const extraSteps = {};
+      {
+        const click = (selector) => document.querySelector(selector)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        const undoLabel = () => document.querySelector('#app header button[data-action="undo"]')?.textContent ?? '';
+        const audioName = () => document.querySelector('#app .left-rail dd[title]')?.getAttribute('title') ?? '';
+        const undoTo = async (label) => {
+          for (let i = 0; i < 8 && undoLabel() !== label; i += 1) {
+            click('#app header button[data-action="undo"]');
+            await new Promise((done) => setTimeout(done, 80));
+          }
+          return undoLabel() === label;
+        };
+        const choose = (selector, value) => {
+          const box = document.querySelector(selector);
+          if (box === null) return;
+          box.value = value;
+          box.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
+        const start = undoLabel();
+        [...document.querySelectorAll('#app .module-buttons button')].find((b) => b.textContent?.trim() === 'Bars')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await new Promise((done) => setTimeout(done, 100));
+        click('#app .inspector .param-group [data-action="modulate"]');
+        await new Promise((done) => setTimeout(done, 50));
+        click('#app .inspector [data-action="modulate-recipe-breathing"]');
+        await waitFor(() => document.querySelector('#app .inspector [data-action="binding-source"]'), 40);
+        choose('#app .inspector [data-action="binding-source"]', 'midi');
+        extraSteps.midiFields = (await waitFor(() => document.querySelector('#app .inspector [data-action="midi-note-mode"]') !== null, 40)) === true;
+        extraSteps.midiSaysWhy = (await waitFor(() => (document.querySelector('#app .modulation-section .binding-note')?.textContent ?? '').includes('has none yet'), 60)) === true;
+        choose('#app .inspector [data-action="midi-note-mode"]', 'note');
+        extraSteps.midiNote = (await waitFor(() => document.querySelector('#app .inspector [data-action="midi-note"]') !== null, 40)) === true;
+        extraSteps.midiChannel = document.querySelector('#app .inspector [data-action="midi-channel"]') !== null;
+
+        click('#app header [data-action="node-view"]');
+        const layerNode = await waitFor(() => document.querySelector('#app [data-testid="node-view"] .node.layer'), 40);
+        extraSteps.nodeSource = (document.querySelector('#app [data-testid="node-view"] .node.source')?.textContent ?? '').includes('MIDI');
+        extraSteps.nodeEdges = document.querySelectorAll('#app [data-testid="node-view"] .node-edge.modulation').length > 0;
+        const nodes = [...document.querySelectorAll('#app [data-testid="node-view"] [data-action="node-select"]')];
+        nodes.find((n) => !n.classList.contains('selected'))?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        extraSteps.nodeSelects = layerNode !== null && layerNode !== false && (await waitFor(() => document.querySelector('#app [data-testid="node-view"] .node.selected') !== null, 40)) === true;
+        click('#app [data-action="node-view-close"]');
+        await new Promise((done) => setTimeout(done, 50));
+        extraSteps.nodeCloses = document.querySelector('#app [data-testid="node-view"]') === null;
+        extraSteps.midiUndone = await undoTo(start);
+
+        click('#app [data-action="combine-audio-open"]');
+        const combine = await waitFor(() => document.querySelector('#app [data-testid="combine-audio"]'), 40);
+        extraSteps.combineNeedsTwo = combine !== null && combine !== false && document.querySelector('#app [data-action="combine-audio-run"]')?.disabled === true;
+        click('#app [data-action="combine-audio-cancel"]');
+        await new Promise((done) => setTimeout(done, 50));
+
+        const songPath = audioName();
+        click('#app [data-action="import-audio"]');
+        extraSteps.videoAsked = (await waitFor(() => document.querySelector('#app [data-testid="video-audio-choice"]') !== null, 40)) === true;
+        click('#app [data-action="video-audio-picture"]');
+        extraSteps.videoOneStep = (await waitFor(() => undoLabel().includes('sound and picture'), 600)) === true;
+        extraSteps.videoSound = audioName().endsWith('.flac');
+        const rows = [...document.querySelectorAll('#app .layer-list .layer-row')];
+        extraSteps.videoAtBottom = (rows[rows.length - 1]?.textContent ?? '').includes('smoke-sound-clip');
+        extraSteps.videoUndone = await undoTo(start);
+        click('#app [data-action="import-audio"]');
+        extraSteps.songBack = (await waitFor(() => audioName() === songPath, 600)) === true;
+      }
+      const importExtras = Object.values(extraSteps).every(Boolean);
+      if (!importExtras) console.error('[smoke] importExtras steps ' + JSON.stringify(extraSteps));
+
       // Settings (M36): the screen opens from the top bar; a change is saved and survives a
       // re-render; the light theme swaps the chrome's tokens; the environment names the GPU; and
       // Verify runs the real npm run setup -- --verify under the Node inside Electron and reports back.
@@ -2995,6 +3076,7 @@ app.whenReady().then(async () => {
         presetApply,
         presetSave,
         modulationUi,
+        importExtras,
         layerEditing,
         globalChain,
         autoUi,
