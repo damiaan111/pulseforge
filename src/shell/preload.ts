@@ -106,6 +106,7 @@ const api: PulseforgeApi = {
   revealPresets: () => ipcRenderer.invoke(IPC.presetsReveal) as Promise<void>,
   listTemplates: () => ipcRenderer.invoke(IPC.templatesList) as ReturnType<PulseforgeApi['listTemplates']>,
   revealTemplates: () => ipcRenderer.invoke(IPC.templatesReveal) as Promise<void>,
+  saveTemplate: (stem, text) => ipcRenderer.invoke(IPC.templatesSave, stem, text) as Promise<string>,
   onModulesChanged(listener) {
     const handler = () => listener();
     ipcRenderer.on(IPC.modulesChanged, handler);

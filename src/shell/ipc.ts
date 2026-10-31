@@ -89,6 +89,7 @@ export const IPC = {
   presetsReveal: 'pf:presets:reveal',
   templatesList: 'pf:templates:list',
   templatesReveal: 'pf:templates:reveal',
+  templatesSave: 'pf:templates:save',
   videoImport: 'pf:video:import',
   videoPrepare: 'pf:video:prepare',
   videoFrame: 'pf:video:frame',
@@ -615,6 +616,8 @@ export interface PulseforgeApi {
   listTemplates(): Promise<TemplateListing>;
   /** Opens the user templates folder in the file manager, creating it if needed. */
   revealTemplates(): Promise<void>;
+  /** A new file in the user's template folder; returns its path. Never replaces a file. */
+  saveTemplate(stem: string, text: string): Promise<string>;
   /** Shows an open dialog for a video and identifies it. Extraction is `prepareVideo`. */
   importVideo(): Promise<VideoFile | null>;
   /**

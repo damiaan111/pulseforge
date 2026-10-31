@@ -7,6 +7,8 @@
 //  - **Generate** with the picked template, and **Surprise me** with its locks (keep template,
 //    palette, layout, motion) and the roulette toggle (may change template).
 //  - **The history strip**: the last rolls as thumbnails, each restorable.
+//  - **From this project**: extract it as a template draft, turn the arrangement's curves into
+//    keyframes. Both report what they could not carry over.
 //  - **The decision log** in plain language, grouped by step — what was chosen, from what, and why,
 //    and every guardrail that fired. "Nothing black-box" is this list.
 //
@@ -16,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { DIRECTOR_LOCKS, type DecisionStep, type DirectorLock, type DirectorRoll } from '../../project/document.ts';
-import { directorBlocker, drawRollThumbnail, rankedTemplates, rollKey, runDirector } from '../director.ts';
+import { bakeCurves, curveBakePlan, directorBlocker, drawRollThumbnail, extractAsTemplate, rankedTemplates, rollKey, runDirector } from '../director.ts';
 import { useStudio } from '../store.ts';
 
 const LOCK_LABEL: Record<DirectorLock, { label: string; hint: string }> = {
@@ -68,6 +70,11 @@ export function AutoDrawer(): React.JSX.Element | null {
     () => (open && blocker === null ? rankedTemplates(useStudio.getState()) : []),
     [open, blocker, analysis, analysisState, audio, templates, sections, lyrics, assets, canvas, userModules],
   );
+  const layers = useStudio((s) => s.document.layers);
+  const globalModulations = useStudio((s) => s.document.globalModulations);
+  const automation = useStudio((s) => s.document.automation);
+  const bakePlan = useMemo(() => (open ? curveBakePlan(useStudio.getState()) : null), [open, layers, globalModulations, automation, userModules]);
+  const [leftBehind, setLeftBehind] = useState<readonly string[]>([]);
   const [picked, setPicked] = useState<string | null>(null);
   const current = director?.current.templateId ?? null;
   const choice = picked ?? current ?? ranked.find((r) => r.availability.available)?.template.id ?? null;
@@ -172,6 +179,26 @@ export function AutoDrawer(): React.JSX.Element | null {
             </section>
           )}
         </>
+      )}
+
+      {blocker === null && (
+        <section className="auto-tools" data-testid="auto-tools">
+          <h3>From this project</h3>
+          <div className="auto-actions">
+            <button type="button" data-action="auto-extract-template" title="Save this project as a template draft in your templates folder: layers become slots, numbers become intent. Edit the file to widen it." onClick={() => void extractAsTemplate().then(setLeftBehind)}>Extract as template</button>
+            <button type="button" data-action="auto-bake-curves" disabled={(bakePlan?.bakes.length ?? 0) === 0}
+              title="Turn the section curves into keyframes you can drag on the timeline. One undo step."
+              onClick={() => setLeftBehind(bakeCurves())}>
+              Curves to keyframes
+            </button>
+          </div>
+          <p className="dim">Curves to keyframes turns section intensity, presence, drops and fades into keyframes. It is not the same picture to the last detail: keyframes set a value before modulation, and these curves scaled it afterwards, so audio-driven modulation on the same parameter stops following the sections. A reroll then keeps those layers as yours.</p>
+          {leftBehind.length > 0 && (
+            <ul className="auto-problems" data-testid="auto-left-behind">
+              {leftBehind.map((text, i) => <li key={i} className="warn">{text}</li>)}
+            </ul>
+          )}
+        </section>
       )}
 
       {director !== null && <DecisionLog />}

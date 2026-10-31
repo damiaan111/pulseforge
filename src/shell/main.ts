@@ -33,7 +33,7 @@ import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type Lyrics
 import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
-import { readTemplateFiles } from '../director/template-store.ts';
+import { readTemplateFiles, writeUserTemplate } from '../director/template-store.ts';
 import { Logger, splitScope, type LogLevel } from './logger.ts';
 import { buildDiagnostics } from './diagnostics.ts';
 import { CACHE_CATEGORIES, CacheStore, sizeOf, type CacheCategory } from '../cache/cache-store.ts';
@@ -1236,6 +1236,10 @@ function registerHandlers(): void {
     files: await readTemplateFiles({ builtin: join(ROOT, 'templates', 'builtin'), user: templatesFolder() }),
     folder: templatesFolder(),
   }));
+  ipcMain.handle(IPC.templatesSave, async (_event, stem: unknown, text: unknown): Promise<string> => {
+    if (typeof stem !== 'string' || typeof text !== 'string') throw new Error('saveTemplate needs a name and the template');
+    return writeUserTemplate(templatesFolder(), stem, text);
+  });
   ipcMain.handle(IPC.templatesReveal, async (): Promise<void> => {
     await mkdir(templatesFolder(), { recursive: true });
     await shell.openPath(templatesFolder());
