@@ -24,6 +24,7 @@
 import type { TextRaster, TextRasterizer, TextRequest } from '../engine/core/text.ts';
 import { parseCmap, type FontCoverage } from './cmap.ts';
 import { layoutText } from './layout.ts';
+import { layoutVertical, type VerticalGlyph } from './vertical.ts';
 
 /** Largest bitmap side. Past it the block is scaled down, and the raster says so. */
 const MAX_SIDE = 8192;
@@ -160,6 +161,7 @@ export class CanvasTextRasterizer implements TextRasterizer {
     const measure = context(this.measureCanvas);
     this.setup(measure, fonts, sizePx, letterSpacingPx);
     const metrics = measure.measureText('Hg');
+    if (request.vertical !== undefined) return this.renderVertical(request, request.vertical.maxHeightPx * scale, fonts, scale, metrics);
 
     const layout = layoutText(request.text, {
       measure: (text) => measure.measureText(text).width,
@@ -222,6 +224,73 @@ export class CanvasTextRasterizer implements TextRasterizer {
       stroke = alpha();
     }
 
+    return { ...base, fill, stroke };
+  }
+
+  /**
+   * Character by character (vertical.ts): the canvas has no vertical mode. Its letter spacing stays
+   * at 0 for this, since the layout has already placed each character.
+   */
+  private renderVertical(request: TextRequest, maxHeightPx: number, fonts: string, scale: number, metrics: TextMetrics): Omit<TextRaster, 'fontFound' | 'clamped'> {
+    const sizePx = request.sizePx * scale;
+    const strokePx = request.strokePx * scale;
+    const measure = context(this.measureCanvas);
+    this.setup(measure, fonts, sizePx, 0);
+    const layout = layoutVertical(request.text, {
+      measure: (text) => measure.measureText(text).width,
+      ascent: metrics.fontBoundingBoxAscent,
+      descent: metrics.fontBoundingBoxDescent,
+    }, {
+      sizePx,
+      lineHeight: request.lineHeight,
+      letterSpacingPx: request.letterSpacingPx * scale,
+      align: request.align,
+      maxHeightPx,
+      paddingPx: request.paddingPx * scale,
+    });
+
+    const width = Math.max(1, Math.min(MAX_SIDE * 2, layout.width));
+    const height = Math.max(1, Math.min(MAX_SIDE * 2, layout.height));
+    const base = {
+      width,
+      height,
+      vertical: true as const,
+      content: layout.content,
+      lines: layout.lines,
+      words: layout.words.map((w) => ({ text: w.text, start: w.start, line: w.line, x: w.x, y: w.top, width: w.width, height: w.height })),
+    };
+    if (width > MAX_SIDE || height > MAX_SIDE) return { ...base, fill: new Uint8Array(0), stroke: null };
+
+    this.drawCanvas.width = width;
+    this.drawCanvas.height = height;
+    const draw = context(this.drawCanvas);
+    const pass = (paint: (glyph: VerticalGlyph, x: number, y: number) => void): Uint8Array => {
+      draw.clearRect(0, 0, width, height);
+      this.setup(draw, fonts, sizePx, 0);
+      draw.fillStyle = '#ffffff';
+      draw.strokeStyle = '#ffffff';
+      draw.lineJoin = 'round';
+      draw.miterLimit = 2;
+      draw.lineWidth = strokePx * 2;
+      draw.direction = 'ltr';
+      for (const glyph of layout.glyphs) {
+        if (!glyph.rotated) {
+          paint(glyph, glyph.x, glyph.baseline);
+          continue;
+        }
+        draw.save();
+        draw.translate(glyph.cx, glyph.cy);
+        draw.rotate(Math.PI / 2);
+        paint(glyph, -glyph.width / 2, (metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2);
+        draw.restore();
+      }
+      const rgba = draw.getImageData(0, 0, width, height).data;
+      const out = new Uint8Array(width * height);
+      for (let i = 0; i < out.length; i += 1) out[i] = rgba[i * 4 + 3] ?? 0;
+      return out;
+    };
+    const fill = pass((glyph, x, y) => draw.fillText(glyph.text, x, y));
+    const stroke = strokePx > 0 ? pass((glyph, x, y) => draw.strokeText(glyph.text, x, y)) : null;
     return { ...base, fill, stroke };
   }
 }

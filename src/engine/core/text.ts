@@ -29,6 +29,11 @@ export interface TextRequest {
   readonly strokePx: number;
   /** Empty margin around the text inside the bitmap, so blur and shadow have room. */
   readonly paddingPx: number;
+  /**
+   * Set columns instead of lines: top to bottom, right to left, wrapping at this height. Absent, so
+   * horizontal requests and their cache keys are what they always were.
+   */
+  readonly vertical?: { readonly maxHeightPx: number };
 }
 
 export interface TextBox {
@@ -72,6 +77,8 @@ export interface TextRaster {
   readonly fontFound: boolean;
   /** True when the bitmap hit the size limit and the text was scaled down to fit. */
   readonly clamped: boolean;
+  /** Set in columns: `lines` are columns then, and `line` on a word is its column. */
+  readonly vertical?: true;
   /**
    * Characters no bundled or chosen font has, up to a handful; they are drawn as a box. Reported
    * rather than left to the canvas, which would take them from whatever the machine has installed.

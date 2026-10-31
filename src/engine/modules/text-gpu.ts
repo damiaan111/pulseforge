@@ -125,8 +125,9 @@ export function uploadTextRaster(gl: WebGL2RenderingContext, key: string, raster
   raster.words.slice(0, MAX_WORDS).forEach((word, index) => {
     const id = index + 1;
     const wordBottom = word.y + word.height;
-    const above = lineBottom(word.line - 1);
-    const below = lineTop(word.line + 1);
+    // Vertical columns stand side by side, so a neighbouring column is no limit on height.
+    const above = raster.vertical === true ? undefined : lineBottom(word.line - 1);
+    const below = raster.vertical === true ? undefined : lineTop(word.line + 1);
     const top = Math.max(word.y - grow - Math.ceil(liftPx), above === undefined ? -Infinity : (above + word.y) / 2);
     const bottom = Math.min(wordBottom + grow, below === undefined ? Infinity : (wordBottom + below) / 2);
     const x0 = Math.max(0, Math.floor(word.x) - grow);
