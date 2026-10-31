@@ -1,9 +1,38 @@
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** The program: sources or, installed, `resources/app`. Replaced by an update, so never written to. */
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-export const VENDOR = join(ROOT, 'vendor');
+const resourcesPath = (process as { readonly resourcesPath?: string }).resourcesPath;
+/** Running from the installer's copy rather than from the sources. */
+export const INSTALLED = resourcesPath !== undefined && resolve(resourcesPath, 'app') === ROOT;
+
+/** Names a data folder other than the default; the installed app reads it at start. */
+export const DATA_LOCATION_FILE = join(process.env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming'), 'Pulseforge', 'data-location.txt');
+
+function dataRoot(): string {
+  const named = process.env['PULSEFORGE_DATA'];
+  if (named !== undefined && named !== '') return resolve(named);
+  if (!INSTALLED) return ROOT;
+  try {
+    const location = readFileSync(DATA_LOCATION_FILE, 'utf8').trim();
+    if (location !== '') return resolve(location);
+  } catch { /* none chosen */ }
+  return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Pulseforge');
+}
+
+/**
+ * Everything the app writes: downloaded components, caches, drop-in modules. From source it is the
+ * repository; installed it stays outside the program, so an update cannot take gigabytes of models.
+ */
+export const DATA_ROOT = dataRoot();
+// Setup and the render host are child processes: they must land on the same answer.
+process.env['PULSEFORGE_DATA'] = DATA_ROOT;
+
+export const VENDOR = join(DATA_ROOT, 'vendor');
 /** Pinned archives are kept after extraction, so a pruned upstream URL can't block a rebuild. */
 export const DOWNLOADS = join(VENDOR, 'downloads');
 export const STAGING = join(VENDOR, '.staging');
@@ -13,7 +42,9 @@ export const TMP = join(VENDOR, '.tmp');
 export const WHEELHOUSE = join(VENDOR, 'wheelhouse');
 export const MODELS = join(VENDOR, 'models');
 /** The drop-in modules folder (M35), scanned at startup. */
-export const MODULES_DIR = join(ROOT, 'modules');
+export const MODULES_DIR = join(DATA_ROOT, 'modules');
+/** The example and template modules that come with the program. */
+export const BUNDLED_MODULES_DIR = join(ROOT, 'modules');
 /** Bundled open-licence fonts (text layers). */
 export const FONTS = join(VENDOR, 'fonts');
 /** The default typeface when a text layer names no font. */

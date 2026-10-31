@@ -102,6 +102,18 @@ export function ComponentChooser(props: { readonly firstRun: boolean; readonly o
     }
   };
 
+  const remove = async (component: ComponentRow) => {
+    try {
+      if (!await window.pulseforge.removeComponent(component.id)) return;
+      await refresh();
+      setResult({ ok: true, text: `Removed ${component.title}.` });
+      forgetMilkdropIndex();
+      onChanged?.();
+    } catch (error) {
+      setResult({ ok: false, text: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
   const row = (component: ComponentRow) => {
     const blocked = blockedReason(component, info?.driver ?? null);
     const required = component.group === 'required';
@@ -127,6 +139,9 @@ export function ComponentChooser(props: { readonly firstRun: boolean; readonly o
           </span>
         </label>
         {component.installed ? <span className="ok">Installed</span> : null}
+        {component.installed && component.removable ? (
+          <button type="button" data-action={`component-remove-${component.id}`} disabled={running} onClick={() => void remove(component)}>Remove</button>
+        ) : null}
       </li>
     );
   };
@@ -154,6 +169,12 @@ export function ComponentChooser(props: { readonly firstRun: boolean; readonly o
         {info?.freeBytes != null ? ` ${size(info.freeBytes)} free on this drive.` : ''}
         {info?.driver != null ? ` ${info.driver.name}, driver ${info.driver.version}.` : ' No NVIDIA card found: video exports on the CPU, more slowly, and the GPU features are not available.'}
       </p>
+      {info !== null ? (
+        <p className="dim note data-folder" data-testid="data-folder">
+          Stored in {info.dataFolder}
+          {info.dataFolderMovable ? <> <button type="button" data-action="data-folder-move" disabled={running} onClick={() => void window.pulseforge.moveDataFolder()}>Change…</button></> : null}
+        </p>
+      ) : null}
       {tooBig ? <p className="warn-text">That is more than the drive has free.</p> : null}
       {lines.length > 0 ? <pre className="setup-log" ref={logRef} data-testid="component-log">{lines.join('\n')}</pre> : null}
       {result !== null ? <p className={result.ok ? 'ok' : 'bad'} data-testid="component-result">{result.text}</p> : null}

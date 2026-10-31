@@ -24,7 +24,8 @@
     "build": "node --disable-warning=ExperimentalWarning scripts/app.ts",
     "modules:check": "node --disable-warning=ExperimentalWarning scripts/check-modules.ts",
     "milkdrop:measure": "node --disable-warning=ExperimentalWarning scripts/measure-milkdrop.ts",
-    "contact-sheet": "node --disable-warning=ExperimentalWarning scripts/contact-sheet.ts"
+    "contact-sheet": "node --disable-warning=ExperimentalWarning scripts/contact-sheet.ts",
+    "dist": "npm run build && electron-builder --win --publish never"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/three": "0.186.0",
     "electron": "44.3.0",
+    "electron-builder": "^26.18.0",
     "esbuild": "0.28.2",
     "eslint": "^10.10.0",
     "typescript": "~6.0.3",
@@ -47,5 +49,50 @@
     "react-dom": "^19.3.0",
     "three": "0.186.0",
     "zustand": "^5.0.15"
+  },
+  "build": {
+    "appId": "app.pulseforge.studio",
+    "productName": "Pulseforge",
+    "copyright": "MIT licence",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/app/**/*",
+      "!dist/app/**/*.map",
+      "setup/**/*",
+      "python/**/*",
+      "!**/__pycache__/**",
+      "templates/**/*",
+      "modules/**/*",
+      "package.json",
+      "LICENSE",
+      "!node_modules/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png",
+      "artifactName": "Pulseforge-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Pulseforge"
+    },
+    "fileAssociations": [
+      {
+        "ext": "pvproj",
+        "name": "Pulseforge project",
+        "description": "Pulseforge project",
+        "role": "Editor"
+      }
+    ]
   }
 }

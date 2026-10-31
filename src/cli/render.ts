@@ -36,7 +36,7 @@ import { RenderDocumentError, canvasForAspect as sharedCanvasForAspect, renderDo
 import { DiskSpaceError } from '../export/disk-space.ts';
 import type { Marker } from '../project/document.ts';
 import { loadDocument } from '../project/load.ts';
-import { ROOT } from '../../setup/lib/paths.ts';
+import { DATA_ROOT } from '../../setup/lib/paths.ts';
 
 export class CliError extends Error {
   readonly fixes: readonly string[];
@@ -214,8 +214,8 @@ export async function render(argv: readonly string[]): Promise<void> {
       motionBlur: options.motionBlur,
       supersample: options.supersample ? 2 : undefined,
       outputPath: options.outputPath,
-      workDir: join(ROOT, 'out', 'render'),
-      cacheRoot: join(ROOT, 'cache'),
+      workDir: join(DATA_ROOT, 'out', 'render'),
+      cacheRoot: join(DATA_ROOT, 'cache'),
       name: 'cli',
       // `--no-cache` recomputes, which is the first thing to try if a render looks like it is
       // reacting to the wrong numbers.

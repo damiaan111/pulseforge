@@ -283,6 +283,7 @@ export interface StudioState {
   restoreRecovery(candidate: RecoveryCandidate): Promise<void>;
   discardRecovery(sessionId: string): Promise<void>;
   openProject(): Promise<void>;
+  openRequested(file: { path: string; text: string }): void;
   save(): Promise<void>;
   saveAs(): Promise<void>;
   loadAudio(path: string): Promise<void>;
@@ -1082,6 +1083,10 @@ export const useStudio = create<StudioState>((set, get) => ({
     }
     set({ images: new Map(), fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
+  },
+
+  openRequested(file) {
+    if (discardOk('Open another project')) get().adopt(file);
   },
 
   async openProject() {

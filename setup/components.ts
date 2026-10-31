@@ -10,6 +10,8 @@ import { DEFAULT_FONT_FILE, FFMPEG_EXE, MILKDROP_JS_DIR, MODELS, VENDOR } from '
 // tiers and steps that are how those choices get installed. One list, so the chooser, the command
 // line and the install agree on what exists, what it costs and what it depends on.
 
+export const REMOVABLE_NOTE = 'Removing frees the space; it can be installed again here at any time.';
+
 export type ComponentGroup = 'required' | 'feature' | 'model';
 
 export interface Component {
@@ -136,6 +138,14 @@ export function resolveChoice(ids: readonly string[]): ResolvedChoice {
   const extras = components.filter((c) => c.group === 'model').map((c) => c.id as ExtraId);
   const tiers = components.filter((c) => c.group !== 'model').map((c) => c.id as Tier);
   return { components, tiers: extras.length > 0 ? [...tiers, 'extras'] : tiers, extras };
+}
+
+/**
+ * Whether a person can take a component off again. Stems, lyrics and beats share one Python
+ * environment, so none of them can leave alone; those three stay until the folder is deleted.
+ */
+export function componentRemovable(id: string): boolean {
+  return id === 'milkdrop' || BY_ID.get(id)?.group === 'model';
 }
 
 /** Whether a component is on disk. Files, not the lock: a person deleting a folder should see it go. */

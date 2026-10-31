@@ -38,6 +38,7 @@ async function start(): Promise<void> {
 }
 
 void start();
+window.pulseforge.onProjectOpenRequest((file) => useStudio.getState().openRequested(file));
 
 // Closing the window with unsaved work asks first. The renderer only says "there is something to
 // lose"; the main process shows the question (`will-prevent-unload`), since a page cannot.

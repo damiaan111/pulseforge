@@ -24,10 +24,10 @@ import { execFile, spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR } from '../../setup/lib/paths.ts';
+import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
@@ -74,7 +74,8 @@ import { installedMilkdrop } from '../node/milkdrop-index.ts';
 import { resolveParams } from '../engine/core/params.ts';
 import { ProjectIoError, readProjectText, writeProjectText } from './project-io.ts';
 import { probeCodecs, type CodecSupport } from '../export/encoder-probe.ts';
-import { COMPONENTS, NON_COMMERCIAL_NOTICE, componentInstalled, resolveChoice } from '../../setup/components.ts';
+import { COMPONENTS, NON_COMMERCIAL_NOTICE, REMOVABLE_NOTE, componentInstalled, componentRemovable, resolveChoice } from '../../setup/components.ts';
+import { removeComponent } from '../../setup/lib/remove.ts';
 import { BeatTrackingError, refineBeats, worthFollowing } from '../ml/beats.ts';
 import type { BeatRefinement } from '../analysis/beat-refinement.ts';
 import { freeBytesAt } from '../node/free-bytes.ts';
@@ -99,7 +100,7 @@ const THUMBNAIL_SIDE = 160;
  * already cached stays where it was, and is rebuildable).
  */
 function cacheRootPath(): string {
-  return currentSettings.cacheRoot ?? join(ROOT, 'cache');
+  return currentSettings.cacheRoot ?? join(DATA_ROOT, 'cache');
 }
 
 /** The analysis cache the preview and the render queue share, so a queued render is a cache hit. */
@@ -405,9 +406,9 @@ async function installCheck(window: BrowserWindow): Promise<void> {
   report['ticked'] = await page<string[]>(`[...document.querySelectorAll('[data-testid="component-chooser"] input:checked')].map((box) => box.dataset.action)`);
   report['blocked'] = await page<number>(`document.querySelectorAll('[data-testid="component-chooser"] li.blocked').length`);
   report['page'] = await page<string>(`document.querySelector('[data-testid="component-total"]')?.textContent ?? document.body.innerText.slice(0, 300)`);
-  await mkdir(join(ROOT, 'out'), { recursive: true });
-  await writeFile(join(ROOT, 'out', 'install-chooser.png'), (await window.webContents.capturePage()).toPNG());
-  await writeFile(join(ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
+  await mkdir(join(DATA_ROOT, 'out'), { recursive: true });
+  await writeFile(join(DATA_ROOT, 'out', 'install-chooser.png'), (await window.webContents.capturePage()).toPNG());
+  await writeFile(join(DATA_ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
   if (report['chooser'] !== true) return;
   await page(`document.querySelector('[data-action="components-install"]').click()`);
   report['core'] = await until(() => componentInstalled('core'), 600);
@@ -416,7 +417,7 @@ async function installCheck(window: BrowserWindow): Promise<void> {
   // The chooser reloads the page when it finishes, into the studio with nothing left to ask.
   report['studio'] = await until(() => page<boolean>(`document.body.dataset.pulseforgeReady === 'true' && document.querySelector('[data-testid="component-chooser"]') === null`).catch(() => false), 120);
   report['log'] = await page<string>(`document.querySelector('[data-testid="component-log"]')?.textContent?.slice(-800) ?? ''`).catch(() => '');
-  await writeFile(join(ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
+  await writeFile(join(DATA_ROOT, 'out', 'install-check.json'), JSON.stringify(report, null, 2));
   app.quit();
 }
 
@@ -468,7 +469,7 @@ let smokeLutPath: string | null = null;
  * arrange. Written once to out/ (a cache: rebuildable, never committed).
  */
 async function smokeSong(): Promise<string> {
-  const path = join(ROOT, 'out', 'smoke-song.wav');
+  const path = join(DATA_ROOT, 'out', 'smoke-song.wav');
   if (!existsSync(path)) {
     const seconds = 60;
     const pcm = synthesizeTestTrack(seconds);
@@ -480,8 +481,12 @@ async function smokeSong(): Promise<string> {
   return path;
 }
 
+function projectPathIn(argv: readonly string[]): string | undefined {
+  return argv.slice(1).find((arg) => !arg.startsWith('-') && arg.endsWith('.pvproj') && existsSync(arg));
+}
+
 function initialProjectPath(): string | undefined {
-  return process.argv.slice(1).find((arg) => !arg.startsWith('-') && arg.endsWith('.pvproj') && existsSync(arg));
+  return projectPathIn(process.argv);
 }
 
 function registerHandlers(): void {
@@ -798,7 +803,7 @@ function registerHandlers(): void {
       paths: {
         settings: settingsPath(),
         userData: app.getPath('userData'),
-        defaultCacheRoot: join(ROOT, 'cache'),
+        defaultCacheRoot: join(DATA_ROOT, 'cache'),
         presets: presetsFolderPath(),
         templates: templatesFolderPath(),
       },
@@ -908,11 +913,49 @@ function registerHandlers(): void {
     return { baseUrl: pathToFileURL(MILKDROP_JS_DIR).href, presets: JSON.parse(await readFile(file, 'utf8')) as { name: string; file: string }[] };
   });
   ipcMain.handle(IPC.componentsInfo, async (): Promise<ComponentsInfo> => ({
-    components: COMPONENTS.map((component) => ({ ...component, installed: componentInstalled(component.id) })),
+    components: COMPONENTS.map((component) => ({ ...component, installed: componentInstalled(component.id), removable: componentRemovable(component.id) })),
     driver: await nvidiaDriver(),
-    freeBytes: await freeBytesAt(ROOT),
+    freeBytes: await freeBytesAt(DATA_ROOT),
     nonCommercialNotice: NON_COMMERCIAL_NOTICE,
+    dataFolder: DATA_ROOT,
+    dataFolderMovable: INSTALLED,
   }));
+  ipcMain.handle(IPC.componentRemove, async (event, raw: unknown): Promise<boolean> => {
+    if (typeof raw !== 'string' || !componentRemovable(raw)) throw new Error('This part cannot be removed on its own.');
+    if (setupChild !== null) throw new Error('Setup is running. Remove it when that has finished.');
+    const component = COMPONENTS.find((c) => c.id === raw);
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      type: 'question' as const, buttons: ['Remove', 'Cancel'], defaultId: 1, cancelId: 1, title: 'Remove',
+      message: `Remove ${component?.title ?? raw}?`, detail: REMOVABLE_NOTE,
+    };
+    const { response } = await (parent === null ? dialog.showMessageBox(options) : dialog.showMessageBox(parent, options));
+    if (response !== 0) return false;
+    await removeComponent(raw);
+    // A setting naming what just left falls back to the default, or the next job fails on it.
+    const patch = {
+      ...(raw === 'whisper-large-v3' && currentSettings.whisperModel !== DEFAULT_SETTINGS.whisperModel ? { whisperModel: DEFAULT_SETTINGS.whisperModel } : {}),
+      ...(currentSettings.stemModel === raw ? { stemModel: DEFAULT_SETTINGS.stemModel } : {}),
+    };
+    if (Object.keys(patch).length > 0) currentSettings = await settingsStore().update(patch);
+    log().info('setup', `removed ${raw}`);
+    return true;
+  });
+  ipcMain.handle(IPC.dataFolderMove, async (event): Promise<boolean> => {
+    if (!INSTALLED) throw new Error('Running from source, the data folder is the repository.');
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options = { title: 'Choose where Pulseforge keeps its components', defaultPath: DATA_ROOT, properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
+    const result = await (parent === null ? dialog.showOpenDialog(options) : dialog.showOpenDialog(parent, options));
+    const chosen = result.canceled ? undefined : result.filePaths[0];
+    if (chosen === undefined || chosen === DATA_ROOT) return false;
+    await mkdir(dirname(DATA_LOCATION_FILE), { recursive: true });
+    await writeFile(DATA_LOCATION_FILE, chosen);
+    // What is already installed stays where it is, and is named here so nothing seems to vanish.
+    await dialog.showMessageBox({ type: 'info', title: 'Restarting', message: 'Pulseforge will restart with the new folder.', detail: `Components already in ${DATA_ROOT} are not moved. Move the vendor folder by hand to keep them, or install them again.` });
+    app.relaunch();
+    app.exit(0);
+    return true;
+  });
   ipcMain.handle(IPC.setupRun, async (event, raw: unknown): Promise<{ readonly code: number | null }> => {
     const request = (typeof raw === 'object' && raw !== null ? raw : {}) as { mode?: unknown; tier?: unknown };
     if (setupChild !== null) throw new Error('Setup is already running.');
@@ -1596,6 +1639,12 @@ function watchModules(window: BrowserWindow): void {
   }
 }
 
+/** The installed app's first start: the example and template modules, where people add their own. */
+async function seedModules(): Promise<void> {
+  if (!INSTALLED || existsSync(MODULES_DIR)) return;
+  await cp(BUNDLED_MODULES_DIR, MODULES_DIR, { recursive: true });
+}
+
 async function createWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 1600,
@@ -1656,6 +1705,23 @@ async function createWindow(): Promise<BrowserWindow> {
 // Sandboxing every renderer by default, not just the ones that remember to ask.
 app.enableSandbox();
 
+// One studio per person when installed: a double-click on a second project brings the studio up.
+// From source a second copy is often the point.
+if (INSTALLED) {
+  app.setAppUserModelId('app.pulseforge.studio');
+  Menu.setApplicationMenu(null);
+  if (!app.requestSingleInstanceLock()) app.exit(0);
+  app.on('second-instance', (_event, argv) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window === undefined) return;
+    if (window.isMinimized()) window.restore();
+    window.focus();
+    const project = projectPathIn(argv);
+    if (project === undefined) return;
+    void readProjectText(project).then((text) => window.webContents.send(IPC.projectOpenRequest, { path: project, text } satisfies ProjectFile));
+  });
+}
+
 // The self-check must not depend on what else is on screen: Windows' occlusion tracking marks a
 // covered window hidden, and a hidden page stops painting and running animation frames — so a
 // window someone happens to cover mid-check stalled it. Set before the app is ready, as switches must be.
@@ -1666,10 +1732,11 @@ app.whenReady().then(async () => {
   guardWebContents();
   if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LOGS'] === undefined) {
     // The smoke's own log folder, fresh each run: its checks read the log back.
-    process.env['PULSEFORGE_LOGS'] = join(ROOT, 'out', 'smoke-logs');
+    process.env['PULSEFORGE_LOGS'] = join(DATA_ROOT, 'out', 'smoke-logs');
     await rm(process.env['PULSEFORGE_LOGS'], { recursive: true, force: true });
   }
   currentSettings = (await settingsStore().read()).settings;
+  await seedModules();
   captureConsole();
   log().info('app', `Pulseforge ${packageVersion()} started`, { electron: process.versions['electron'], gpu: await gpuDescription() });
   registerHandlers();
@@ -1679,7 +1746,7 @@ app.whenReady().then(async () => {
   if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LIBRARY'] === undefined) {
     // A library of our own for the smoke check, with one generated image, set before the window
     // lists it — never the owner's Documents folder.
-    const library = join(ROOT, 'out', 'smoke-library');
+    const library = join(DATA_ROOT, 'out', 'smoke-library');
     const image = join(library, 'backgrounds', 'smoke-bars.png');
     await mkdir(dirname(image), { recursive: true });
     if (!existsSync(image) && existsSync(FFMPEG_EXE)) {
@@ -1688,16 +1755,16 @@ app.whenReady().then(async () => {
     process.env['PULSEFORGE_LIBRARY'] = library;
 
     // Its own settings file, fresh each run: the smoke must not read or change the owner's tap latency.
-    const settingsFile = join(ROOT, 'out', 'smoke-settings.json');
+    const settingsFile = join(DATA_ROOT, 'out', 'smoke-settings.json');
     await rm(settingsFile, { force: true });
     process.env['PULSEFORGE_SETTINGS'] = settingsFile;
     // And its own cache root: the cache check clears things, and it must never clear the owner's.
-    await settingsStore().update({ cacheRoot: join(ROOT, 'out', 'smoke-cache') });
+    await settingsStore().update({ cacheRoot: join(DATA_ROOT, 'out', 'smoke-cache') });
     currentSettings = (await settingsStore().read()).settings;
     log().setLevel(currentSettings.logLevel);
 
     // Its own recovery folder too: the smoke must not offer (or clear) the owner's autosaves.
-    const recovery = join(ROOT, 'out', 'smoke-recovery');
+    const recovery = join(DATA_ROOT, 'out', 'smoke-recovery');
     await rm(recovery, { recursive: true, force: true });
     process.env['PULSEFORGE_RECOVERY'] = recovery;
     // …seeded with the autosave of a "crashed" run, which the studio must offer back (M1). Not when
@@ -1710,7 +1777,7 @@ app.whenReady().then(async () => {
 
     // A fresh user preset folder holding one preset, so the preset checks never touch (or depend
     // on) the owner's own.
-    const presets = join(ROOT, 'out', 'smoke-presets');
+    const presets = join(DATA_ROOT, 'out', 'smoke-presets');
     await rm(presets, { recursive: true, force: true });
     process.env['PULSEFORGE_PRESETS'] = presets;
     await new PresetStore({ root: presets }).save(createLayerPreset(createModuleLayer('core.visualizer.bars', { name: 'Neon bars' }), (id) => {
@@ -1720,7 +1787,7 @@ app.whenReady().then(async () => {
 
     // A two-second clip for the video bridge check, generated with the vendored FFmpeg's own
     // encoder (the LGPL build has no libx264).
-    const clip = join(ROOT, 'out', 'smoke-clip.mp4');
+    const clip = join(DATA_ROOT, 'out', 'smoke-clip.mp4');
     if (!existsSync(clip) && existsSync(FFMPEG_EXE)) {
       spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30:duration=2', '-c:v', 'mpeg4', '-q:v', '4', clip], { windowsHide: true });
     }
@@ -1739,7 +1806,7 @@ app.whenReady().then(async () => {
   const completion = completionWatcher((summary) => onAllFinished(summary));
   let renders: RenderService;
   // The self-check's renders are its own: they must never appear in a person's list.
-  const renderRoot = join(ROOT, 'out', process.env['PULSEFORGE_SMOKE'] === '1' ? 'smoke-render' : 'studio-render');
+  const renderRoot = join(DATA_ROOT, 'out', process.env['PULSEFORGE_SMOKE'] === '1' ? 'smoke-render' : 'studio-render');
   try {
     renders = await createRenderService({
       root: join(renderRoot, 'queue'),
@@ -1822,7 +1889,7 @@ app.whenReady().then(async () => {
 
     smokeAudioPath = await smokeSong();
     // A 2-point LUT that inverts, for the LUT check (S11).
-    smokeLutPath = join(ROOT, 'out', 'smoke-lut.cube');
+    smokeLutPath = join(DATA_ROOT, 'out', 'smoke-lut.cube');
     await writeFile(smokeLutPath, 'TITLE "Smoke invert"\nLUT_3D_SIZE 2\n' + [0, 1].flatMap((b) => [0, 1].flatMap((g) => [0, 1].map((r) => `${1 - r} ${1 - g} ${1 - b}`))).join('\n') + '\n');
     const checks = await window.webContents.executeJavaScript(`(async () => {
       // Does the renderer have Node? It must not — sandbox + contextIsolation.
@@ -2947,7 +3014,7 @@ app.whenReady().then(async () => {
     if (smokeAudio !== undefined && smokeAudio !== '') {
       const project = createDocument({ name: 'Smoke render', canvas: { width: 640, height: 360 } });
       const withLayer = { ...project, layers: [createModuleLayer('core.visualizer.bars', { name: 'bars' })], audio: { ...project.audio, path: smokeAudio } };
-      const output = join(ROOT, 'out', 'smoke-render.mp4');
+      const output = join(DATA_ROOT, 'out', 'smoke-render.mp4');
       const job = await renders.enqueue({ text: stringifyDocument(withLayer), projectPath: null, presetId: 'project-h264', outputPath: output, motionBlur: { samples: 4, shutterDegrees: 180 } });
       await Promise.race([renders.idle(), new Promise((done) => setTimeout(done, 120_000))]);
       const finished = renders.list().find((entry) => entry.id === job.id);
@@ -2965,7 +3032,7 @@ app.whenReady().then(async () => {
     // full-length render is minutes); with one, it renders with "shut down when done" on, and the
     // shutdown is requested — recorded, never run, in smoke mode.
     if (batchService !== null && smokeAudioPath !== null) {
-      const batchDir = join(ROOT, 'out', 'smoke-batch');
+      const batchDir = join(DATA_ROOT, 'out', 'smoke-batch');
       await rm(batchDir, { recursive: true, force: true });
       const renderToo = smokeAudio !== undefined && smokeAudio !== '';
       if (renderToo) shutdownWhenDone = true;
@@ -3007,7 +3074,7 @@ app.whenReady().then(async () => {
     // not someone's word for it. The window has to be shown and composited first: capturing a
     // hidden window fails, because there is no surface to read.
     // dist/app/main.js → the repo's own out/, not dist/app/out/.
-    const shot = join(import.meta.dirname, '..', '..', 'out', 'smoke.png');
+    const shot = join(DATA_ROOT, 'out', 'smoke.png');
     try {
       window.show();
       await new Promise<void>((done) => {

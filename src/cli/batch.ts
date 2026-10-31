@@ -27,7 +27,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { pythonEnv } from '../../setup/lib/env.ts';
-import { FFMPEG_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
+import { DATA_ROOT, FFMPEG_EXE, MODELS, MODULES_DIR, PYTHON_EXE, ROOT } from '../../setup/lib/paths.ts';
 import { directTrack, type DirectedTrack } from '../batch/direct-track.ts';
 import { isBatchAudio, planBatch, type BatchTrack } from '../batch/plan.ts';
 import { loadTemplates } from '../director/template-library.ts';
@@ -153,7 +153,7 @@ export async function batch(argv: readonly string[]): Promise<number> {
   const modules = { get: (id: string) => byId.get(id), all: manifests };
 
   const plan = planBatch(tracks, { outDir: options.outDir, preset: options.preset, seed: options.seed, templateId: options.templateId });
-  const cacheRoot = join(ROOT, 'cache');
+  const cacheRoot = join(DATA_ROOT, 'cache');
   console.log(`${plan.length} track(s) → ${options.outDir} (${options.preset.label}${options.motionBlur === undefined ? '' : ', motion blur'})`);
 
   let counter = 0;
@@ -175,13 +175,13 @@ export async function batch(argv: readonly string[]): Promise<number> {
           preset: options.preset,
           templateId: options.templateId,
           ...(options.refineBeats ? {
-            refineBeats: (pcm: Float32Array, audioHash: string) => refineBeats({ pythonExe: PYTHON_EXE, packageDir: join(ROOT, 'python'), env: pythonEnv(), pcm, audioHash, workDir: join(ROOT, 'out', 'batch-scratch') }),
+            refineBeats: (pcm: Float32Array, audioHash: string) => refineBeats({ pythonExe: PYTHON_EXE, packageDir: join(ROOT, 'python'), env: pythonEnv(), pcm, audioHash, workDir: join(DATA_ROOT, 'out', 'batch-scratch') }),
           } : {}),
           ...(supervisor === undefined ? {} : {
             separateStems: async (audioPath: string) => {
               await separateStems({
                 ffmpegExe: FFMPEG_EXE, sidecar: supervisor, cacheRoot, stemsRoot: join(cacheRoot, 'stems'),
-                scratchDir: join(ROOT, 'out', 'batch-scratch'), modelRepo: join(MODELS, 'demucs'), audioPath,
+                scratchDir: join(DATA_ROOT, 'out', 'batch-scratch'), modelRepo: join(MODELS, 'demucs'), audioPath,
                 settings: DEFAULT_ANALYSIS_SETTINGS,
               });
             },
@@ -214,7 +214,7 @@ export async function batch(argv: readonly string[]): Promise<number> {
           motionBlur: options.motionBlur,
           audioMix: options.instrumental ? 'instrumental' : 'full',
           outputPath: outcome.track.outputPath,
-          workDir: join(ROOT, 'out', 'batch-render'),
+          workDir: join(DATA_ROOT, 'out', 'batch-render'),
           cacheRoot,
           name: 'batch',
         });

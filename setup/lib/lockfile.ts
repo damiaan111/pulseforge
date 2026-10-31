@@ -69,6 +69,10 @@ export function upsertArtefact(lock: VendorLock, entry: LockedArtefact): void {
   lock.artefacts = [...lock.artefacts.filter((a) => a.id !== entry.id), entry].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export function dropArtefacts(lock: VendorLock, ids: ReadonlySet<string>): void {
+  lock.artefacts = lock.artefacts.filter((a) => !ids.has(a.id));
+}
+
 export async function writeVendorLock(lock: VendorLock): Promise<void> {
   const ordered: VendorLock = {
     schemaVersion: 1,

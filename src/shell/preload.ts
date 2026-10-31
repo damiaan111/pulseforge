@@ -14,6 +14,13 @@ import { IPC, type ProjectFile, type PulseforgeApi, type RenderJob, type SaveReq
 
 const api: PulseforgeApi = {
   initialProject: () => ipcRenderer.invoke(IPC.projectInitial) as Promise<ProjectFile | null>,
+  onProjectOpenRequest: (listener) => {
+    const handler = (_event: unknown, file: ProjectFile) => listener(file);
+    ipcRenderer.on(IPC.projectOpenRequest, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.projectOpenRequest, handler);
+    };
+  },
   openProject: () => ipcRenderer.invoke(IPC.projectOpen) as Promise<ProjectFile | null>,
   readProject: (path) => ipcRenderer.invoke(IPC.projectRead, path) as Promise<ProjectFile>,
   saveProject: (request: SaveRequest) => ipcRenderer.invoke(IPC.projectSave, request) as Promise<SaveResult>,
@@ -57,6 +64,8 @@ const api: PulseforgeApi = {
   revealPath: (which) => ipcRenderer.invoke(IPC.revealPath, which) as Promise<void>,
   milkdropIndex: () => ipcRenderer.invoke(IPC.milkdropIndex) as ReturnType<PulseforgeApi['milkdropIndex']>,
   componentsInfo: () => ipcRenderer.invoke(IPC.componentsInfo) as ReturnType<PulseforgeApi['componentsInfo']>,
+  removeComponent: (id) => ipcRenderer.invoke(IPC.componentRemove, id) as ReturnType<PulseforgeApi['removeComponent']>,
+  moveDataFolder: () => ipcRenderer.invoke(IPC.dataFolderMove) as ReturnType<PulseforgeApi['moveDataFolder']>,
   runSetup: (request) => ipcRenderer.invoke(IPC.setupRun, request) as ReturnType<PulseforgeApi['runSetup']>,
   cancelSetup: () => ipcRenderer.invoke(IPC.setupCancel) as Promise<void>,
   onSetupOutput(listener) {

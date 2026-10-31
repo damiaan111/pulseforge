@@ -24,6 +24,7 @@ import type { BeatRefinement, BeatRefinementState } from '../analysis/beat-refin
 /** Channel names. Namespaced so a future channel cannot collide with Electron's own. */
 export const IPC = {
   projectInitial: 'pf:project:initial',
+  projectOpenRequest: 'pf:project:open-request',
   projectOpen: 'pf:project:open',
   projectRead: 'pf:project:read',
   projectSave: 'pf:project:save',
@@ -104,6 +105,8 @@ export const IPC = {
   renderPickOutput: 'pf:render:pick-output',
   renderEnqueue: 'pf:render:enqueue',
   componentsInfo: 'pf:setup:components',
+  componentRemove: 'pf:setup:component-remove',
+  dataFolderMove: 'pf:setup:data-folder-move',
   milkdropIndex: 'pf:milkdrop:index',
   renderReadiness: 'pf:render:readiness',
   renderList: 'pf:render:list',
@@ -452,7 +455,7 @@ export interface RenderReadiness {
 }
 
 /** A component the chooser offers (setup/components.ts), and whether it is on this PC. */
-export type ComponentRow = Component & { readonly installed: boolean };
+export type ComponentRow = Component & { readonly installed: boolean; readonly removable: boolean };
 
 export interface ComponentsInfo {
   readonly components: readonly ComponentRow[];
@@ -461,6 +464,10 @@ export interface ComponentsInfo {
   /** On the drive this folder is on; null when it cannot be read. */
   readonly freeBytes: number | null;
   readonly nonCommercialNotice: string;
+  /** Where components and caches live. */
+  readonly dataFolder: string;
+  /** Only the installed app can move it; from source it is the repository. */
+  readonly dataFolderMovable: boolean;
 }
 
 export interface PulseforgeApi {
@@ -468,12 +475,18 @@ export interface PulseforgeApi {
   milkdropIndex(): Promise<{ readonly baseUrl: string; readonly presets: readonly { readonly name: string; readonly file: string }[] } | null>;
   /** What can be installed, and what this PC can run. */
   componentsInfo(): Promise<ComponentsInfo>;
+  /** Takes an optional model or library off the disk, after asking. False: the person said no. */
+  removeComponent(id: string): Promise<boolean>;
+  /** Asks for a new data folder and restarts in it. False: the person cancelled. */
+  moveDataFolder(): Promise<boolean>;
   /**
    * The project named on the command line (`pulseforge song.pvproj`), or by a double-click
    * once the file type is associated. Null when the app was started with nothing to open.
    * Asked for by the renderer on boot rather than pushed, so there is no race with rendering.
    */
   initialProject(): Promise<ProjectFile | null>;
+  /** A project double-clicked while the studio is already open. */
+  onProjectOpenRequest(listener: (file: ProjectFile) => void): () => void;
   /** Shows an open dialog. Resolves to null when the user cancels. */
   openProject(): Promise<ProjectFile | null>;
   /** Reads a known path — for recent files and the crash-recovery flow. */

@@ -6,7 +6,7 @@ import { COMPONENTS, NON_COMMERCIAL_NOTICE, componentInstalled, resolveChoice } 
 import { EXTRAS } from '../../setup/manifest.ts';
 import { blockedReason, withRequirements } from '../../src/ui/components/ComponentChooser.tsx';
 
-const rows = COMPONENTS.map((component) => ({ ...component, installed: false }));
+const rows = COMPONENTS.map((component) => ({ ...component, installed: false, removable: false }));
 
 describe('the choices', () => {
   it('offers every optional model, with a size and a licence', () => {
