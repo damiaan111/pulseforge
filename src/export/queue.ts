@@ -42,6 +42,15 @@ export interface JobRange {
   readonly outTicks: number;
 }
 
+export interface JobComparison {
+  /** The other side's document as it was at enqueue, snapshotted like the job's own. */
+  readonly snapshotPath: string;
+  /** Where its relative paths resolve from. */
+  readonly projectPath: string | null;
+  /** What the UI calls it. */
+  readonly label: string;
+}
+
 export interface RenderJob {
   readonly id: string;
   /** What the UI calls it — usually the project name plus the aspect. */
@@ -61,6 +70,8 @@ export interface RenderJob {
   /** Spatial supersampling (export-spec §9). Absent: 1, every job queued before it existed. */
   readonly supersample?: 1 | 2;
   readonly audioMix?: 'full' | 'instrumental';
+  /** An A/B render (C10): this document is the right-hand side, the job's own the left. */
+  readonly compare?: JobComparison;
   readonly outputPath: string;
   readonly status: JobStatus;
   readonly progress: ProgressSnapshot | null;
@@ -81,6 +92,7 @@ export interface EnqueueRequest {
   readonly motionBlur?: MotionBlur | null;
   readonly supersample?: 1 | 2;
   readonly audioMix?: 'full' | 'instrumental';
+  readonly compare?: { readonly document: ProjectDocument; readonly projectPath: string | null; readonly label: string };
   readonly outputPath: string;
 }
 
@@ -94,6 +106,8 @@ export interface JobContext {
   readonly job: RenderJob;
   /** The document as it was enqueued, read back from the snapshot. */
   readonly documentJson: string;
+  /** The other side of an A/B job, read back the same way. */
+  readonly compareJson?: string;
   /** Call as the encoder reports frames; persisted and forwarded to `onChange`. */
   readonly report: (progress: ProgressSnapshot) => void;
   /** Poll this: true once the job has been cancelled or the queue stopped. */
@@ -197,6 +211,12 @@ export class RenderQueue {
     const json = stringifyDocument(request.document);
     const snapshotPath = join(this.root, 'snapshots', `${id}.pvproj`);
     await writeAtomic(snapshotPath, json);
+    let compare: JobComparison | undefined;
+    if (request.compare !== undefined) {
+      const comparePath = join(this.root, 'snapshots', `${id}-compare.pvproj`);
+      await writeAtomic(comparePath, stringifyDocument(request.compare.document));
+      compare = { snapshotPath: comparePath, projectPath: request.compare.projectPath, label: request.compare.label };
+    }
 
     const job: RenderJob = {
       id,
@@ -210,6 +230,7 @@ export class RenderQueue {
       motionBlur: request.motionBlur ?? null,
       ...(request.supersample === 2 ? { supersample: 2 as const } : {}),
       ...(request.audioMix === 'instrumental' ? { audioMix: 'instrumental' as const } : {}),
+      ...(compare === undefined ? {} : { compare }),
       outputPath: request.outputPath,
       status: 'queued',
       progress: null,
@@ -267,7 +288,7 @@ export class RenderQueue {
     if (job === undefined) return;
     if (!isTerminal(job.status)) await this.cancel(id);
     this.jobs = this.jobs.filter((entry) => entry.id !== id);
-    await rm(job.snapshotPath, { force: true });
+    await removeSnapshots(job);
     await this.persist();
   }
 
@@ -275,7 +296,7 @@ export class RenderQueue {
   async clearFinished(): Promise<void> {
     const finished = this.jobs.filter((job) => isTerminal(job.status));
     this.jobs = this.jobs.filter((job) => !isTerminal(job.status));
-    for (const job of finished) await rm(job.snapshotPath, { force: true });
+    for (const job of finished) await removeSnapshots(job);
     await this.persist();
   }
 
@@ -330,9 +351,11 @@ export class RenderQueue {
 
       try {
         const documentJson = await readFile(job.snapshotPath, 'utf8');
+        const compareJson = job.compare === undefined ? undefined : await readFile(job.compare.snapshotPath, 'utf8');
         const outcome = await this.runner({
           job: this.get(job.id) as RenderJob,
           documentJson,
+          ...(compareJson === undefined ? {} : { compareJson }),
           report: (progress) => {
             this.patch(job.id, { progress });
             this.emit();
@@ -389,6 +412,11 @@ export class RenderQueue {
   private emit(): void {
     this.onChange?.(this.jobs);
   }
+}
+
+async function removeSnapshots(job: RenderJob): Promise<void> {
+  await rm(job.snapshotPath, { force: true });
+  if (job.compare !== undefined) await rm(job.compare.snapshotPath, { force: true });
 }
 
 /** Temp file then rename, as `project-io.ts` does: a crash mid-write leaves the old queue intact. */

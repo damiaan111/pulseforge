@@ -181,6 +181,52 @@ export function buildFfmpegArgs(job: EncodeJob): string[] {
   return args;
 }
 
+export interface SideBySideJob {
+  readonly left: string;
+  readonly right: string;
+  /** One side's size; the file is two of these, or scaled to what the encoder takes (`sideBySideSize`). */
+  readonly width: number;
+  readonly height: number;
+  readonly fps: Rational;
+  readonly settings: EncodeSettings;
+  readonly outputPath: string;
+}
+
+/** The widest picture each codec encodes: H.264 NVENC stops at 4096, HEVC at 8192. */
+const WIDEST: Readonly<Record<VideoCodec, number>> = { h264: 4096, hevc: 8192 };
+
+/** Two sides next to each other, brought down evenly when that would be wider than the codec goes. */
+export function sideBySideSize(width: number, height: number, codec: VideoCodec): { readonly width: number; readonly height: number } {
+  const whole = width * 2;
+  const widest = WIDEST[codec];
+  if (whole <= widest) return { width: whole, height };
+  return { width: widest, height: Math.max(2, Math.round((height * widest) / whole / 2) * 2) };
+}
+
+/**
+ * Two finished renders as one picture, left and right, with the left one's sound carried over
+ * untouched. Ends with the shorter, so a frame's difference between them cannot freeze one side.
+ */
+export function buildSideBySideArgs(job: SideBySideJob): string[] {
+  const { settings } = job;
+  const size = sideBySideSize(job.width, job.height, settings.codec);
+  const scale = size.width === job.width * 2 ? '' : `,scale=${size.width}:${size.height}:flags=lanczos`;
+  const stamp = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv';
+  const graph = `[0:v][1:v]hstack=inputs=2:shortest=1${scale},format=${encoderPixelFormat(settings)},${stamp}[v]`;
+  const encodeJob: EncodeJob = { width: size.width, height: size.height, fps: job.fps, settings, audioPath: undefined, outputPath: job.outputPath, bitexact: false };
+  return [
+    '-y', '-hide_banner', '-nostdin', '-loglevel', 'error',
+    '-i', job.left, '-i', job.right,
+    '-filter_complex', graph,
+    '-map', '[v]', '-map', '0:a:0',
+    ...videoEncoderArgs(encodeJob),
+    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
+    ...(settings.codec === 'hevc' ? ['-tag:v', 'hvc1'] : []),
+    '-c:a', 'copy',
+    '-movflags', '+faststart', job.outputPath,
+  ];
+}
+
 /** A shell-pasteable rendering of the command, for the render report. */
 export function formatCommandLine(exe: string, args: readonly string[]): string {
   const quote = (s: string) => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);

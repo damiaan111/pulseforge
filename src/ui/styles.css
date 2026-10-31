@@ -370,7 +370,7 @@ dl.compact dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-spac
 .batch-problems .warn { color: var(--warn); }
 .queue-shutdown { display: block; margin: 0 0 10px; font-size: 12px; }
 .shutdown-banner { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); z-index: 60; display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-radius: 6px; background: var(--warn); color: #111; font-weight: 600; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
-.export-audio { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; padding: 0; border: 0; }
+.export-audio, .export-compare { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; padding: 0; border: 0; }
 .export-range { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; padding: 0; border: 0; }
 .export-blur { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 0; padding: 0; border: 0; }
 .export-blur .dim-text { flex-basis: 100%; }

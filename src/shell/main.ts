@@ -1634,6 +1634,11 @@ function registerRenderHandlers(renders: RenderService): void {
       throw new Error('enqueueRender: the range must be whole ticks with 0 ≤ in < out');
     }
     if (request.supersample !== undefined && request.supersample !== 1 && request.supersample !== 2) throw new Error('enqueueRender: supersample must be 1 or 2');
+    const compare = request.compare;
+    if (compare !== undefined && (typeof compare !== 'object' || typeof compare.text !== 'string' || typeof compare.label !== 'string'
+      || (compare.projectPath !== null && typeof compare.projectPath !== 'string'))) {
+      throw new Error('enqueueRender: compare needs text, projectPath and label');
+    }
     const blur = request.motionBlur;
     if (blur != null && (typeof blur !== 'object' || motionBlurProblems(blur).length > 0)) {
       throw new Error(`enqueueRender: ${typeof blur === 'object' ? motionBlurProblems(blur).join('; ') : 'motionBlur must be an object'}`);
