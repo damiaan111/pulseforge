@@ -1,6 +1,6 @@
 import { readdir, rm, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { EXTRA_ARTEFACTS, MILKDROP_PRESETS, type ExtraId } from '../manifest.ts';
+import { EXTRA_ARTEFACTS, ISF_FILES, MILKDROP_PRESETS, type ExtraId } from '../manifest.ts';
 import { dropArtefacts, readVendorLock, writeVendorLock } from './lockfile.ts';
 import { createLogger } from './log.ts';
 import { MODELS, SETUP_LOG, VENDOR, insideVendor } from './paths.ts';
@@ -18,6 +18,12 @@ export async function removeComponent(id: string): Promise<void> {
   if (id === 'milkdrop') {
     await rm(insideVendor(join(VENDOR, 'milkdrop')), { recursive: true, force: true });
     dropArtefacts(lock, new Set([MILKDROP_PRESETS.id]));
+    await writeVendorLock(lock);
+    return;
+  }
+  if (id === 'isf') {
+    await rm(insideVendor(join(VENDOR, ISF_FILES.installDir)), { recursive: true, force: true });
+    dropArtefacts(lock, new Set([ISF_FILES.id]));
     await writeVendorLock(lock);
     return;
   }

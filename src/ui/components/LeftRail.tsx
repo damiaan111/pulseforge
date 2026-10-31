@@ -386,6 +386,9 @@ function ModulesPanel(): React.JSX.Element {
   const userModules = useStudio((s) => s.userModules);
   const problems = useStudio((s) => s.moduleProblems);
   const loadModules = useStudio((s) => s.loadModules);
+  // A library's refusals are a list to read when curious, not a row of red for each file.
+  const yours = problems.filter((problem) => problem.library !== true);
+  const library = problems.filter((problem) => problem.library === true);
   return (
     <div className="modules-panel" data-testid="modules-panel">
       <div className="modules-bar">
@@ -397,11 +400,21 @@ function ModulesPanel(): React.JSX.Element {
         <button type="button" title="Read modules/ again" data-action="modules-reload" onClick={() => void loadModules().then(() => useStudio.getState().notify({ text: 'Read the modules folder again.', kind: 'ok' }))}>Reload</button>
         <button type="button" title="Open the modules folder" onClick={() => void window.pulseforge.revealModules()}>Folder</button>
       </div>
-      {problems.map((problem) => (
+      {yours.map((problem) => (
         <p key={problem.folder} className="bad module-problem">
           <strong>modules/{problem.folder}</strong>: {problem.problems.join('; ')}
         </p>
       ))}
+      {library.length > 0 ? (
+        <details data-testid="modules-library-refused">
+          <summary className="dim">{library.length} shader{library.length === 1 ? '' : 's'} in the installed library cannot run here</summary>
+          {library.map((problem) => (
+            <p key={problem.folder} className="dim module-problem">
+              <strong>{problem.folder}</strong>: {problem.problems.join('; ')}
+            </p>
+          ))}
+        </details>
+      ) : null}
     </div>
   );
 }

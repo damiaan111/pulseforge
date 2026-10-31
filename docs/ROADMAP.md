@@ -210,8 +210,10 @@ read (STATUS 4.86).
 stems and lyrics through the chooser from a fresh clone (done with the setup command, not the chooser); moving
 the FFmpeg pin before BtbN drops it, around 2028.
 
-**Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). Vidvox ISF-Files (MIT, 371 files,
-close to the Shadertoy dialect) is the next source, mostly video effects. Hydra is ruled out (AGPL would bind
+**Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). ISF is in as a dialect and an optional
+component (STATUS 4.87): 105 of Vidvox's 327 files run; point2D inputs, more image inputs and passes are what
+would bring in the rest. The Shadertoy `input` channel darkens what it reads (mid-grey 128 comes out 55): fixing
+it changes existing projects, so it waits for the owner. Hydra is ruled out (AGPL would bind
 the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site default is
 non-commercial, so nothing is bundled from it without checking each shader.
 

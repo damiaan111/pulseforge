@@ -67,6 +67,19 @@ describe('removing a component', () => {
     expect(existsSync(yaml)).toBe(false);
   });
 
+  it('takes the ISF library and its lock line', async () => {
+    const shader = place('isf/ISF', 'Plasma.fs');
+    writeFileSync(join(vendor, 'vendor.lock.json'), JSON.stringify({ schemaVersion: 1, artefacts: [{ id: manifest.ISF_FILES.id }] }));
+    expect(components.componentRemovable('isf')).toBe(true);
+    expect(components.componentInstalled('isf')).toBe(true);
+
+    await remove.removeComponent('isf');
+
+    expect(existsSync(shader)).toBe(false);
+    expect(components.componentInstalled('isf')).toBe(false);
+    expect(JSON.parse(readFileSync(join(vendor, 'vendor.lock.json'), 'utf8'))).toMatchObject({ artefacts: [] });
+  });
+
   it('refuses what shares the Python environment', async () => {
     expect(components.componentRemovable('stems')).toBe(false);
     expect(components.componentRemovable('lyrics')).toBe(false);

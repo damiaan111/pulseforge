@@ -161,7 +161,38 @@ looks the same here as on the site.
   source on the site says which it uses.
 - Everything in §4 is available too (`u_rms`, `pf_spectrum`, `pf_hash`…).
 
+**Known bug, kept for now:** an effect's `input` channel is linear light, and the wrapper decodes the
+result as if it were display colour, so reading the input and writing it back darkens it (mid-grey
+128 comes out as 55). Fixing it would change existing projects, so that is the owner's call.
+
 Licences vary per shader on shadertoy.com (PROJECT.md §15): check before shipping a render.
+
+## 4c. ISF shaders
+
+[Interactive Shader Format](https://isf.video) files run as they are. Drop `Plasma.fs` straight in
+the modules folder (id `user.isf.plasma`), or add `"dialect": "isf"` to a `module.json`, or install
+the **ISF shaders** component, Vidvox's library. The JSON header decides the rest: an `inputImage`
+makes it an effect, otherwise it is a source, and each input becomes a parameter.
+
+| ISF | Here |
+|---|---|
+| `float`, `bool`, `event` | a slider or a switch; the uniform has the input's own name, not `u_<key>` |
+| `long` | a list; the uniform is the entry's `VALUES` number, not its position |
+| `color` | a colour with alpha; the uniform is a `vec4` of display values |
+| `TIME`, `FRAMEINDEX` | the timeline time and frame |
+| `TIMEDELTA`, `RENDERSIZE`, `PASSINDEX` | 1/fps, the layer's size, 0 |
+| `DATE` | fixed at (2000, 1, 1, *timeline seconds*) |
+| `IMG_PIXEL`, `IMG_NORM_PIXEL`, `IMG_THIS_PIXEL`, `IMG_THIS_NORM_PIXEL`, `IMG_SIZE`, `texture2D` | read `inputImage` |
+
+**Colour:** a shader sees display-referred, straight-alpha colour, as ISF expects, and writes the same.
+The wrapper converts on the way in and on the way out, so passing the input through changes nothing.
+
+**Not supported, refused with the reason in the Modules panel:** `point2D` inputs, images other than
+`inputImage`, `audio` and `audioFFT` inputs, `IMPORTED` images, `.vs` vertex shaders, `PERSISTENT`
+buffers (a frame must not depend on the frames before it) and more than one pass.
+
+The shaders are compiled as GLSL ES 3.00, and nothing rewrites them. Desktop GLSL that ES refuses, like
+`float x = 1;` or defining your own `round()`, is a compile error on your own line.
 
 ## 5. When it does not work
 

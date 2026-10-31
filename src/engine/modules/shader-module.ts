@@ -23,6 +23,8 @@
 // `mainImage`, and turns its display-referred colour into the linear, premultiplied light the
 // compositor works in. Clock-based inputs become timeline-based: `iDate` is fixed but for `.w`
 // (timeline seconds) and `iMouse` is zero, so a Shadertoy shader is as deterministic as any module.
+//
+// **ISF dialect**: a `.fs` file in the folder, or `"dialect": "isf"` in module.json. See isf.ts.
 
 import type { ModuleDefinition, ModuleInstance, ModuleKind, ModuleManifest, RenderContext } from '../core/module.ts';
 import { parseHexColor, srgbToLinear } from '../core/color.ts';
@@ -30,6 +32,7 @@ import { STEMS, type ParamSpec, type ParamValues, type Stem } from '../core/para
 import { HASH_GLSL, hash32 } from '../core/prng.ts';
 import { FULLSCREEN_VERT, ShaderCompileError, createProgram, drawFullscreenTriangle } from '../render/gl.ts';
 import { AnalysisTexture, SPECTRUM_GLSL } from './analysis-texture.ts';
+import { ISF_MAIN, isfNameReserved, isfPrelude, parseIsf } from './isf.ts';
 import { SHADERTOY_AUDIO_WIDTH, ShadertoyAudioTexture } from './shadertoy-audio.ts';
 
 /** What a drop-in module is, as data. JSON-serialisable, so it crosses IPC and config files. */
@@ -50,7 +53,7 @@ export interface ShaderModuleManifest {
   readonly category?: string;
   readonly tags?: readonly string[];
   readonly params?: readonly ParamSpec[];
-  /** 'pulseforge' (default): the author writes `main()`. 'shadertoy': the author writes `mainImage()`. */
+  /** 'pulseforge' (default): the author writes `main()`. 'shadertoy': `mainImage()`. 'isf': a file with an ISF header. */
   readonly dialect?: ShaderDialect;
   /**
    * Shadertoy only: what `iChannel0…3` read — the audio texture, the layer's input (effects), or
@@ -61,7 +64,7 @@ export interface ShaderModuleManifest {
   readonly alpha?: 'opaque' | 'straight';
 }
 
-export const SHADER_DIALECTS = ['pulseforge', 'shadertoy'] as const;
+export const SHADER_DIALECTS = ['pulseforge', 'shadertoy', 'isf'] as const;
 export type ShaderDialect = (typeof SHADER_DIALECTS)[number];
 export const SHADERTOY_CHANNELS = ['audio', 'input', 'none'] as const;
 export type ShadertoyChannel = (typeof SHADERTOY_CHANNELS)[number];
@@ -109,6 +112,8 @@ export function validateShaderModule(source: ShaderModuleSource, takenIds: Reado
     if (/void\s+main\s*\(\s*(void)?\s*\)/.test(source.shader)) problems.push('a Shadertoy shader must not define main() — the wrapper does');
   } else if (!/void\s+main\s*\(/.test(source.shader)) {
     problems.push('the shader has no "void main()"');
+  } else if (dialect === 'isf') {
+    problems.push(...isfProblems(source.shader, m));
   }
   if (typeof source.shader === 'string' && /^\s*#version/m.test(source.shader)) {
     problems.push('the shader must not declare #version — the prelude does');
@@ -135,7 +140,11 @@ export function validateShaderModule(source: ShaderModuleSource, takenIds: Reado
     }
     if (keys.has(spec.key)) problems.push(`${at}.key "${spec.key}" is declared twice`);
     keys.add(spec.key);
-    if (RESERVED_UNIFORMS.has(spec.key)) problems.push(`${at}.key "${spec.key}" would clash with the built-in uniform u_${spec.key}`);
+    if (dialect === 'isf') {
+      if (isfNameReserved(spec.key)) problems.push(`${at}.key "${spec.key}" is a name the shader wrapper or GLSL keeps for itself`);
+    } else if (RESERVED_UNIFORMS.has(spec.key)) {
+      problems.push(`${at}.key "${spec.key}" would clash with the built-in uniform u_${spec.key}`);
+    }
     if (!UNIFORM_PARAM_TYPES.has(String(spec.type))) {
       problems.push(`${at} "${spec.key}" has type "${String(spec.type)}", which a shader module cannot take (use float, int, bool, enum, color or select:stem)`);
       continue;
@@ -162,6 +171,18 @@ export function validateShaderModule(source: ShaderModuleSource, takenIds: Reado
       problems.push(`${at} "${spec.key}" default must be a stem (${STEMS.join(', ')})`);
     }
   }
+  return problems;
+}
+
+/** What an ISF file's own header refuses, and whether the manifest says what the header says. */
+function isfProblems(shader: string, manifest: Partial<ShaderModuleManifest>): string[] {
+  const isf = parseIsf(shader);
+  const problems = [...isf.refusals];
+  if (isf.refusals.length > 0) return problems;
+  if (manifest.kind !== isf.kind) problems.push(`kind "${String(manifest.kind)}" disagrees with the ISF header, which makes it a ${isf.kind}`);
+  const keys = new Set((manifest.params ?? []).map((p) => p?.key));
+  const absent = isf.params.filter((p) => !keys.has(p.key)).map((p) => p.key);
+  if (absent.length > 0) problems.push(`the ISF inputs ${absent.join(', ')} are not among params`);
   return problems;
 }
 
@@ -260,6 +281,8 @@ void main() {
 
 /** The whole program around the author's code: what goes before it, and what goes after. */
 export function shaderWrapping(manifest: ShaderModuleManifest): { readonly prelude: string; readonly suffix: string } {
+  // ISF inputs are bare uniforms, declared by its own prelude rather than as `u_<key>`.
+  if (manifest.dialect === 'isf') return { prelude: shaderPrelude(manifest.kind, []) + isfPrelude(manifest.kind, manifest.params ?? []), suffix: ISF_MAIN };
   const base = shaderPrelude(manifest.kind, manifest.params ?? []);
   if ((manifest.dialect ?? 'pulseforge') !== 'shadertoy') return { prelude: base, suffix: '' };
   return { prelude: base + SHADERTOY_UNIFORMS, suffix: shadertoyMain(manifest.alpha ?? 'opaque') };
@@ -294,6 +317,26 @@ function compile(gl: WebGL2RenderingContext, source: ShaderModuleSource): WebGLP
   }
 }
 
+/** An ISF input as its shader expects it: see isf.ts for why `long` and `color` differ from the other dialects. */
+function uploadIsfParam(gl: WebGL2RenderingContext, location: WebGLUniformLocation, spec: ParamSpec, value: unknown): void {
+  switch (spec.type) {
+    case 'bool':
+      gl.uniform1i(location, value === true ? 1 : 0);
+      break;
+    case 'int':
+    case 'enum':
+      gl.uniform1i(location, Math.round(Number(value)) || 0);
+      break;
+    case 'color': {
+      const c = parseHexColor(String(value)) ?? { r: 1, g: 1, b: 1, a: 1 };
+      gl.uniform4f(location, c.r, c.g, c.b, c.a);
+      break;
+    }
+    default:
+      gl.uniform1f(location, typeof value === 'number' ? value : 0);
+  }
+}
+
 function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSource): ModuleInstance {
   const program = compile(gl, source);
   const params = source.manifest.params ?? [];
@@ -304,7 +347,9 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
     rms: loc('u_rms'), peak: loc('u_peak'), onset: loc('u_onset'), beat: loc('u_beat'), centroid: loc('u_centroid'),
     seed: loc('u_seed'), spectrum: loc('u_spectrum'), bins: loc('u_bins'), input: loc('u_input'),
   };
-  const paramLocations = params.map((p) => ({ spec: p, location: loc(`u_${p.key}`) }));
+  const isf = source.manifest.dialect === 'isf';
+  const isfTimeDelta = isf ? loc('pf_isf_timedelta') : null;
+  const paramLocations = params.map((p) => ({ spec: p, location: loc(isf ? p.key : `u_${p.key}`) }));
   const stemParam = params.find((p) => p.type === 'select:stem');
   const vao = gl.createVertexArray();
   const analysis = new AnalysisTexture(gl);
@@ -357,6 +402,10 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
       for (const { spec, location } of paramLocations) {
         if (location === null) continue;
         const value = values[spec.key];
+        if (isf) {
+          uploadIsfParam(gl, location, spec, value);
+          continue;
+        }
         switch (spec.type) {
           case 'bool':
             gl.uniform1i(location, value === true ? 1 : 0);
@@ -376,6 +425,8 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
             gl.uniform1f(location, typeof value === 'number' ? value : 0);
         }
       }
+
+      if (isf) gl.uniform1f(isfTimeDelta, ctx.time.fps.den / ctx.time.fps.num);
 
       if (st !== null) {
         const { width, height } = ctx.canvas;
@@ -449,9 +500,31 @@ export function checkShaderModule(gl: WebGL2RenderingContext, source: ShaderModu
  */
 export function shadertoyFileSource(fileName: string, shader: string): ShaderModuleSource {
   const name = fileName.replace(/\.(glsl|frag)$/i, '').trim() || 'Shadertoy';
-  const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'shader';
   return {
-    manifest: { id: `user.shadertoy.${slug}`, version: '1', kind: 'source', name, category: 'shadertoy', tags: ['shadertoy'], dialect: 'shadertoy' },
+    manifest: { id: `user.shadertoy.${idSlug(name)}`, version: '1', kind: 'source', name, category: 'shadertoy', tags: ['shadertoy'], dialect: 'shadertoy' },
+    shader,
+    origin: fileName,
+  };
+}
+
+function idSlug(name: string): string {
+  return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'shader';
+}
+
+/**
+ * An ISF file (`Plasma.fs`) as a module, named after the file: an effect if it has an `inputImage`,
+ * otherwise a source. What it cannot do is `validateShaderModule`'s to say, from the same header.
+ * Pure. `idPrefix` keeps a library's ids apart from a person's own files.
+ */
+export function isfFileSource(fileName: string, shader: string, idPrefix = 'user.isf'): ShaderModuleSource {
+  const name = fileName.replace(/\.fs$/i, '').trim() || 'ISF';
+  const isf = parseIsf(shader);
+  return {
+    manifest: {
+      id: `${idPrefix}.${idSlug(name)}`, version: isf.version ?? '1', kind: isf.kind, name, category: 'isf',
+      tags: ['isf', ...isf.categories.map((c) => c.toLowerCase())], dialect: 'isf', params: isf.params,
+      ...(isf.description === undefined ? {} : { description: isf.description }),
+    },
     shader,
     origin: fileName,
   };

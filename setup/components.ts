@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  DEMUCS_HTDEMUCS, EXTRA_ARTEFACTS, FALLBACK_FONTS, FFMPEG, FONT_INTER, LYRICS_MODELS, MILKDROP_PRESETS, PYTHON, PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS,
+  DEMUCS_HTDEMUCS, EXTRA_ARTEFACTS, FALLBACK_FONTS, FFMPEG, FONT_INTER, ISF_FILES, LYRICS_MODELS, MILKDROP_PRESETS, PYTHON, PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS,
   PYTHON_PACKAGES_LYRICS, UV, type ExtraId, type Tier,
 } from './manifest.ts';
-import { DEFAULT_FONT_FILE, FFMPEG_EXE, MILKDROP_JS_DIR, MODELS, VENDOR } from './lib/paths.ts';
+import { DEFAULT_FONT_FILE, FFMPEG_EXE, ISF_DIR, MILKDROP_JS_DIR, MODELS, VENDOR } from './lib/paths.ts';
 
 // What a person chooses from (the first-run chooser, Settings, `--components`), as opposed to the
 // tiers and steps that are how those choices get installed. One list, so the chooser, the command
@@ -102,6 +102,17 @@ export const COMPONENTS: readonly Component[] = [
     minDriver: null,
     nonCommercial: false,
   },
+  {
+    id: 'isf',
+    title: 'ISF shaders',
+    summary: 'Vidvox\'s library of Interactive Shader Format generators and video effects. Files it cannot run are listed with the reason.',
+    group: 'feature',
+    bytes: ISF_FILES.sizeBytes,
+    license: ISF_FILES.license,
+    requires: [],
+    minDriver: null,
+    nonCommercial: false,
+  },
   ...(Object.keys(EXTRA_TEXT) as ExtraId[]).map((id): Component => ({
     id,
     title: EXTRA_TEXT[id].title,
@@ -145,7 +156,7 @@ export function resolveChoice(ids: readonly string[]): ResolvedChoice {
  * environment, so none of them can leave alone; those three stay until the folder is deleted.
  */
 export function componentRemovable(id: string): boolean {
-  return id === 'milkdrop' || BY_ID.get(id)?.group === 'model';
+  return id === 'milkdrop' || id === 'isf' || BY_ID.get(id)?.group === 'model';
 }
 
 /** Whether a component is on disk. Files, not the lock: a person deleting a folder should see it go. */
@@ -156,6 +167,7 @@ export function componentInstalled(id: string, exists: (path: string) => boolean
   if (id === 'lyrics') return marker('.pulseforge-lyrics-env.json') && LYRICS_MODELS.every((file) => exists(join(VENDOR, file.installDir, file.fileName)));
   if (id === 'beats') return marker('.pulseforge-beats-env.json');
   if (id === 'milkdrop') return exists(join(MILKDROP_JS_DIR, 'index.json'));
+  if (id === 'isf') return exists(ISF_DIR);
   const files = EXTRA_ARTEFACTS[id as ExtraId];
   return files !== undefined && files.every((file) => exists(join(VENDOR, file.installDir, file.fileName)));
 }
