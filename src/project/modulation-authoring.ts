@@ -325,6 +325,20 @@ export function describeTarget(document: ProjectDocument, target: string, schema
   };
 }
 
+/** The number a target holds as stored, before keys and modulation; the parameter's default if unset. */
+export function targetBase(document: ProjectDocument, target: string, spec: ParamSpec): number {
+  const fallback = typeof spec.default === 'number' ? spec.default : 0;
+  const path = parseTarget(target);
+  if (path === undefined) return fallback;
+  const layer = path.layerId === GLOBAL_OWNER ? undefined : findAnyLayer(document.layers, path.layerId);
+  if (path.layerProperty === true) return layer?.opacity ?? fallback;
+  const params = path.effectId !== null
+    ? (path.layerId === GLOBAL_OWNER ? document.globalEffects : layer?.effects ?? []).find((e) => e.id === path.effectId)?.params
+    : layer?.kind === 'module' ? layer.params : undefined;
+  const value = params?.[path.key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 function findAnyLayer(layers: readonly Layer[], id: string): Layer | undefined {
   for (const { layer } of walkLayers(layers)) if (layer.id === id) return layer;
   return undefined;

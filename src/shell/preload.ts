@@ -110,6 +110,7 @@ const api: PulseforgeApi = {
   revealPresets: () => ipcRenderer.invoke(IPC.presetsReveal) as Promise<void>,
   listTemplates: () => ipcRenderer.invoke(IPC.templatesList) as ReturnType<PulseforgeApi['listTemplates']>,
   revealTemplates: () => ipcRenderer.invoke(IPC.templatesReveal) as Promise<void>,
+  saveTemplate: (stem, text) => ipcRenderer.invoke(IPC.templatesSave, stem, text) as Promise<string>,
   onModulesChanged(listener) {
     const handler = () => listener();
     ipcRenderer.on(IPC.modulesChanged, handler);
@@ -136,6 +137,7 @@ const api: PulseforgeApi = {
   fallbackFonts: () => ipcRenderer.invoke(IPC.fontFallbacks) as ReturnType<PulseforgeApi['fallbackFonts']>,
   colorEmojiFont: () => ipcRenderer.invoke(IPC.fontColorEmoji) as ReturnType<PulseforgeApi['colorEmojiFont']>,
   importImage: () => ipcRenderer.invoke(IPC.imageImport) as ReturnType<PulseforgeApi['importImage']>,
+  loadCoverArt: (audioPath) => ipcRenderer.invoke(IPC.imageCoverArt, audioPath) as ReturnType<PulseforgeApi['loadCoverArt']>,
   loadImage: (path, projectPath) => ipcRenderer.invoke(IPC.imageLoad, path, projectPath) as ReturnType<PulseforgeApi['loadImage']>,
   environment: () => ipcRenderer.invoke(IPC.environment) as ReturnType<PulseforgeApi['environment']>,
   pickRenderOutput: (suggestedName) => ipcRenderer.invoke(IPC.renderPickOutput, suggestedName) as Promise<string | null>,

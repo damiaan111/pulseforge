@@ -1,15 +1,23 @@
 // Palette derivation (auto-director-spec §5.3, M17's roles).
 //
-// `generate-from-style`: a base hue from a style axis (the template says which, and over which
-// arc of the wheel), a harmony rule to expand it, lightness and saturation from the track's
+// `generate-from-style`: a base hue from a style axis or the track's key (the template says which,
+// and over which arc of the wheel), a harmony rule to expand it, lightness and saturation from the track's
 // energy and darkness, then the roles. Contrast is enforced last and always wins: text against
 // the background must reach the template's minimum (WCAG 2 contrast ratio), and the primary must
 // stand clear of the background, adjusting lightness until it does — "legibility outranks the
 // palette's aesthetic intent, always". Both adjustments are logged.
 //
+// `derive-from-image`: the dominant colours of a picture, by saturation-weighted clustering, stand
+// in for the style axis: the strongest gives the primary, the harmony rule places the others (on a
+// colour of the picture where one is near enough, on the rule's own hue otherwise), and the same
+// contrast step finishes it. Fixed-stride sampling, a seeded start and a fixed number of iterations
+// make it a pure function of the pixels and the seed; only the resulting hex is stored.
+//
 // Colours are chosen in HSL because templates are written in its terms (hue ranges, saturation,
 // lightness); contrast is measured in WCAG relative luminance, which is what legibility follows.
 
+import { keyName, keyWheelPosition, type MusicalKey } from '../analysis/key.ts';
+import type { DecodedImage } from '../engine/core/image.ts';
 import { random01 } from '../engine/core/prng.ts';
 import type { Palette } from '../project/document.ts';
 import { PALETTE_ROLES, type PaletteRole } from '../project/palette.ts';
@@ -81,7 +89,7 @@ export function hueName(hex: string): string {
 }
 
 /** Hue offsets of secondary and accent from the primary. */
-const HARMONY: Record<Harmony, readonly [number, number]> = {
+export const HARMONY: Record<Harmony, readonly [number, number]> = {
   analogous: [35, -35],
   complementary: [180, 30],
   triad: [120, 240],
@@ -97,17 +105,14 @@ export interface GeneratedPalette {
   readonly data: Readonly<Record<string, unknown>>;
 }
 
-/**
- * A palette from the template's rule and the track's style. `seed` is the palette aspect's own
- * seed, so a palette lock reproduces it and a reroll moves only the hue within `hueJitter`.
- */
-export function generatePalette(spec: TemplatePalette, style: StyleVector, seed: number, hueJitter: number): GeneratedPalette {
-  const notes: string[] = [];
-  const axis = style[spec.baseHue.from];
-  const [h0, h1] = spec.baseHue.range;
-  const jitter = (random01(seed, 'palette', 'hue') * 2 - 1) * hueJitter;
-  const hue = wrap(h0 + (h1 - h0) * axis + jitter);
-  const saturation = spec.saturation[0] + (spec.saturation[1] - spec.saturation[0]) * style.energy;
+/** What a role takes from its source, where the source is more than one hue. */
+interface RoleHue {
+  readonly h: number;
+  readonly s: number;
+}
+
+/** The role table: every role's colour from the base hue and saturation. Shared by both strategies. */
+function roleColours(spec: TemplatePalette, style: StyleVector, hue: number, saturation: number, picked: { readonly secondary?: RoleHue; readonly accent?: RoleHue } = {}): Record<PaletteRole, string> {
   const [offsetB, offsetC] = HARMONY[spec.harmony];
   const light = spec.mode === 'light';
 
@@ -117,21 +122,20 @@ export function generatePalette(spec: TemplatePalette, style: StyleVector, seed:
 
   const roles: Record<PaletteRole, Hsl> = {
     primary: { h: hue, s: saturation, l: light ? 0.42 : 0.58 },
-    secondary: { h: hue + offsetB, s: saturation * 0.9, l: light ? 0.38 : spec.harmony === 'mono' ? 0.4 : 0.55 },
-    accent: { h: hue + offsetC, s: saturation, l: light ? 0.48 : spec.harmony === 'duotone' || spec.harmony === 'mono' ? 0.74 : 0.62 },
+    secondary: { h: picked.secondary?.h ?? hue + offsetB, s: picked.secondary?.s ?? saturation * 0.9, l: light ? 0.38 : spec.harmony === 'mono' ? 0.4 : 0.55 },
+    accent: { h: picked.accent?.h ?? hue + offsetC, s: picked.accent?.s ?? saturation, l: light ? 0.48 : spec.harmony === 'duotone' || spec.harmony === 'mono' ? 0.74 : 0.62 },
     glow: { h: hue, s: Math.min(1, saturation + 0.05), l: light ? 0.55 : 0.72 },
     background: { h: hue + (spec.harmony === 'duotone' ? offsetB : 0), s: light ? 0.12 : saturation * 0.45, l: backgroundL },
     text: light ? { h: hue, s: 0.25, l: 0.1 } : { h: hue, s: 0.2, l: 0.95 },
     textShadow: light ? { h: hue, s: 0.1, l: 0.97 } : { h: hue, s: 0.3, l: 0.03 },
   };
-  const hex: Record<PaletteRole, string> = Object.fromEntries(PALETTE_ROLES.map((role) => [role, hslToHex(roles[role])])) as Record<PaletteRole, string>;
+  return Object.fromEntries(PALETTE_ROLES.map((role) => [role, hslToHex(roles[role])])) as Record<PaletteRole, string>;
+}
 
-  for (const [role, color] of Object.entries(spec.colors)) {
-    if ((PALETTE_ROLES as readonly string[]).includes(role) && /^#[0-9a-f]{6}$/i.test(color) && spec.strategy === 'fixed') {
-      hex[role as PaletteRole] = color.toLowerCase();
-    }
-  }
-
+/** Contrast comes last and always wins (§5.3): both strategies end here. Mutates `hex`; returns the notes. */
+function enforceContrast(spec: TemplatePalette, hex: Record<PaletteRole, string>): string[] {
+  const notes: string[] = [];
+  const light = spec.mode === 'light';
   // Legibility first: push text away from the background until it passes.
   const textBefore = contrastRatio(hex.text, hex.background);
   if (textBefore < spec.minTextContrast) {
@@ -148,12 +152,197 @@ export function generatePalette(spec: TemplatePalette, style: StyleVector, seed:
     hex.background = fixed.anchor;
     notes.push(`Primary was too close to the background (${primaryBefore.toFixed(1)}:1); pushed apart to ${contrastRatio(hex.primary, hex.background).toFixed(1)}:1.`);
   }
+  return notes;
+}
 
-  notes.unshift(`${hueName(hex.primary)} primary (hue ${Math.round(hue)}° from ${spec.baseHue.from} ${axis.toFixed(2)}), ${spec.harmony} harmony, ${light ? 'light' : 'dark'} ground.`);
+const toPalette = (hex: Record<PaletteRole, string>): Palette => ({ colors: PALETTE_ROLES.map((role) => hex[role]), roles: Object.fromEntries(PALETTE_ROLES.map((role, i) => [role, i])), extra: {} });
+
+/**
+ * A palette from the template's rule and the track's style. `seed` is the palette aspect's own
+ * seed, so a palette lock reproduces it and a reroll moves only the hue within `hueJitter`.
+ */
+export function generatePalette(spec: TemplatePalette, style: StyleVector, seed: number, hueJitter: number, key: MusicalKey | null = null): GeneratedPalette {
+  // A template that follows the key still needs a hue on a track without one: brightness, said so.
+  const source = spec.baseHue.from === 'key' ? (key === null ? 'brightness' : 'key') : spec.baseHue.from;
+  const axis = source === 'key' ? keyWheelPosition(key as MusicalKey) : style[source];
+  const [h0, h1] = spec.baseHue.range;
+  const jitter = (random01(seed, 'palette', 'hue') * 2 - 1) * hueJitter;
+  const hue = wrap(h0 + (h1 - h0) * axis + jitter);
+  const saturation = spec.saturation[0] + (spec.saturation[1] - spec.saturation[0]) * style.energy;
+  const light = spec.mode === 'light';
+  const hex = roleColours(spec, style, hue, saturation);
+
+  for (const [role, color] of Object.entries(spec.colors)) {
+    if ((PALETTE_ROLES as readonly string[]).includes(role) && /^#[0-9a-f]{6}$/i.test(color) && spec.strategy === 'fixed') {
+      hex[role as PaletteRole] = color.toLowerCase();
+    }
+  }
+
+  const notes = enforceContrast(spec, hex);
+  notes.unshift(`${hueName(hex.primary)} primary (hue ${Math.round(hue)}° from ${source === 'key' ? `the key, ${keyName(key as MusicalKey)}` : `${source} ${axis.toFixed(2)}`}), ${spec.harmony} harmony, ${light ? 'light' : 'dark'} ground.`);
+  if (spec.baseHue.from === 'key' && key === null) notes.push('No key was detected in this track, so its brightness set the hue instead.');
   return {
-    palette: { colors: PALETTE_ROLES.map((role) => hex[role]), roles: Object.fromEntries(PALETTE_ROLES.map((role, i) => [role, i])), extra: {} },
+    palette: toPalette(hex),
     notes,
     data: { hue: Math.round(hue), saturation: Number(saturation.toFixed(3)), textContrast: Number(contrastRatio(hex.text, hex.background).toFixed(2)) },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// derive-from-image
+// ---------------------------------------------------------------------------
+
+/** One dominant colour of a picture. */
+export interface ImageColour extends Hsl {
+  readonly hex: string;
+  /** Its share of the saturation-weighted pixels, 0..1. */
+  readonly share: number;
+}
+
+/** About this many pixels are read, whatever the picture's size. */
+const IMAGE_SAMPLES = 4096;
+const IMAGE_CLUSTERS = 6;
+const IMAGE_ITERATIONS = 12;
+/** A pixel with no colour at all still counts a little: an image of greys has a dominant grey. */
+const NEUTRAL_WEIGHT = 0.04;
+/** Below this a colour has no hue worth following. */
+const CHROMATIC_SATURATION = 0.15;
+/** A colour of the picture stands in for the harmony's hue when it is this close, in degrees. */
+const HARMONY_TOLERANCE = 30;
+
+/**
+ * The picture's dominant colours, strongest first: weighted k-means in sRGB over a fixed-stride
+ * sample. A pixel's weight is its chroma, so a vivid object beats the larger grey around it, which
+ * is what makes the result a palette rather than an average. Pure: the same pixels and seed give
+ * the same colours. Empty when no pixel is visible.
+ */
+export function dominantColours(image: DecodedImage, seed: number): ImageColour[] {
+  const { width, height, pixels } = image;
+  const stride = Math.max(1, Math.ceil(Math.sqrt((width * height) / IMAGE_SAMPLES)));
+  const rgb: number[] = [];
+  const weights: number[] = [];
+  for (let y = stride >> 1; y < height; y += stride) {
+    for (let x = stride >> 1; x < width; x += stride) {
+      const at = (y * width + x) * 4;
+      if ((pixels[at + 3] as number) < 128) continue;
+      const r = (pixels[at] as number) / 255;
+      const g = (pixels[at + 1] as number) / 255;
+      const b = (pixels[at + 2] as number) / 255;
+      rgb.push(r, g, b);
+      weights.push(NEUTRAL_WEIGHT + Math.max(r, g, b) - Math.min(r, g, b));
+    }
+  }
+  const count = weights.length;
+  if (count === 0) return [];
+
+  const distance = (i: number, c: readonly number[]) => {
+    const dr = (rgb[i * 3] as number) - (c[0] as number);
+    const dg = (rgb[i * 3 + 1] as number) - (c[1] as number);
+    const db = (rgb[i * 3 + 2] as number) - (c[2] as number);
+    return dr * dr + dg * dg + db * db;
+  };
+  // Seeded k-means++: each further centre is drawn in proportion to its distance from the rest.
+  const centres: number[][] = [];
+  for (let k = 0; k < IMAGE_CLUSTERS; k += 1) {
+    let total = 0;
+    const reach = new Float64Array(count);
+    for (let i = 0; i < count; i += 1) {
+      let nearest = centres.length === 0 ? 1 : Infinity;
+      for (const c of centres) nearest = Math.min(nearest, distance(i, c));
+      reach[i] = nearest * (weights[i] as number);
+      total += reach[i] as number;
+    }
+    if (total <= 0) break;
+    let pick = random01(seed, 'palette', 'cluster', k) * total;
+    let chosen = count - 1;
+    for (let i = 0; i < count; i += 1) {
+      pick -= reach[i] as number;
+      if (pick < 0) {
+        chosen = i;
+        break;
+      }
+    }
+    centres.push([rgb[chosen * 3] as number, rgb[chosen * 3 + 1] as number, rgb[chosen * 3 + 2] as number]);
+  }
+
+  const mass = new Float64Array(centres.length);
+  for (let iteration = 0; iteration < IMAGE_ITERATIONS; iteration += 1) {
+    const sums = centres.map(() => [0, 0, 0]);
+    mass.fill(0);
+    for (let i = 0; i < count; i += 1) {
+      let best = 0;
+      let bestDistance = Infinity;
+      centres.forEach((c, k) => {
+        const d = distance(i, c);
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = k;
+        }
+      });
+      const w = weights[i] as number;
+      const sum = sums[best] as number[];
+      sum[0] = (sum[0] as number) + (rgb[i * 3] as number) * w;
+      sum[1] = (sum[1] as number) + (rgb[i * 3 + 1] as number) * w;
+      sum[2] = (sum[2] as number) + (rgb[i * 3 + 2] as number) * w;
+      mass[best] = (mass[best] as number) + w;
+    }
+    centres.forEach((c, k) => {
+      const m = mass[k] as number;
+      if (m > 0) (sums[k] as number[]).forEach((v, channel) => (c[channel] = v / m));
+    });
+  }
+
+  const totalMass = mass.reduce((sum, m) => sum + m, 0);
+  const channel = (v: number) => Math.round(clamp01(v) * 255).toString(16).padStart(2, '0');
+  return centres
+    .flatMap((c, k): ImageColour[] => {
+      const share = (mass[k] as number) / totalMass;
+      if (share <= 0) return [];
+      const hex = `#${channel(c[0] as number)}${channel(c[1] as number)}${channel(c[2] as number)}`;
+      return [{ ...hexToHsl(hex), hex, share }];
+    })
+    .sort((a, b) => b.share - a.share || (a.hex < b.hex ? -1 : 1));
+}
+
+const hueGap = (a: number, b: number) => {
+  const d = Math.abs(wrap(a) - wrap(b));
+  return Math.min(d, 360 - d);
+};
+
+/**
+ * A palette from a picture (§5.3). `seed` chooses among the colours strong enough to lead, so a
+ * reroll can bring a different colour of the same picture forward. Null when no pixel is visible.
+ */
+export function derivePalette(spec: TemplatePalette, image: DecodedImage, imageName: string, style: StyleVector, seed: number): GeneratedPalette | null {
+  const colours = dominantColours(image, seed);
+  if (colours.length === 0) return null;
+  const chromatic = colours.filter((c) => c.s >= CHROMATIC_SATURATION && c.l > 0.08 && c.l < 0.95);
+  const pool = chromatic.length > 0 ? chromatic : colours;
+  const strongest = (pool[0] as ImageColour).share;
+  const leaders = pool.filter((c) => c.share >= strongest * 0.5);
+  const lead = leaders[Math.floor(random01(seed, 'palette', 'lead') * leaders.length)] as ImageColour;
+
+  const hue = lead.h;
+  const [offsetB, offsetC] = HARMONY[spec.harmony];
+  /** The picture's own colour nearest the harmony's hue, when the rule leaves room for one. */
+  const near = (offset: number): RoleHue | undefined => {
+    if (offset === 0 || chromatic.length === 0) return undefined;
+    const target = hue + offset;
+    const found = pool.filter((c) => c !== lead && hueGap(c.h, target) <= HARMONY_TOLERANCE)
+      .sort((a, b) => hueGap(a.h, target) - hueGap(b.h, target) || b.share - a.share)[0];
+    return found === undefined ? undefined : { h: found.h, s: found.s };
+  };
+  const secondary = near(offsetB);
+  const accent = near(offsetC);
+  const hex = roleColours(spec, style, hue, lead.s, { ...(secondary === undefined ? {} : { secondary }), ...(accent === undefined ? {} : { accent }) });
+
+  const notes = enforceContrast(spec, hex);
+  notes.unshift(`${hueName(hex.primary)} primary from "${imageName}" (${Math.round(lead.share * 100)}% of the colour in it), ${spec.harmony} harmony.`);
+  if (chromatic.length === 0) notes.push(`"${imageName}" has almost no colour, so the palette is close to neutral.`);
+  return {
+    palette: toPalette(hex),
+    notes,
+    data: { hue: Math.round(hue), saturation: Number(lead.s.toFixed(3)), textContrast: Number(contrastRatio(hex.text, hex.background).toFixed(2)), image: imageName, dominant: colours.map((c) => c.hex) },
   };
 }
 

@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { ImageDecodeError, decodeImageFile } from '../../src/assets/image-decode.ts';
+import { ImageDecodeError, decodeAttachedPicture, decodeImageFile } from '../../src/assets/image-decode.ts';
 import { FFMPEG_EXE, FFPROBE_EXE, ROOT } from '../../setup/lib/paths.ts';
 
 const available = existsSync(FFMPEG_EXE) && existsSync(FFPROBE_EXE);
@@ -45,5 +45,48 @@ describe.skipIf(!available)('decodeImageFile', () => {
     const bogus = join(DIR, 'not-an-image.png');
     writeFileSync(bogus, 'hello');
     await expect(decodeImageFile(FFMPEG_EXE, FFPROBE_EXE, bogus)).rejects.toThrow(ImageDecodeError);
+  }, 60_000);
+});
+
+describe.skipIf(!available)('decodeAttachedPicture', () => {
+  const ffmpeg = (...args: string[]) => {
+    const made = spawnSync(FFMPEG_EXE, ['-v', 'error', '-y', ...args], { windowsHide: true });
+    expect(made.status, made.stderr.toString()).toBe(0);
+  };
+
+  it('reads the embedded picture of a song, and only that', async () => {
+    mkdirSync(DIR, { recursive: true });
+    const cover = join(DIR, 'cover.png');
+    const plain = join(DIR, 'plain.flac');
+    const tagged = join(DIR, 'tagged.flac');
+    ffmpeg('-f', 'lavfi', '-i', 'color=c=red:s=16x16', '-frames:v', '1', cover);
+    ffmpeg('-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', plain);
+    ffmpeg('-i', plain, '-i', cover, '-map', '0:a', '-map', '1:v', '-c', 'copy', '-disposition:v', 'attached_pic', tagged);
+
+    const image = await decodeAttachedPicture(FFMPEG_EXE, FFPROBE_EXE, tagged);
+    expect([image?.width, image?.height]).toEqual([16, 16]);
+    // lavfi's colour source runs through YUV, so red comes back a shade off.
+    expect(image?.pixels[0]).toBeGreaterThan(240);
+    expect(image?.pixels[1]).toBeLessThan(10);
+    expect(await decodeAttachedPicture(FFMPEG_EXE, FFPROBE_EXE, plain)).toBeNull();
+  }, 60_000);
+
+  it('does not take a video track for cover art', async () => {
+    mkdirSync(DIR, { recursive: true });
+    const clip = join(DIR, 'clip.mkv');
+    ffmpeg('-f', 'lavfi', '-i', 'color=c=blue:s=16x16:d=0.2', '-c:v', 'ffv1', clip);
+    expect(await decodeAttachedPicture(FFMPEG_EXE, FFPROBE_EXE, clip)).toBeNull();
+  }, 60_000);
+
+  it('scales a large picture down, so colours never cost a full decode', async () => {
+    mkdirSync(DIR, { recursive: true });
+    const cover = join(DIR, 'big-cover.png');
+    const plain = join(DIR, 'plain2.flac');
+    const tagged = join(DIR, 'big-tagged.flac');
+    ffmpeg('-f', 'lavfi', '-i', 'color=c=green:s=64x32', '-frames:v', '1', cover);
+    ffmpeg('-f', 'lavfi', '-i', 'sine=frequency=220:duration=1', plain);
+    ffmpeg('-i', plain, '-i', cover, '-map', '0:a', '-map', '1:v', '-c', 'copy', '-disposition:v', 'attached_pic', tagged);
+    const image = await decodeAttachedPicture(FFMPEG_EXE, FFPROBE_EXE, tagged, 16);
+    expect([image?.width, image?.height, image?.sourceWidth]).toEqual([16, 8, 64]);
   }, 60_000);
 });

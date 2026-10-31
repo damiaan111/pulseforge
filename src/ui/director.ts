@@ -15,14 +15,18 @@
 
 import { direct, surprise, DirectorError, type DirectorInput, type DirectResult } from '../director/direct.ts';
 import { buildTrackDigest, styleVector } from '../director/digest.ts';
+import { extractTemplate, templateIdFor } from '../director/extract.ts';
 import { rankTemplates, type DirectorModules, type TemplateScore } from '../director/match.ts';
 import { projectConditions } from '../director/direct.ts';
 import { walkRenderModules } from '../engine/core/project.ts';
 import { frameStartTick, sourceToTimelineSeconds } from '../engine/core/time.ts';
 import { MILKDROP_MODULE } from '../engine/modules/milkdrop.ts';
 import { detectVocalSegments } from '../lyrics/vocal-segments.ts';
+import { bakeArrangementCurves, planCurveBake, type CurveBakePlan } from '../project/automation-commands.ts';
 import { applyDirection } from '../project/commands.ts';
 import { aspectBucket, type DirectorRoll, type ProjectDocument } from '../project/document.ts';
+import { newId } from '../project/ids.ts';
+import type { SchemaLookup } from '../project/modulation-authoring.ts';
 import { toRenderProject } from '../project/snapshot.ts';
 import { loadPreset } from './milkdrop.ts';
 import { moduleDefinitions } from './modules.ts';
@@ -57,7 +61,7 @@ export function directorInput(state: StudioState, document: ProjectDocument = st
   const analysis = state.analysis;
   if (analysis === null) throw new DirectorError('The track has not been analysed.');
   const durationSeconds = state.audio?.durationSeconds ?? 0;
-  const digest = buildTrackDigest({ analysis, durationSeconds, onsetTimes: state.onsetTimes, sections: state.sections });
+  const digest = buildTrackDigest({ analysis, durationSeconds, onsetTimes: state.onsetTimes, sections: state.sections, key: state.musicalKey });
   const vocals = analysis.sources.get('vocals')?.features.get('rms');
   return {
     document,
@@ -71,6 +75,8 @@ export function directorInput(state: StudioState, document: ProjectDocument = st
     vocalSegments: vocals === undefined ? [] : detectVocalSegments(vocals.data, vocals.rate),
     title: titleOf(state),
     milkdropPresets: state.milkdropPresets,
+    images: state.images,
+    colourImage: state.autoColourSource,
   };
 }
 
@@ -127,6 +133,56 @@ export function runDirector(action: DirectorAction): DirectResult | null {
     state.notify({ text: error instanceof Error ? error.message : String(error), kind: 'bad' });
     return null;
   }
+}
+
+/** The project as a template draft in the user's folder (§10 step 2). Returns what stayed behind. */
+export async function extractAsTemplate(): Promise<readonly string[]> {
+  const state = useStudio.getState();
+  const blocker = directorBlocker(state);
+  if (blocker !== null) {
+    state.notify({ text: blocker, kind: 'warn' });
+    return [];
+  }
+  try {
+    const input = directorInput(state);
+    // A name of its own: the file is never replaced, and a second id would shadow the first.
+    const taken = new Set(state.templates.map((t) => t.template.id));
+    const wanted = input.title.trim() || 'Untitled';
+    let name = wanted;
+    for (let n = 2; taken.has(templateIdFor(name)); n += 1) name = `${wanted} ${n}`;
+    const id = templateIdFor(name);
+    const { raw, issues, notes } = extractTemplate(input, { id, name });
+    const path = await window.pulseforge.saveTemplate(id.replace(/^tpl\.user\./, ''), `${JSON.stringify(raw, null, 2)}\n`);
+    await state.loadTemplates();
+    const problems = issues.map((i) => `${i.path}: ${i.detail}`);
+    state.notify({ text: `Saved the template "${name}" to ${path}.`, kind: problems.length > 0 ? 'warn' : 'ok' });
+    return [...problems, ...notes];
+  } catch (error) {
+    state.notify({ text: error instanceof Error ? error.message : String(error), kind: 'bad' });
+    return [];
+  }
+}
+
+const schemasOf = (state: StudioState): SchemaLookup => {
+  const modules = modulesOf(state);
+  return (id) => modules.get(id);
+};
+
+/** What "Curves to keyframes" would do to this project. */
+export function curveBakePlan(state: StudioState): CurveBakePlan {
+  return planCurveBake(state.document, schemasOf(state));
+}
+
+/** One undo step. Returns what stayed a curve, and why. */
+export function bakeCurves(): readonly string[] {
+  const state = useStudio.getState();
+  const schemas = schemasOf(state);
+  const { bakes, skipped } = planCurveBake(state.document, schemas);
+  if (bakes.length > 0) {
+    state.run(bakeArrangementCurves(schemas, { newId }));
+    state.notify({ text: `${bakes.length} curve target${bakes.length === 1 ? '' : 's'} became keyframes.`, kind: 'ok' });
+  }
+  return skipped.map((s) => `${s.label} stayed a curve: ${s.reason}.`);
 }
 
 /** A roll's identity for the thumbnail cache. */

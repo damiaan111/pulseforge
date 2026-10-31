@@ -78,7 +78,7 @@
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M21 | Auto-director: complete editable project from a track | ✅ | 4.21, 4.26, 4.56–4.58 | Could-level: `derive-from-image` palettes, "Extract as template", palette shifts at chorus/drop |
+| M21 | Auto-director: complete editable project from a track | ✅ | 4.21, 4.26, 4.56–4.58, 4.89 | — |
 | M22 | Surprise me: seeded reroll, per-aspect locks, history strip | ✅ | 4.57, 4.58 | — |
 
 ### Output
@@ -122,7 +122,7 @@
 | S16 Beat and structure refinement | ✅ | 4.77 — librosa (madmom has no Windows wheels), stored in the project; F 0.98 against 0.20–0.40 on known tracks; not in batch or the auto-director |
 | S17 Unicode & font fallback | ✅ | 4.76 — bundled Noto chain, right-to-left layout and karaoke, CJK line breaks, a report instead of system fonts; emoji are monochrome |
 
-Could-haves (C1–C15) are untouched.
+Could-haves: C1 (key only, not chords or ML structure) and C7 are done (STATUS 4.89); the rest are untouched.
 
 ---
 
@@ -217,8 +217,8 @@ it changes existing projects, so it waits for the owner. Hydra is ruled out (AGP
 the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site default is
 non-commercial, so nothing is bundled from it without checking each shader.
 
-**Auto-director (Could-level in the spec):** `derive-from-image` palettes; "Extract as template";
-palette shifts at a chorus; converting arrangement curves to keyframes.
+**Auto-director:** the Could-level list is done (STATUS 4.89). Left: choosing which built-in templates
+follow the key or shift their palette, which is taste, not engineering.
 
 **Text:** colour emoji in lyrics, vertical lyrics (STATUS 4.89 did titles), Thai word segmentation.
 
@@ -226,4 +226,4 @@ palette shifts at a chorus; converting arrangement curves to keyframes.
 
 **The owner's decisions:** §4, above all whether to keep offering the non-commercial alignment models.
 
-**Could-haves (C1–C15):** optional, not started.
+**Could-haves:** C1's key and C7 are done (STATUS 4.89); the rest are optional and not started.

@@ -617,7 +617,7 @@ export interface DecisionEntry {
  */
 export interface GeneratedMark {
   readonly id: string;
-  readonly kind: 'layer' | 'effect' | 'binding';
+  readonly kind: 'layer' | 'effect' | 'binding' | 'track';
   /** The template slot it filled ("HERO", "POST"), so a kept layer keeps its slot filled. */
   readonly slot: string;
   readonly fingerprint: string;

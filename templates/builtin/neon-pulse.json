@@ -99,7 +99,7 @@
     "sections": {
       "intro": { "intensity": 0.35 },
       "build": { "intensity": 0.65 },
-      "main": { "intensity": 1, "addLayers": ["ACCENT"] },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"], "paletteShift": "accent" },
       "breakdown": { "intensity": 0.45, "removeLayers": ["ACCENT"] },
       "outro": { "intensity": 0.3, "removeLayers": ["ACCENT"] }
     },

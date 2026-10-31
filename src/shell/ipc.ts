@@ -16,6 +16,7 @@ import type { ModuleScan } from '../modules-folder/scan.ts';
 import type { Preset } from '../project/presets.ts';
 import type { TemplateFile } from '../director/template-library.ts';
 import type { CacheCategory, CacheInventory } from '../cache/cache-store.ts';
+import type { MusicalKey } from '../analysis/key.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
 import type { Component } from '../../setup/components.ts';
@@ -92,6 +93,7 @@ export const IPC = {
   presetsReveal: 'pf:presets:reveal',
   templatesList: 'pf:templates:list',
   templatesReveal: 'pf:templates:reveal',
+  templatesSave: 'pf:templates:save',
   videoImport: 'pf:video:import',
   videoPrepare: 'pf:video:prepare',
   videoFrame: 'pf:video:frame',
@@ -105,6 +107,8 @@ export const IPC = {
   fontFallbacks: 'pf:font:fallbacks',
   fontColorEmoji: 'pf:font:color-emoji',
   imageImport: 'pf:image:import',
+  /** The picture embedded in an audio file, read locally for the director's colours. */
+  imageCoverArt: 'pf:image:cover-art',
   imageLoad: 'pf:image:load',
   environment: 'pf:app:environment',
   renderPickOutput: 'pf:render:pick-output',
@@ -203,6 +207,8 @@ export interface AnalysisPayload {
   readonly peaks: Uint8Array;
   /** With each section's mean energy: the director's drops are boundaries into much louder sections. */
   readonly sections: readonly Section[];
+  /** The track's musical key, for the tempo line and the director; null when it has none. */
+  readonly key: MusicalKey | null;
   /** What became of the project's refined grid (S16). */
   readonly beatRefinement: BeatRefinementState;
   /** Detected onsets in source seconds: the director puts drop impulses exactly on them. */
@@ -630,6 +636,8 @@ export interface PulseforgeApi {
   listTemplates(): Promise<TemplateListing>;
   /** Opens the user templates folder in the file manager, creating it if needed. */
   revealTemplates(): Promise<void>;
+  /** A new file in the user's template folder; returns its path. Never replaces a file. */
+  saveTemplate(stem: string, text: string): Promise<string>;
   /** Shows an open dialog for a video and identifies it. Extraction is `prepareVideo`. */
   importVideo(): Promise<VideoFile | null>;
   /**
@@ -655,6 +663,8 @@ export interface PulseforgeApi {
   colorEmojiFont(): Promise<{ readonly hash: string; readonly bytes: Uint8Array } | null>;
   /** Shows an open dialog for an image and decodes it. Resolves to null when the user cancels. */
   importImage(): Promise<ImageBytes | null>;
+  /** The picture embedded in this audio file; null when it has none. Never looks further than the file. */
+  loadCoverArt(audioPath: string): Promise<ImageBytes | null>;
   /** Decodes an asset the project already references; the path may be relative to `projectPath`. */
   loadImage(path: string, projectPath: string | null): Promise<ImageLoadResult>;
   environment(): Promise<EnvironmentReport>;

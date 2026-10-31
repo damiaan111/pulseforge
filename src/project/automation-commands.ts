@@ -5,8 +5,11 @@
 // easing), and moving a key onto another replaces that one — the key being moved is the one the
 // user is holding. Keys stay sorted by ticks.
 
+import { sampleCurve } from '../engine/core/modulation.ts';
+import { ticksToSeconds } from '../engine/core/time.ts';
 import type { Command } from './history.ts';
-import type { AutomationTrack, Keyframe, KeyframeEasing, ProjectDocument } from './document.ts';
+import type { AutomationTrack, Keyframe, KeyframeEasing, Layer, ModulationBinding, ProjectDocument } from './document.ts';
+import { allBindings, describeTarget, parseTarget, targetBase, type SchemaLookup } from './modulation-authoring.ts';
 
 export function trackFor(document: ProjectDocument, target: string): AutomationTrack | undefined {
   return document.automation.find((t) => t.target === target);
@@ -147,5 +150,127 @@ export function removeTrack(trackId: string): Command {
   return {
     label: 'Remove keyframes',
     apply: (document) => withTracks(document, (t) => (t.id === trackId ? null : t)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Arrangement curves → keyframes
+// ---------------------------------------------------------------------------
+
+/** The curve bindings the arranger writes, by label: ordinary bindings the timeline cannot edit. */
+export const ARRANGEMENT_CURVE_LABELS: readonly string[] = ['Section intensity', 'Drop', 'Section presence', 'Fade'];
+
+export interface CurveBake {
+  readonly target: string;
+  /** "Radial › Inner glow". */
+  readonly label: string;
+  readonly bindingIds: readonly string[];
+  readonly keys: readonly { readonly ticks: number; readonly value: number }[];
+}
+
+export interface CurveBakePlan {
+  readonly bakes: readonly CurveBake[];
+  /** What stays a curve, and why: nothing is left out without saying so. */
+  readonly skipped: readonly { readonly label: string; readonly reason: string }[];
+}
+
+/** A binding the keys can reproduce exactly: its signal is the curve itself, shaped by nothing. */
+function plainCurve(b: ModulationBinding): boolean {
+  return (b.mode === 'add' || b.mode === 'multiply') && !b.invert && b.curve.type === 'linear' && b.quantise === null && b.lookAheadMs === 0
+    && b.envelope.attackMs === 0 && b.envelope.releaseMs === 0 && b.inputRange === 'auto' && b.source.points.length > 0;
+}
+
+/**
+ * What baking the arrangement curves would do. Everything on one target merges into one track: the
+ * value at each key is the base run through that target's curves in their engine order, at every
+ * tick any of them has a point (between points they are all straight lines, so keys are exact).
+ *
+ * That reproduces the curves, not the whole result. Keys replace the base BEFORE modulation; these
+ * curves ran AFTER whatever preceded them in the chain, so anything else on the target (an
+ * audio-driven binding, say) is no longer scaled by the section once baked. The panel says so.
+ */
+export function planCurveBake(document: ProjectDocument, schemas: SchemaLookup): CurveBakePlan {
+  const byTarget = new Map<string, ModulationBinding[]>();
+  for (const { binding } of allBindings(document)) {
+    if (!binding.enabled || binding.source.type !== 'curve' || !ARRANGEMENT_CURVE_LABELS.includes(binding.label ?? '')) continue;
+    byTarget.set(binding.target, [...(byTarget.get(binding.target) ?? []), binding]);
+  }
+  const bakes: CurveBake[] = [];
+  const skipped: { label: string; reason: string }[] = [];
+  for (const [target, bindings] of byTarget) {
+    const info = describeTarget(document, target, schemas);
+    const skip = (reason: string) => skipped.push({ label: info.label, reason });
+    if (info.problem !== null || info.spec === undefined) skip(info.problem ?? 'it is not a parameter');
+    else if (info.spec.type !== 'float' && info.spec.type !== 'int') skip('it is not a number');
+    else if (document.automation.some((t) => t.target === target)) skip('it already has keyframes, which baking would overwrite');
+    else if (!bindings.every(plainCurve)) skip('a curve on it has its own shaping, which keyframes cannot reproduce');
+    else if (hasAspectOverride(document, target)) skip('it has an aspect override, which keyframes would replace');
+    else {
+      const base = targetBase(document, target, info.spec);
+      // The engine's own order (modulation.ts): by `order`, then by id.
+      const chain = [...bindings].sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      const ticks = [...new Set(chain.flatMap((b) => b.source.points.map((p) => p.ticks)))].sort((a, b) => a - b);
+      const keys = ticks.map((tick) => {
+        const seconds = ticksToSeconds(tick);
+        let value = base;
+        for (const binding of chain) {
+          let out = sampleCurve(binding.source.points, seconds) * binding.amount + binding.offset;
+          if (binding.clampOutput !== null) out = Math.min(binding.clampOutput.max, Math.max(binding.clampOutput.min, out));
+          value = binding.mode === 'add' ? value + out : value * (1 + out);
+        }
+        return { ticks: tick, value: Number(value.toPrecision(6)) };
+      });
+      bakes.push({ target, label: info.label, bindingIds: chain.map((b) => b.id), keys });
+    }
+  }
+  return { bakes, skipped };
+}
+
+function hasAspectOverride(document: ProjectDocument, target: string): boolean {
+  const path = parseTarget(target);
+  if (path === undefined || path.effectId !== null || path.layerProperty === true) return false;
+  const stack: readonly Layer[] = document.layers;
+  const find = (layers: readonly Layer[]): Layer | undefined => {
+    for (const layer of layers) {
+      if (layer.id === path.layerId) return layer;
+      const inner = layer.kind === 'group' ? find(layer.children) : undefined;
+      if (inner !== undefined) return inner;
+    }
+    return undefined;
+  };
+  return Object.values(find(stack)?.aspectOverrides ?? {}).some((o) => o !== undefined && path.key in o.params);
+}
+
+function withoutBindings(layers: readonly Layer[], gone: ReadonlySet<string>): Layer[] {
+  return layers.map((layer) => {
+    const modulations = layer.modulations.some((b) => gone.has(b.id)) ? layer.modulations.filter((b) => !gone.has(b.id)) : layer.modulations;
+    return layer.kind === 'group'
+      ? { ...layer, modulations, children: withoutBindings(layer.children, gone) }
+      : { ...layer, modulations };
+  });
+}
+
+/** Bakes the arrangement curves to keyframe tracks, one track per target, as one undo step. */
+export function bakeArrangementCurves(schemas: SchemaLookup, options: { readonly newId: () => string }): Command {
+  return {
+    label: 'Curves to keyframes',
+    apply: (document) => {
+      const { bakes } = planCurveBake(document, schemas);
+      if (bakes.length === 0) return document;
+      const gone = new Set(bakes.flatMap((b) => b.bindingIds));
+      const tracks = bakes.map((bake): AutomationTrack => ({
+        id: options.newId(),
+        target: bake.target,
+        enabled: true,
+        keyframes: bake.keys.map((k) => ({ id: options.newId(), ticks: k.ticks, value: k.value, easing: 'linear', extra: {} })),
+        extra: {},
+      }));
+      return {
+        ...document,
+        layers: withoutBindings(document.layers, gone),
+        globalModulations: document.globalModulations.filter((b) => !gone.has(b.id)),
+        automation: [...document.automation, ...tracks],
+      };
+    },
   };
 }

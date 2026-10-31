@@ -15,6 +15,7 @@ import { analyzeMix, type AnalyzeOptions, type AnalyzeResult } from './analyze.t
 import { refineSections, refinementState, withRefinedGrid, type BeatRefinement, type BeatRefinementState } from './beat-refinement.ts';
 import { hashAnalysisSettings, hashPcm, type AnalysisCache, type AnalysisKeyInputs } from './cache.ts';
 import type { BeatGrid } from './features.ts';
+import { detectKey, type MusicalKey } from './key.ts';
 import { buildPeakPyramid, type PeakPyramid } from './peaks.ts';
 import { detectSections, type Section } from './sections.ts';
 
@@ -37,6 +38,8 @@ export interface CachedAnalyzeResult {
   readonly peaks: PeakPyramid;
   /** Structural sections for the arranger; empty when the audio is too short to have any. */
   readonly sections: readonly Section[];
+  /** The track's key; null when it has none to speak of. */
+  readonly key: MusicalKey | null;
   readonly audioHash: string;
   readonly settingsHash: string;
   readonly fromCache: boolean;
@@ -62,6 +65,15 @@ export async function analyzeCached(
   const refinement = options.beatRefinement as BeatRefinement;
   const { analysis, beatGrid } = withRefinedGrid(result.analysis, refinement);
   return { ...result, analysis, beatGrid, sections: refineSections(result.sections, refinement.sections, refinement.beats), beatRefinement: state };
+}
+
+/** An entry older than keys is still a hit: it just gains the file. */
+async function keyOfEntry(pcm: Float32Array, cache: AnalysisCache, audioHash: string, settingsHash: string): Promise<MusicalKey | null> {
+  const stored = await cache.readKey(audioHash, settingsHash);
+  if (stored !== undefined) return stored;
+  const key = detectKey(pcm);
+  await cache.writeKey(audioHash, settingsHash, key).catch(() => undefined);
+  return key;
 }
 
 async function detected(
@@ -93,6 +105,7 @@ async function detected(
         onsetTimes: await cache.readOnsetTimes(audioHash, settingsHash),
         peaks,
         sections,
+        key: await keyOfEntry(pcm, cache, audioHash, settingsHash),
         audioHash,
         settingsHash,
         fromCache: true,
@@ -104,6 +117,7 @@ async function detected(
   const peaks = buildPeakPyramid(pcm, 48_000);
   const mix = computed.analysis.sources.get('mix');
   const sectionAnalysis = mix === undefined ? undefined : detectSections(mix, pcm.length / 48_000);
+  const key = detectKey(pcm);
   if (mix !== undefined) {
     try {
       await cache.writeSource(audioHash, settingsHash, 'mix', mix, {
@@ -114,6 +128,7 @@ async function detected(
       });
       await cache.writePeaks(audioHash, settingsHash, peaks);
       if (sectionAnalysis !== undefined) await cache.writeSections(audioHash, settingsHash, sectionAnalysis);
+      await cache.writeKey(audioHash, settingsHash, key);
     } catch {
       // Best-effort: a cache that cannot be written still must not break analysis.
     }
@@ -125,6 +140,7 @@ async function detected(
     onsetTimes: computed.onsetTimes,
     peaks,
     sections: sectionAnalysis?.sections ?? [],
+    key,
     audioHash,
     settingsHash,
     fromCache: false,

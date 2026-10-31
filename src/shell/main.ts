@@ -33,7 +33,7 @@ import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type Lyrics
 import { FONT_EXTENSIONS, colorEmojiFontFile, fallbackFontFiles } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
-import { readTemplateFiles } from '../director/template-store.ts';
+import { readTemplateFiles, writeUserTemplate } from '../director/template-store.ts';
 import { Logger, splitScope, type LogLevel } from './logger.ts';
 import { buildDiagnostics } from './diagnostics.ts';
 import { CACHE_CATEGORIES, CacheStore, sizeOf, type CacheCategory } from '../cache/cache-store.ts';
@@ -48,7 +48,7 @@ import {
   type ImageBytes, type ImageLoadResult, type LibraryListing, type PreparedAudio, type ProjectFile, type SaveRequest, type SaveResult, type VideoFile,
   type VideoPrepareResult, type WantedAsset, type PresetLibraryListing, type StemProgressEvent, type RecoveryCandidate, type LyricsAlignRequest, type TemplateListing, type SettingsInfo, type CacheListing, type CacheActionResult, type LogInfo, type RenderJob, type RenderReadiness, type ComponentsInfo,
 } from './ipc.ts';
-import { IMAGE_EXTENSIONS, decodeImageFile } from '../assets/image-decode.ts';
+import { IMAGE_EXTENSIONS, decodeAttachedPicture, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
 import { collectProject } from '../assets/collect-files.ts';
 import { findFilesInFolder } from '../assets/find-in-folder.ts';
@@ -730,6 +730,7 @@ function registerHandlers(): void {
         container: encodeAnalysis(source, { source: 'mix', beatGrid: result.beatGrid, meta: { audioHash: result.audioHash } }),
         peaks: encodePeaks(result.peaks),
         sections: result.sections.map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, label: s.label, energy: s.energy })),
+        key: result.key,
         onsetTimes: result.onsetTimes,
         durationSeconds: decoded.pcm.length / 48_000,
         fromCache: result.fromCache,
@@ -1294,6 +1295,10 @@ function registerHandlers(): void {
     files: await readTemplateFiles({ builtin: join(ROOT, 'templates', 'builtin'), user: templatesFolder() }),
     folder: templatesFolder(),
   }));
+  ipcMain.handle(IPC.templatesSave, async (_event, stem: unknown, text: unknown): Promise<string> => {
+    if (typeof stem !== 'string' || typeof text !== 'string') throw new Error('saveTemplate needs a name and the template');
+    return writeUserTemplate(templatesFolder(), stem, text);
+  });
   ipcMain.handle(IPC.templatesReveal, async (): Promise<void> => {
     await mkdir(templatesFolder(), { recursive: true });
     await shell.openPath(templatesFolder());
@@ -1455,6 +1460,19 @@ function registerHandlers(): void {
     if (path === undefined) return null;
     try {
       return await decodeForRenderer(path);
+    } catch (error) {
+      throw describe(error);
+    }
+  });
+
+  ipcMain.handle(IPC.imageCoverArt, async (_event, audioPath: unknown): Promise<ImageBytes | null> => {
+    if (typeof audioPath !== 'string') throw new Error('loadCoverArt needs a path');
+    if (!existsSync(FFMPEG_EXE) || !existsSync(FFPROBE_EXE)) {
+      throw new Error('The vendored FFmpeg is missing.\n\nTry:\n• Run `npm run setup` to provision vendor/');
+    }
+    try {
+      const image = await decodeAttachedPicture(FFMPEG_EXE, FFPROBE_EXE, audioPath);
+      return image === null ? null : { path: audioPath, hash: image.sha256, size: image.fileSize, name: image.name, width: image.width, height: image.height, pixels: image.pixels };
     } catch (error) {
       throw describe(error);
     }
@@ -1820,6 +1838,10 @@ app.whenReady().then(async () => {
     }
     process.env['PULSEFORGE_LIBRARY'] = library;
 
+    // Its own template folder, fresh each run: extracting a draft must not land in the owner's.
+    const templates = join(DATA_ROOT, 'out', 'smoke-templates');
+    await rm(templates, { recursive: true, force: true });
+    process.env['PULSEFORGE_TEMPLATES'] = templates;
     // Its own settings file, fresh each run: the smoke must not read or change the owner's tap latency.
     const settingsFile = join(DATA_ROOT, 'out', 'smoke-settings.json');
     await rm(settingsFile, { force: true });
@@ -2486,7 +2508,16 @@ app.whenReady().then(async () => {
         const older = [...document.querySelectorAll('#app [data-testid="auto-history"] .roll-tile')].find((tile) => !tile.disabled);
         older?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const restored = await waitFor(() => undoLabel().includes('Restore roll'), 100);
-        for (let i = 0; i < 3; i += 1) {
+        // The project tools: the song's key is on show, a song with no cover says so, the curves
+        // become keyframes in one undo step, and a draft lands in the template list.
+        const keyShown = (document.querySelector('#app [data-testid="track-key"]')?.textContent ?? '') !== '';
+        click('#app [data-action="auto-colour-cover"]');
+        const noCover = await waitFor(() => (document.body.textContent ?? '').includes('has no picture in it'), 100);
+        click('#app [data-action="auto-bake-curves"]');
+        const baked = await waitFor(() => undoLabel().includes('Curves to keyframes'), 100);
+        click('#app [data-action="auto-extract-template"]');
+        const extracted = await waitFor(() => document.querySelectorAll('#app [data-testid="auto-templates"] input[name="auto-template"]').length > templates, 200);
+        for (let i = 0; i < 4; i += 1) {
           click('#app header button[data-action="undo"]');
           await new Promise((done) => setTimeout(done, 80));
         }
@@ -2495,8 +2526,10 @@ app.whenReady().then(async () => {
         const steps = {
           ready: ready !== null && ready !== false, templates, generated: generated === true, logged: logged === true, grew: layersAfter > layersBefore,
           surprised: surprised === true, strip: strip === true, thumbnail: thumbnail === true, restored: restored === true, undone: undone === true,
+          keyShown, noCover: noCover === true, baked: baked === true, extracted: extracted === true,
         };
-        autoUi = steps.ready && templates >= 7 && steps.generated && steps.logged && steps.grew && steps.surprised && steps.strip && steps.thumbnail && steps.restored && steps.undone;
+        autoUi = steps.ready && templates >= 7 && steps.generated && steps.logged && steps.grew && steps.surprised && steps.strip && steps.thumbnail && steps.restored && steps.undone
+          && steps.keyShown && steps.noCover && steps.baked && steps.extracted;
         if (!autoUi) console.error('[smoke] autoUi steps ' + JSON.stringify(steps));
       }
 

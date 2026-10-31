@@ -36,6 +36,7 @@ import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
+import type { MusicalKey } from '../analysis/key.ts';
 import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing, RecoveryCandidate, RenderJob, StemProgressEvent } from '../shell/ipc.ts';
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import { detectLyricsFormat, exportLyrics as exportLyricsText, importLyricsFile, type LyricsExportFormat } from '../lyrics/formats.ts';
@@ -113,6 +114,13 @@ function stemsFromPayload(payload: AnalysisPayload, model: string): StemsState {
   return { ...NO_STEMS, state: 'none', ready, message: pending ? 'A previous separation did not finish.' : null };
 }
 
+/** A picture chosen as the colour source for Auto: a file, or the art embedded in the loaded song. */
+export interface AutoColourSource {
+  readonly name: string;
+  readonly image: DecodedImage;
+  readonly origin: 'file' | 'cover';
+}
+
 export interface StudioState {
   /** Bumped on every document mutation; components read it to know they must re-render. */
   version: number;
@@ -143,6 +151,8 @@ export interface StudioState {
   analysis: AnalysisSet | null;
   peaks: PeakPyramid | null;
   sections: readonly Section[];
+  /** The analysed track's key, shown beside the tempo; null when it has none. */
+  musicalKey: MusicalKey | null;
   /** Detected onsets of the loaded track, source seconds (the director's drop placement). */
   onsetTimes: readonly number[];
   analysisState: AnalysisState;
@@ -158,6 +168,16 @@ export interface StudioState {
    * records which file, this holds the pixels, and the pixels are never undoable state.
    */
   images: ReadonlyMap<string, DecodedImage>;
+  /**
+   * The picture Auto takes its colours from, when one was chosen. Session state like `images`: the
+   * palette it produces is what the project stores, and a roll restores that without the picture.
+   */
+  autoColourSource: AutoColourSource | null;
+  /** Lets the user pick a picture as Auto's colour source. */
+  chooseAutoColourImage(): Promise<void>;
+  /** The picture embedded in the loaded song, as Auto's colour source; says so when there is none. */
+  useCoverArtColours(): Promise<void>;
+  clearAutoColourSource(): void;
   /** Per asset id: loaded, missing, changed on disk, or unreadable — shown, never silent (M40). */
   assetStatus: Readonly<Record<string, AssetStatus>>;
   /** Font file bytes by content hash, for the preview's text rasteriser. */
@@ -485,6 +505,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   analysis: null,
   peaks: null,
   sections: [],
+  musicalKey: null,
   onsetTimes: [],
   analysisState: 'idle',
   analysisMessage: null,
@@ -494,6 +515,34 @@ export const useStudio = create<StudioState>((set, get) => ({
   stats: null,
 
   images: new Map(),
+  autoColourSource: null,
+  async chooseAutoColourImage() {
+    try {
+      const picked = await window.pulseforge.importImage();
+      if (picked === null) return;
+      set({ autoColourSource: { name: picked.name, image: imageOf(picked), origin: 'file' }, toast: { text: `Auto takes its colours from ${picked.name} on the next roll.`, kind: 'ok' } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the image'), kind: 'bad' } });
+    }
+  },
+  async useCoverArtColours() {
+    const audio = get().audio;
+    if (audio === null) return;
+    try {
+      const cover = await window.pulseforge.loadCoverArt(audio.path);
+      if (get().audio?.path !== audio.path) return;
+      if (cover === null) {
+        set({ toast: { text: `${audio.path.split(/[/\\]/).pop() ?? 'This file'} has no picture in it. Choose an image instead.`, kind: 'warn' } });
+        return;
+      }
+      set({ autoColourSource: { name: `cover of ${cover.name}`, image: imageOf(cover), origin: 'cover' }, toast: { text: 'Auto takes its colours from the song\'s cover on the next roll.', kind: 'ok' } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the cover art'), kind: 'bad' } });
+    }
+  },
+  clearAutoColourSource() {
+    set({ autoColourSource: null });
+  },
   fonts: new Map(),
   luts: new Map(),
   defaultFont: null,
@@ -1034,6 +1083,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       selectedLayerIds: [],
       toast: null,
       images: new Map(),
+      autoColourSource: null,
       fonts: new Map(),
       videos: new Map(),
       assetStatus: {},
@@ -1042,6 +1092,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       analysis: null,
       peaks: null,
       sections: [],
+      musicalKey: null,
       onsetTimes: [],
       autoOffer: false,
       analysisState: 'idle' as const,
@@ -1084,9 +1135,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       audioRequest += 1;
       const previous = get().audio;
       if (previous !== null) URL.revokeObjectURL(previous.url);
-      set({ audio: null, analysis: null, peaks: null, sections: [], onsetTimes: [], analysisState: 'idle', analysisMessage: null });
+      set({ audio: null, analysis: null, peaks: null, sections: [], musicalKey: null, onsetTimes: [], analysisState: 'idle', analysisMessage: null });
     }
-    set({ images: new Map(), fonts: new Map(), videos: new Map(), assetStatus: {} });
+    set({ images: new Map(), autoColourSource: null, fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
   },
 
@@ -1192,12 +1243,15 @@ export const useStudio = create<StudioState>((set, get) => ({
         analysis,
         peaks: decodePeaks(payload.peaks),
         sections: payload.sections,
+        musicalKey: payload.key,
         beatRefinementState: payload.beatRefinement,
         onsetTimes: payload.onsetTimes,
         // D9: a track in an empty project is the moment to offer a generated one — offered, never forced.
         autoOffer: history.current.layers.length === 0 && history.current.director === null,
         analysisState: 'ready',
         analysisMessage: payload.fromCache ? 'Analysis: cache hit' : 'Analysed and cached',
+        // The cover belonged to the song that was here; a picture the user chose outlives it.
+        autoColourSource: get().autoColourSource?.origin === 'cover' ? null : get().autoColourSource,
         stems: stemsFromPayload(payload, history.current.analysisSettings.stemModel),
       });
     } catch (error) {

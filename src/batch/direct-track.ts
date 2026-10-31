@@ -80,7 +80,7 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
   });
   const document: ProjectDocument = { ...base, analysisSettings: { ...base.analysisSettings, beatRefinement: settings.beatRefinement }, audio: { ...base.audio, path: track.audioPath, durationTicks: decoded.pcm.length } };
 
-  const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections });
+  const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections, key: result.key });
   const vocals = result.analysis.sources.get('vocals')?.features.get('rms');
   const directed = direct({
     document,
@@ -95,6 +95,8 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
     title: track.name,
     milkdropPresets: options.milkdropPresets,
   }, { seed: track.seed, templateId: options.templateId });
+  // A batch decodes no images: a template that wants its colours from one falls back, and says so.
+  for (const entry of directed.log) if (entry.data['imageFallback'] === true) notes.push(entry.text);
 
   await writeProjectText(track.projectPath, stringifyDocument(withStoredPaths(directed.document, track.projectPath)));
   return { document: directed.document, templateName: directed.template.name, summary: directed.roll.summary, notes, durationSeconds };

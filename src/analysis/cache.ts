@@ -7,6 +7,7 @@
 //     beatgrid.json   beat times, bpm, confidence, onset times
 //     peaks/mix.peaks the waveform pyramid the timeline draws from
 //     sections.json   structural boundaries for the auto-director's arranger
+//     key.json        the track's musical key, for the auto-director's colour
 //
 // Two properties do the real work here.
 //
@@ -32,6 +33,7 @@ import { join } from 'node:path';
 import type { AnalysisSet, BeatGrid, SourceAnalysis } from '../engine/core/analysis.ts';
 import type { Stem } from '../engine/core/params.ts';
 import { decodeAnalysis, encodeAnalysis, CONTAINER_VERSION } from './container.ts';
+import { KEY_FORMAT_VERSION, keyToJson, type MusicalKey } from './key.ts';
 import { decodePeaks, encodePeaks, type PeakPyramid } from './peaks.ts';
 import { sectionsToJson, SECTIONS_FORMAT_VERSION, type Section, type SectionAnalysis } from './sections.ts';
 import { ANALYSIS_VERSION, DEFAULT_SPECTRUM_SETTINGS, type SpectrumSettings } from './spectrum.ts';
@@ -305,6 +307,25 @@ export class AnalysisCache {
       return parsed.sections ?? null;
     } catch {
       return null;
+    }
+  }
+
+  /** The musical key, or null for a track without one. Beside the sections, and as cheap to redo. */
+  async writeKey(audioHash: string, settingsHash: string, key: MusicalKey | null): Promise<void> {
+    const dir = this.entryPath(audioHash, settingsHash);
+    await mkdir(dir, { recursive: true });
+    await writeAtomic(join(dir, 'key.json'), Buffer.from(keyToJson(key), 'utf8'));
+  }
+
+  /** Undefined on a miss or a format this build does not read; null means "measured: no key". */
+  async readKey(audioHash: string, settingsHash: string): Promise<MusicalKey | null | undefined> {
+    const text = await readIfPresent(join(this.entryPath(audioHash, settingsHash), 'key.json'));
+    if (text === null) return undefined;
+    try {
+      const parsed = JSON.parse(text) as { formatVersion?: number; key?: MusicalKey | null };
+      return parsed.formatVersion === KEY_FORMAT_VERSION ? parsed.key : undefined;
+    } catch {
+      return undefined;
     }
   }
 

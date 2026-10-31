@@ -7,14 +7,18 @@
 // its inputs and a seed: the same track, template, seed and locks make the same project on any
 // machine — ids included, which come from the seed rather than the clock.
 //
-// Rerolls (§9) keep what the user has touched. Every layer, global effect and global binding the
-// director writes is recorded with a fingerprint of its content (fingerprint.ts). On the next run
-// anything still matching its fingerprint is the director's to replace; anything that no longer
-// matches was edited and is kept, still filling its slot. Layers the user added are kept where
-// they were, relative to the director's.
+// Rerolls (§9) keep what the user has touched. Every layer, global effect, global binding and
+// keyframe track the director writes is recorded with a fingerprint of its content (fingerprint.ts).
+// On the next run anything still matching its fingerprint is the director's to replace; anything
+// that no longer matches was edited and is kept, still filling its slot. Keys live beside the layer
+// they animate, out of its fingerprint's sight, so keys the user set on a generated layer or effect
+// count as an edit to it: replacing it would orphan them. Layers the user added are kept where they
+// were, relative to the director's.
 
+import { keyName } from '../analysis/key.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
+import type { DecodedImage } from '../engine/core/image.ts';
 import type { CurvePoint } from '../engine/core/modulation.ts';
 import type { ModuleManifest } from '../engine/core/module.ts';
 import type { ParamSpec } from '../engine/core/params.ts';
@@ -25,12 +29,13 @@ import { GLOBAL_OWNER } from '../project/commands.ts';
 import { createBinding, createEffect, createModuleLayer } from '../project/create.ts';
 import {
   DIRECTOR_HISTORY_LIMIT, IDENTITY_TRANSFORM, aspectBucket, walkLayers,
-  type AspectBucket, type AspectOverride, type DecisionEntry, type DecisionStep, type DirectorAspect, type DirectorLock,
+  type AspectBucket, type AspectOverride, type AutomationTrack, type DecisionEntry, type DecisionStep, type DirectorAspect, type DirectorLock,
   type DirectorRoll, type EffectSpec, type GeneratedMark, type Layer, type ModulationBinding, type ModuleLayer,
   type Palette, type ProjectDocument, type Transform,
 } from '../project/document.ts';
 import { createIdFactory } from '../project/ids.ts';
-import { OPACITY_SPEC, paramSpan } from '../project/modulation-authoring.ts';
+import { OPACITY_SPEC, paramSpan, parseTarget } from '../project/modulation-authoring.ts';
+import { linkedRole, resolveRole, roleLink } from '../project/palette.ts';
 import { timelineDurationTicks } from '../project/snapshot.ts';
 import { arrange } from './arrange.ts';
 import { calibrate, sourceTrack, trackStats } from './calibrate.ts';
@@ -38,9 +43,10 @@ import { describeStyle, type StyleVector, type TrackDigest } from './digest.ts';
 import { fingerprint } from './fingerprint.ts';
 import { rankTemplates, type DirectorModules, type TemplateScore } from './match.ts';
 import { chooseLook, milkdropLooks } from './milkdrop.ts';
-import { generatePalette, hexToHsl, hueName } from './palette.ts';
+import { contrastRatio, derivePalette, generatePalette, hexToHsl, hueName, type GeneratedPalette } from './palette.ts';
+import { roleKeys, worstContrast } from './palette-shift.ts';
 import {
-  parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
+  GPU_COST, parseTemplateTarget, type Condition, type EffectEntry, type SlotCandidate, type SlotRole, type Template, type TemplateSlot, type TransformSpec,
 } from './template.ts';
 
 export interface DirectorInput {
@@ -59,6 +65,10 @@ export interface DirectorInput {
   readonly title: string;
   /** The MilkDrop presets installed here, by name; empty when the component is not. */
   readonly milkdropPresets: readonly string[];
+  /** Decoded image assets by content hash; absent where nothing decoded them (a batch). */
+  readonly images?: ReadonlyMap<string, DecodedImage>;
+  /** A picture the user chose as the colour source: it leads any palette that is not fixed. */
+  readonly colourImage?: { readonly name: string; readonly image: DecodedImage } | null;
 }
 
 export interface DirectOptions {
@@ -88,7 +98,6 @@ export class DirectorError extends Error {
   }
 }
 
-const COST = { low: 1, medium: 2, high: 4 } as const;
 const ROLE_MODULE: Partial<Record<SlotRole, string>> = { TEXT: 'core.text.title', LYRICS: 'core.text.lyrics', LOGO: 'core.source.logo' };
 /** What a layer is called when neither the slot nor the candidate names it. */
 const ROLE_NAME: Partial<Record<SlotRole, string>> = { TEXT: 'Title', LYRICS: 'Lyrics', LOGO: 'Logo' };
@@ -138,10 +147,12 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   const conditions = projectConditions(document, input.analysis, input.title, input.milkdropPresets);
 
   // --- classify -------------------------------------------------------------------------------
-  note('classify', `The track reads as ${describeStyle(style)}.`, {
+  const key = input.digest.key;
+  note('classify', `The track reads as ${describeStyle(style)}${key === null ? '' : `, in ${keyName(key)}`}.`, {
     tempo: round(style.tempo), energy: round(style.energy), brightness: round(style.brightness), density: round(style.density),
     organic: round(style.organic), vocalWeight: round(style.vocalWeight), dynamics: round(style.dynamics), darkness: round(style.darkness),
     unmeasured: [...style.unmeasured], bpm: round(input.digest.bpm), sections: input.digest.structure.sections.length,
+    ...(key === null ? {} : { key: keyName(key), keyConfidence: round(key.confidence) }),
   });
 
   // --- match ----------------------------------------------------------------------------------
@@ -191,6 +202,13 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   };
   const seeds: Record<DirectorAspect, number> = { palette: seedFor('palette'), layout: seedFor('layout'), motion: seedFor('motion') };
 
+  // The picture a `$backgroundImage` token resolves to. Above the palette, because a palette derived
+  // from the background must be derived from the one the layer shows: same seed, same key.
+  const images = document.assets.filter((a) => a.kind === 'image');
+  const logo = images.find((a) => /logo/i.test(a.name));
+  const backgrounds = images.filter((a) => a !== logo);
+  const backgroundFor = (key: string) => (backgrounds.length === 0 ? undefined : backgrounds[Math.floor(random01(seeds.layout, 'image', key) * backgrounds.length)]);
+
   // --- palette --------------------------------------------------------------------------------
   let palette: Palette;
   if (restore !== undefined && restore.palette.length === document.palette.colors.length && restore.palette.length > 0) {
@@ -202,25 +220,51 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   } else if (template.palette.strategy === 'user') {
     palette = document.palette;
     note('palette', `${template.name} uses the project's own palette.`);
+    if (input.colourImage != null) note('palette', `"${input.colourImage.name}" was not used: ${template.name} keeps the project's palette.`);
   } else {
-    const generated = generatePalette(template.palette, style, seeds.palette, template.variation.hueJitter);
-    palette = generated.palette;
-    generated.notes.forEach((text, i) => note('palette', text, i === 0 ? generated.data : {}));
+    let generated: GeneratedPalette | null = null;
+    const strategy = template.palette.strategy;
+    const chosenImage = strategy === 'fixed' ? null : input.colourImage ?? null;
+    if (strategy === 'fixed' && input.colourImage != null) note('palette', `"${input.colourImage.name}" was not used: ${template.name} fixes its colours.`);
+    if (chosenImage !== null) {
+      generated = derivePalette(template.palette, chosenImage.image, chosenImage.name, style, seeds.palette);
+      if (generated === null) note('palette', `"${chosenImage.name}" has nothing visible in it: generated the colours from the track instead.`, { imageFallback: true });
+    } else if (strategy === 'derive-from-image') {
+      const asset = backgroundFor(backgroundImageKey(template));
+      const pixels = asset === undefined ? undefined : input.images?.get(asset.hash);
+      if (asset !== undefined && pixels !== undefined) generated = derivePalette(template.palette, pixels, asset.name, style, seeds.palette);
+      // Said out loud, with a flag a batch can read: these are not the colours the template asked for.
+      if (generated === null) {
+        note('palette', `${template.name} takes its colours from a background image, but ${asset === undefined ? 'the project has none' : `"${asset.name}" is not available as pixels here`}: generated them from the track instead.`, { imageFallback: true });
+      }
+    }
+    const made = generated ?? generatePalette(template.palette, style, seeds.palette, template.variation.hueJitter, key);
+    palette = made.palette;
+    made.notes.forEach((text, i) => note('palette', text, i === 0 ? made.data : {}));
   }
 
   // --- what stays from before -----------------------------------------------------------------
   const marks = new Map((previous?.generated ?? []).map((m) => [m.id, m]));
   const keptMarks: GeneratedMark[] = [];
   const keptBySlot = new Map<string, ModuleLayer>();
+  const isDirectorTrack = (t: AutomationTrack) => {
+    const mark = marks.get(t.id);
+    return mark?.kind === 'track' && mark.fingerprint === fingerprint(t);
+  };
+  /** The user's keys under a target prefix: a generated layer's fingerprint cannot see them. */
+  const userKeyed = (prefix: string) => document.automation.some((t) => t.target.startsWith(prefix) && !isDirectorTrack(t));
+  /** Whose own track of the director's stays with it: an edited layer or effect is left as it is. */
+  const keptOwners: string[] = [];
   /** User layers, each with the slot of the layer it sat on (null: at the bottom). */
   const userLayers: { layer: Layer; anchor: string | null }[] = [];
   let anchor: string | null = null;
   for (const layer of document.layers) {
     const mark = marks.get(layer.id);
     if (mark !== undefined && mark.kind === 'layer') {
-      if (mark.fingerprint !== fingerprint(layer) && layer.kind === 'module') {
+      if ((mark.fingerprint !== fingerprint(layer) || userKeyed(`layers.${layer.id}.`)) && layer.kind === 'module') {
         keptBySlot.set(mark.slot, layer);
         keptMarks.push(mark);
+        keptOwners.push(`layers.${layer.id}.`);
         note('keep', `Kept "${layer.name}" in ${mark.slot}: you edited it after it was generated.`, { layer: layer.id, slot: mark.slot });
       }
       anchor = mark.slot;
@@ -232,9 +276,10 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   for (const effect of document.globalEffects) {
     const mark = marks.get(effect.id);
     if (mark === undefined) userGlobalEffects.push(effect);
-    else if (mark.fingerprint !== fingerprint(effect)) {
+    else if (mark.fingerprint !== fingerprint(effect) || userKeyed(`global.effects.${effect.id}.`)) {
       userGlobalEffects.push(effect);
       keptMarks.push(mark);
+      keptOwners.push(`global.effects.${effect.id}.`);
       note('keep', `Kept the edited ${effect.name || effect.module} on the whole frame.`);
     }
   }
@@ -248,8 +293,19 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     }
   }
 
+  // The user's tracks stay, and the director's own stay with what they animate if that was kept.
+  const keptTracks = document.automation.filter((t) => !isDirectorTrack(t) || keptOwners.some((prefix) => t.target.startsWith(prefix)));
+  for (const t of keptTracks) {
+    const mark = marks.get(t.id);
+    if (mark !== undefined && isDirectorTrack(t)) keptMarks.push(mark);
+  }
+
   // Deterministic ids: from the seed, never the clock; never one already in the document.
   const used = new Set<string>();
+  for (const t of document.automation) {
+    used.add(t.id);
+    t.keyframes.forEach((k) => used.add(k.id));
+  }
   for (const { layer } of walkLayers(document.layers)) {
     used.add(layer.id);
     layer.effects.forEach((e) => used.add(e.id));
@@ -275,9 +331,6 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     }
   };
 
-  const images = document.assets.filter((a) => a.kind === 'image');
-  const logo = images.find((a) => /logo/i.test(a.name));
-  const backgrounds = images.filter((a) => a !== logo);
   const looks = milkdropLooks(input.milkdropPresets);
   const paletteHue = hexToHsl(palette.colors[palette.roles['primary'] ?? 0] ?? '#808080').h;
   const chosenLooks = new Map<string, string>();
@@ -297,9 +350,8 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     for (const [name, value] of Object.entries(params)) {
       if (value === '$title') out[name] = input.title;
       else if (value === '$logo') out[name] = logo?.id ?? '';
-      else if (value === '$backgroundImage') {
-        out[name] = backgrounds.length === 0 ? '' : backgrounds[Math.floor(random01(seeds.layout, 'image', key) * backgrounds.length)]!.id;
-      } else if (value === '$seed') out[name] = 1 + (hash32(seeds.layout, 'seed', key) % 9999);
+      else if (value === '$backgroundImage') out[name] = backgroundFor(key)?.id ?? '';
+      else if (value === '$seed') out[name] = 1 + (hash32(seeds.layout, 'seed', key) % 9999);
       else if (value === '$milkdrop') out[name] = milkdropFor(key);
       else out[name] = value;
     }
@@ -385,10 +437,17 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     });
   }
 
+  // A kept layer whose slot this template does not fill is still the user's: it stays as their own.
+  for (const [slot, layer] of keptBySlot) {
+    if (filled.get(slot)?.layer.id === layer.id) continue;
+    userLayers.push({ layer, anchor: slot });
+    note('keep', `"${layer.name}" stays as your own layer: ${template.name} has no place for it in ${slot}.`, { layer: layer.id, slot });
+  }
+
   // Budget (§5.1 step 5, §7): drop the lowest-priority optional slots until it fits.
   const pixelScale = Math.max(1, (document.canvas.width * document.canvas.height) / (1920 * 1080));
-  const costOf = () => [...filled.values()].reduce((sum, f) => sum + COST[f.manifest.capabilities.gpuCost] * pixelScale, 0)
-    + post.reduce((sum, p) => sum + (COST[modules.get(p.effect.module)?.capabilities.gpuCost ?? 'low'] * pixelScale) / 2, 0);
+  const costOf = () => [...filled.values()].reduce((sum, f) => sum + GPU_COST[f.manifest.capabilities.gpuCost] * pixelScale, 0)
+    + post.reduce((sum, p) => sum + (GPU_COST[modules.get(p.effect.module)?.capabilities.gpuCost ?? 'low'] * pixelScale) / 2, 0);
   const layerCount = () => filled.size + userLayers.length;
   for (;;) {
     const over = layerCount() > template.budget.maxLayers ? 'layers' : costOf() > template.budget.maxCost ? 'cost' : null;
@@ -625,7 +684,8 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   const fadeIn = template.arrangement.fadeIn;
   const fadeOut = template.arrangement.fadeOut;
   let fadeLayer: ModuleLayer | null = null;
-  if ((fadeIn > 0 || fadeOut > 0) && durationSeconds > fadeIn + fadeOut + 1 && modules.get('core.source.background') !== undefined) {
+  // A kept Fade layer is doing this already; a second would darken the same seconds twice.
+  if (!keptBySlot.has('FADE') && (fadeIn > 0 || fadeOut > 0) && durationSeconds > fadeIn + fadeOut + 1 && modules.get('core.source.background') !== undefined) {
     const id = newId();
     const points: CurvePoint[] = [];
     const at = (s: number, v: number) => points.push({ ticks: secondsToTicks(s), value: v });
@@ -690,12 +750,74 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   layers.push(...userLayers.filter((u) => u.anchor !== null && !slotsPresent.has(u.anchor)).map((u) => u.layer));
   if (fadeLayer !== null) layers.push(fadeLayer);
 
+  // Palette shifts (§6): the colours trade places section by section, as ordinary keyframes on the
+  // parameters that link to a role. Last, so a template without them draws no ids and changes nothing.
+  const shiftTracks: { track: AutomationTrack; slot: string }[] = [];
+  const shifting = arrangement.sections.filter((s, i) => s.paletteShift !== null && s.paletteShift !== arrangement.sections[i - 1]?.paletteShift);
+  if (shifting.length > 0) {
+    const backgroundHex = resolveRole(palette, 'background');
+    const textHex = resolveRole(palette, 'text');
+    const minimum = template.palette.minTextContrast;
+    const shiftParams = (target: string, specs: readonly ParamSpec[], params: Readonly<Record<string, unknown>>, slot: string, label: string, role: SlotRole | null, overridden: ReadonlySet<string>) => {
+      for (const spec of specs) {
+        if (spec.type !== 'color' || overridden.has(spec.key)) continue;
+        const base = linkedRole(params[spec.key]);
+        if (base === undefined) continue;
+        const keys = roleKeys(base, arrangement.sections);
+        if (keys.length === 0) continue;
+        const baseHex = resolveRole(palette, base);
+        // Text must stay as readable through the crossing as it was or as the template demands,
+        // and so must text over a backdrop whose colour is the one moving.
+        const ground = role === 'TEXT' || role === 'LYRICS' ? backgroundHex : role === 'BACKDROP' ? textHex : undefined;
+        if (ground !== undefined && baseHex !== undefined) {
+          const worst = worstContrast(palette, keys, ground);
+          if (worst === null || worst < Math.min(minimum, contrastRatio(baseHex, ground)) - 0.01) {
+            note('guardrail', `Left ${label} › ${spec.label} out of the palette shift: the text would drop to ${(worst ?? 0).toFixed(1)}:1 on the way (minimum ${minimum}:1).`);
+            continue;
+          }
+        }
+        const track: AutomationTrack = {
+          id: newId(),
+          target: `${target}${spec.key}`,
+          enabled: true,
+          keyframes: keys.map((k) => ({ id: newId(), ticks: k.ticks, value: roleLink(k.role), easing: 'easeInOut' as const, extra: {} })),
+          extra: {},
+        };
+        shiftTracks.push({ track, slot });
+      }
+    };
+    for (const f of finalOrdered) {
+      if (f.kept) continue;
+      const overridden = new Set(Object.values(f.layer.aspectOverrides).flatMap((o) => Object.keys(o?.params ?? {})));
+      shiftParams(`layers.${f.layer.id}.params.`, f.manifest.params, f.layer.params, f.slot.id, f.label, f.slot.role, overridden);
+      for (const effect of f.effects.values()) {
+        shiftParams(`layers.${f.layer.id}.effects.${effect.id}.params.`, modules.get(effect.module)?.params ?? [], effect.params, f.slot.id, f.label, f.slot.role, new Set());
+      }
+    }
+    for (const effect of postKept) {
+      shiftParams(`global.effects.${effect.id}.params.`, modules.get(effect.module)?.params ?? [], effect.params, 'POST', modules.get(effect.module)?.name ?? effect.module, null, new Set());
+    }
+    if (shiftTracks.length > 0) {
+      note('arrange', `The colours trade places from ${shifting.map((s) => `${s.label} ${clock(s.startSeconds)} (primary with ${s.paletteShift ?? ''})`).join(', ')}: ${shiftTracks.length} colour track${shiftTracks.length === 1 ? '' : 's'} of ordinary keyframes.`, { tracks: shiftTracks.length });
+    }
+  }
+
+  // A track of yours that points at something gone is kept and reported, never dropped (CLAUDE.md #4).
+  const present = new Set([...walkLayers(layers)].map(({ layer }) => layer.id));
+  const presentEffects = new Set(globalEffects.map((e) => e.id));
+  for (const t of keptTracks) {
+    const path = parseTarget(t.target);
+    if (path !== undefined && (path.layerId === GLOBAL_OWNER ? path.effectId !== null && presentEffects.has(path.effectId) : present.has(path.layerId))) continue;
+    note('keep', `Your keyframes on ${t.target} point at something no longer in the project: they are kept, and do nothing.`, { track: t.id });
+  }
+
   const generated: GeneratedMark[] = [
     ...keptMarks.filter((m) => m.kind !== 'layer' || finalOrdered.some((f) => f.kept && f.layer.id === m.id)),
     ...finalOrdered.filter((f) => !f.kept).map((f): GeneratedMark => ({ id: f.layer.id, kind: 'layer', slot: f.slot.id, fingerprint: fingerprint(f.layer) })),
     ...(fadeLayer === null ? [] : [{ id: fadeLayer.id, kind: 'layer' as const, slot: 'FADE', fingerprint: fingerprint(fadeLayer) }]),
     ...postKept.map((e): GeneratedMark => ({ id: e.id, kind: 'effect', slot: 'POST', fingerprint: fingerprint(e) })),
     ...generatedGlobalBindings.map((b): GeneratedMark => ({ id: b.id, kind: 'binding', slot: 'POST', fingerprint: fingerprint(b) })),
+    ...shiftTracks.map(({ track, slot }): GeneratedMark => ({ id: track.id, kind: 'track', slot, fingerprint: fingerprint(track) })),
   ];
 
   const heroFilled = finalOrdered.find((f) => f.slot.role === 'HERO') ?? finalOrdered.find((f) => f.slot.role === 'LYRICS');
@@ -718,6 +840,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     layers,
     globalEffects,
     globalModulations: [...userGlobalBindings, ...generatedGlobalBindings],
+    automation: [...keptTracks, ...shiftTracks.map((s) => s.track)],
     director: { current: roll, history, log, generated, extra: previous?.extra ?? {} },
   };
   return { document: result, roll, log, template, ranked };
@@ -791,6 +914,13 @@ function clock(seconds: number): string {
 function numeric(value: unknown, spec: ParamSpec): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   return typeof spec.default === 'number' ? spec.default : 0;
+}
+
+/** The key the first `$backgroundImage` token will draw with: its slot's id, as tokens() is given. */
+function backgroundImageKey(template: Template): string {
+  const wants = (params: Readonly<Record<string, unknown>>) => Object.values(params).includes('$backgroundImage');
+  const slot = template.slots.find((s) => wants(s.params) || s.candidates.some((c) => wants(c.params)));
+  return slot?.id ?? 'BACKDROP';
 }
 
 function conditionText(condition: Condition): string {
