@@ -36,6 +36,7 @@ import { History, type Command } from '../project/history.ts';
 import { loadDocument } from '../project/load.ts';
 import { ProjectFormatError, ProjectVersionError, type DocumentIssue } from '../project/parse.ts';
 import { stringifyDocument } from '../project/serialize.ts';
+import type { MusicalKey } from '../analysis/key.ts';
 import type { AnalysisPayload, ImageBytes, LibraryListing, PresetLibraryListing, RecoveryCandidate, RenderJob, StemProgressEvent } from '../shell/ipc.ts';
 import type { ShaderModuleSource } from '../engine/modules/shader-module.ts';
 import { detectLyricsFormat, exportLyrics as exportLyricsText, importLyricsFile, type LyricsExportFormat } from '../lyrics/formats.ts';
@@ -150,6 +151,8 @@ export interface StudioState {
   analysis: AnalysisSet | null;
   peaks: PeakPyramid | null;
   sections: readonly Section[];
+  /** The analysed track's key, shown beside the tempo; null when it has none. */
+  musicalKey: MusicalKey | null;
   /** Detected onsets of the loaded track, source seconds (the director's drop placement). */
   onsetTimes: readonly number[];
   analysisState: AnalysisState;
@@ -498,6 +501,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   analysis: null,
   peaks: null,
   sections: [],
+  musicalKey: null,
   onsetTimes: [],
   analysisState: 'idle',
   analysisMessage: null,
@@ -1083,6 +1087,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       analysis: null,
       peaks: null,
       sections: [],
+      musicalKey: null,
       onsetTimes: [],
       autoOffer: false,
       analysisState: 'idle' as const,
@@ -1125,7 +1130,7 @@ export const useStudio = create<StudioState>((set, get) => ({
       audioRequest += 1;
       const previous = get().audio;
       if (previous !== null) URL.revokeObjectURL(previous.url);
-      set({ audio: null, analysis: null, peaks: null, sections: [], onsetTimes: [], analysisState: 'idle', analysisMessage: null });
+      set({ audio: null, analysis: null, peaks: null, sections: [], musicalKey: null, onsetTimes: [], analysisState: 'idle', analysisMessage: null });
     }
     set({ images: new Map(), autoColourSource: null, fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
@@ -1233,6 +1238,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         analysis,
         peaks: decodePeaks(payload.peaks),
         sections: payload.sections,
+        musicalKey: payload.key,
         beatRefinementState: payload.beatRefinement,
         onsetTimes: payload.onsetTimes,
         // D9: a track in an empty project is the moment to offer a generated one — offered, never forced.

@@ -671,6 +671,7 @@ function registerHandlers(): void {
         container: encodeAnalysis(source, { source: 'mix', beatGrid: result.beatGrid, meta: { audioHash: result.audioHash } }),
         peaks: encodePeaks(result.peaks),
         sections: result.sections.map((s) => ({ startSeconds: s.startSeconds, endSeconds: s.endSeconds, label: s.label, energy: s.energy })),
+        key: result.key,
         onsetTimes: result.onsetTimes,
         durationSeconds: decoded.pcm.length / 48_000,
         fromCache: result.fromCache,

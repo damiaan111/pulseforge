@@ -1,7 +1,7 @@
 // Palette derivation (auto-director-spec §5.3, M17's roles).
 //
-// `generate-from-style`: a base hue from a style axis (the template says which, and over which
-// arc of the wheel), a harmony rule to expand it, lightness and saturation from the track's
+// `generate-from-style`: a base hue from a style axis or the track's key (the template says which,
+// and over which arc of the wheel), a harmony rule to expand it, lightness and saturation from the track's
 // energy and darkness, then the roles. Contrast is enforced last and always wins: text against
 // the background must reach the template's minimum (WCAG 2 contrast ratio), and the primary must
 // stand clear of the background, adjusting lightness until it does — "legibility outranks the
@@ -16,6 +16,7 @@
 // Colours are chosen in HSL because templates are written in its terms (hue ranges, saturation,
 // lightness); contrast is measured in WCAG relative luminance, which is what legibility follows.
 
+import { keyName, keyWheelPosition, type MusicalKey } from '../analysis/key.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
 import { random01 } from '../engine/core/prng.ts';
 import type { Palette } from '../project/document.ts';
@@ -160,8 +161,10 @@ const toPalette = (hex: Record<PaletteRole, string>): Palette => ({ colors: PALE
  * A palette from the template's rule and the track's style. `seed` is the palette aspect's own
  * seed, so a palette lock reproduces it and a reroll moves only the hue within `hueJitter`.
  */
-export function generatePalette(spec: TemplatePalette, style: StyleVector, seed: number, hueJitter: number): GeneratedPalette {
-  const axis = style[spec.baseHue.from];
+export function generatePalette(spec: TemplatePalette, style: StyleVector, seed: number, hueJitter: number, key: MusicalKey | null = null): GeneratedPalette {
+  // A template that follows the key still needs a hue on a track without one: brightness, said so.
+  const source = spec.baseHue.from === 'key' ? (key === null ? 'brightness' : 'key') : spec.baseHue.from;
+  const axis = source === 'key' ? keyWheelPosition(key as MusicalKey) : style[source];
   const [h0, h1] = spec.baseHue.range;
   const jitter = (random01(seed, 'palette', 'hue') * 2 - 1) * hueJitter;
   const hue = wrap(h0 + (h1 - h0) * axis + jitter);
@@ -176,7 +179,8 @@ export function generatePalette(spec: TemplatePalette, style: StyleVector, seed:
   }
 
   const notes = enforceContrast(spec, hex);
-  notes.unshift(`${hueName(hex.primary)} primary (hue ${Math.round(hue)}° from ${spec.baseHue.from} ${axis.toFixed(2)}), ${spec.harmony} harmony, ${light ? 'light' : 'dark'} ground.`);
+  notes.unshift(`${hueName(hex.primary)} primary (hue ${Math.round(hue)}° from ${source === 'key' ? `the key, ${keyName(key as MusicalKey)}` : `${source} ${axis.toFixed(2)}`}), ${spec.harmony} harmony, ${light ? 'light' : 'dark'} ground.`);
+  if (spec.baseHue.from === 'key' && key === null) notes.push('No key was detected in this track, so its brightness set the hue instead.');
   return {
     palette: toPalette(hex),
     notes,

@@ -57,7 +57,7 @@ export function directorInput(state: StudioState, document: ProjectDocument = st
   const analysis = state.analysis;
   if (analysis === null) throw new DirectorError('The track has not been analysed.');
   const durationSeconds = state.audio?.durationSeconds ?? 0;
-  const digest = buildTrackDigest({ analysis, durationSeconds, onsetTimes: state.onsetTimes, sections: state.sections });
+  const digest = buildTrackDigest({ analysis, durationSeconds, onsetTimes: state.onsetTimes, sections: state.sections, key: state.musicalKey });
   const vocals = analysis.sources.get('vocals')?.features.get('rms');
   return {
     document,

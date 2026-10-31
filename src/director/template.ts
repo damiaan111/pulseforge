@@ -26,6 +26,10 @@ export const STYLE_AXES = ['tempo', 'energy', 'brightness', 'density', 'organic'
 export type StyleAxis = (typeof STYLE_AXES)[number];
 export type AxisRanges = Readonly<Partial<Record<StyleAxis, readonly [number, number]>>>;
 
+/** What sets the base hue: a style axis, or the track's key round the circle of fifths. */
+export const BASE_HUE_SOURCES = [...STYLE_AXES, 'key'] as const;
+export type BaseHueSource = (typeof BASE_HUE_SOURCES)[number];
+
 export const SLOT_ROLES = ['BACKDROP', 'HERO', 'ACCENT', 'TEXT', 'LYRICS', 'LOGO', 'POST'] as const;
 export type SlotRole = (typeof SLOT_ROLES)[number];
 
@@ -69,8 +73,8 @@ export interface TemplateAffinity {
 export interface TemplatePalette {
   readonly strategy: PaletteStrategy;
   readonly harmony: Harmony;
-  /** Hue in degrees: `range[0]` when the style axis is 0, `range[1]` at 1. */
-  readonly baseHue: { readonly from: StyleAxis; readonly range: readonly [number, number] };
+  /** Hue in degrees: `range[0]` when the source is 0, `range[1]` at 1. `key` walks the circle of fifths. */
+  readonly baseHue: { readonly from: BaseHueSource; readonly range: readonly [number, number] };
   /** HSL saturation of the primary, chosen by energy within the range. */
   readonly saturation: readonly [number, number];
   /** HSL lightness of the background, darker for darker tracks. */
@@ -554,7 +558,7 @@ export function parseTemplate(raw: unknown): { template: Template; issues: Templ
     palette: {
       strategy: p.oneOf('strategy', PALETTE_STRATEGIES, 'generate-from-style'),
       harmony: p.oneOf('harmony', HARMONIES, 'complementary'),
-      baseHue: { from: hue.oneOf('from', STYLE_AXES, 'brightness'), range: hue.has('range') ? (pair(hue, 'range', [0, 360], true) ?? [0, 360]) : [0, 360] },
+      baseHue: { from: hue.oneOf('from', BASE_HUE_SOURCES, 'brightness'), range: hue.has('range') ? (pair(hue, 'range', [0, 360], true) ?? [0, 360]) : [0, 360] },
       saturation: p.has('saturation') ? (pair(p, 'saturation', [0, 1]) ?? [0.6, 0.9]) : [0.6, 0.9],
       background: p.has('background') ? (pair(p, 'background', [0, 1]) ?? [0.04, 0.12]) : [0.04, 0.12],
       mode: p.oneOf('mode', ['dark', 'light'] as const, 'dark'),

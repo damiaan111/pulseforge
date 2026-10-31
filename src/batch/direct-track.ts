@@ -80,7 +80,7 @@ export async function directTrack(track: BatchTrack, options: DirectTrackOptions
   });
   const document: ProjectDocument = { ...base, analysisSettings: { ...base.analysisSettings, beatRefinement: settings.beatRefinement }, audio: { ...base.audio, path: track.audioPath, durationTicks: decoded.pcm.length } };
 
-  const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections });
+  const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections, key: result.key });
   const vocals = result.analysis.sources.get('vocals')?.features.get('rms');
   const directed = direct({
     document,

@@ -16,6 +16,7 @@ import type { ModuleScan } from '../modules-folder/scan.ts';
 import type { Preset } from '../project/presets.ts';
 import type { TemplateFile } from '../director/template-library.ts';
 import type { CacheCategory, CacheInventory } from '../cache/cache-store.ts';
+import type { MusicalKey } from '../analysis/key.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { ProjectAnalysisSettings } from '../analysis/project-settings.ts';
 import type { Component } from '../../setup/components.ts';
@@ -200,6 +201,8 @@ export interface AnalysisPayload {
   readonly peaks: Uint8Array;
   /** With each section's mean energy: the director's drops are boundaries into much louder sections. */
   readonly sections: readonly Section[];
+  /** The track's musical key, for the tempo line and the director; null when it has none. */
+  readonly key: MusicalKey | null;
   /** What became of the project's refined grid (S16). */
   readonly beatRefinement: BeatRefinementState;
   /** Detected onsets in source seconds: the director puts drop impulses exactly on them. */

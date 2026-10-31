@@ -20,6 +20,7 @@
 // a director that knows it is guessing can choose a template that does not depend on the guess.
 
 import type { AnalysisSet, BeatGrid, SourceAnalysis } from '../engine/core/analysis.ts';
+import type { MusicalKey } from '../analysis/key.ts';
 import type { Section } from '../analysis/sections.ts';
 
 export interface EnergyDigest {
@@ -78,6 +79,8 @@ export interface TrackDigest {
   readonly stereoWidth: number | null;
   readonly stems: StemsDigest;
   readonly structure: StructureDigest;
+  /** Not a style axis: it is a colour choice a template may ask for, not a reason to match one. */
+  readonly key: MusicalKey | null;
 }
 
 export interface DigestInput {
@@ -85,6 +88,7 @@ export interface DigestInput {
   readonly durationSeconds: number;
   readonly onsetTimes: readonly number[];
   readonly sections: readonly Section[];
+  readonly key?: MusicalKey | null;
 }
 
 export function buildTrackDigest(input: DigestInput): TrackDigest {
@@ -102,6 +106,7 @@ export function buildTrackDigest(input: DigestInput): TrackDigest {
     stereoWidth: mix === undefined ? null : meanOf(mix.features.get('stereoWidth')?.data),
     stems: stemsDigest(input.analysis),
     structure: structureDigest(input.sections),
+    key: input.key ?? null,
   };
 }
 

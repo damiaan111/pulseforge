@@ -13,6 +13,7 @@
 // matches was edited and is kept, still filling its slot. Layers the user added are kept where
 // they were, relative to the director's.
 
+import { keyName } from '../analysis/key.ts';
 import type { Section } from '../analysis/sections.ts';
 import type { AnalysisSet } from '../engine/core/analysis.ts';
 import type { DecodedImage } from '../engine/core/image.ts';
@@ -143,10 +144,12 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
   const conditions = projectConditions(document, input.analysis, input.title, input.milkdropPresets);
 
   // --- classify -------------------------------------------------------------------------------
-  note('classify', `The track reads as ${describeStyle(style)}.`, {
+  const key = input.digest.key;
+  note('classify', `The track reads as ${describeStyle(style)}${key === null ? '' : `, in ${keyName(key)}`}.`, {
     tempo: round(style.tempo), energy: round(style.energy), brightness: round(style.brightness), density: round(style.density),
     organic: round(style.organic), vocalWeight: round(style.vocalWeight), dynamics: round(style.dynamics), darkness: round(style.darkness),
     unmeasured: [...style.unmeasured], bpm: round(input.digest.bpm), sections: input.digest.structure.sections.length,
+    ...(key === null ? {} : { key: keyName(key), keyConfidence: round(key.confidence) }),
   });
 
   // --- match ----------------------------------------------------------------------------------
@@ -232,7 +235,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
         note('palette', `${template.name} takes its colours from a background image, but ${asset === undefined ? 'the project has none' : `"${asset.name}" is not available as pixels here`}: generated them from the track instead.`, { imageFallback: true });
       }
     }
-    const made = generated ?? generatePalette(template.palette, style, seeds.palette, template.variation.hueJitter);
+    const made = generated ?? generatePalette(template.palette, style, seeds.palette, template.variation.hueJitter, key);
     palette = made.palette;
     made.notes.forEach((text, i) => note('palette', text, i === 0 ? made.data : {}));
   }

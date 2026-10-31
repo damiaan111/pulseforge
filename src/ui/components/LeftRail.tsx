@@ -1,5 +1,6 @@
 // The left rail (ui-spec §5): the audio panel and the layer list.
 
+import { keyName } from '../../analysis/key.ts';
 import { pickLayer } from '../../project/layer-picker.ts';
 import { secondsToTicks } from '../../engine/core/time.ts';
 import {
@@ -34,6 +35,7 @@ export function LeftRail(): React.JSX.Element {
   const analysisMessage = useStudio((s) => s.analysisMessage);
   const analysis = useStudio((s) => s.analysis);
   const sections = useStudio((s) => s.sections);
+  const musicalKey = useStudio((s) => s.musicalKey);
   const selectedLayerId = useStudio((s) => s.selectedLayerId);
   const selectedLayerIds = useStudio((s) => s.selectedLayerIds);
   const extendLayerSelection = useStudio((s) => s.extendLayerSelection);
@@ -94,6 +96,8 @@ export function LeftRail(): React.JSX.Element {
               ? 'not detected'
               : `${grid.bpm.toFixed(1)} bpm · ${(grid.confidence * 100).toFixed(0)}% sure`}
           </dd>
+          <dt>Key</dt>
+          <dd data-testid="track-key">{musicalKey === null ? 'not detected' : `${keyName(musicalKey)} · ${(musicalKey.confidence * 100).toFixed(0)}% sure`}</dd>
           <dt>Sections</dt><dd>{sections.length === 0 ? 'none' : String(sections.length)}</dd>
         </dl>
       )}

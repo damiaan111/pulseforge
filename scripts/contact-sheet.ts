@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     const decoded = await decodeMono48k(FFMPEG_EXE, path);
     const result = await analyzeCached(decoded.pcm, cache, { audioHash: decoded.pcmSha256 });
     const durationSeconds = decoded.pcm.length / 48_000;
-    const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections });
+    const digest = buildTrackDigest({ analysis: result.analysis, durationSeconds, onsetTimes: result.onsetTimes, sections: result.sections, key: result.key });
     const style = styleVector(digest);
     const name = basename(file, extname(file));
     const document = createDocument({ name, id: '0000000000C000000000000001', timestamp: '2026-01-01T00:00:00.000Z', canvas: { width: args.width, height: Math.round((args.width * 9) / 16 / 2) * 2 } });

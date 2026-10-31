@@ -105,6 +105,39 @@ describe('derivePalette', () => {
   });
 });
 
+describe('the key as a base hue', () => {
+  const fromKey: TemplatePalette = { ...spec(), strategy: 'generate-from-style', baseHue: { from: 'key', range: [0, 360] } };
+  const hue = (key: Parameters<typeof generatePalette>[4]) => hueOf(generatePalette(fromKey, STYLE, 1, 0, key).palette.colors[0]!);
+
+  it('walks the circle of fifths: relative keys share a hue, a fifth is one step', () => {
+    expect(hue({ tonic: 9, mode: 'minor', confidence: 1 })).toBeCloseTo(hue({ tonic: 0, mode: 'major', confidence: 1 }), 0);
+    expect(gap(hue({ tonic: 7, mode: 'major', confidence: 1 }), hue({ tonic: 0, mode: 'major', confidence: 1 }))).toBeGreaterThan(25);
+  });
+
+  it('falls back to brightness without a key, and says so', () => {
+    const made = generatePalette(fromKey, STYLE, 1, 0, null);
+    expect(made.notes.join(' ')).toContain('No key was detected');
+  });
+
+  it('parses in a template, and an unknown source is an issue', () => {
+    const raw = structuredClone(builtinTemplateTexts().find((t) => t.file === 'neon-pulse.json')!.raw) as { palette: { baseHue: { from: string } } };
+    raw.palette.baseHue.from = 'key';
+    expect(parseTemplate(raw).issues).toEqual([]);
+    raw.palette.baseHue.from = 'loudness';
+    expect(parseTemplate(raw).issues.map((i) => i.path)).toContain('palette.baseHue.from');
+  });
+
+  it('never touches a template that does not ask for it, and the key changes no score', () => {
+    const plain = directorInput();
+    const keyed = { ...plain, digest: { ...plain.digest, key: { tonic: 2, mode: 'minor' as const, confidence: 0.9 } } };
+    const a = direct(plain, { seed: 5, templateId: 'tpl.neon.pulse' });
+    const b = direct(keyed, { seed: 5, templateId: 'tpl.neon.pulse' });
+    expect(b.document.palette).toEqual(a.document.palette);
+    expect(b.ranked.map((r) => r.score)).toEqual(a.ranked.map((r) => r.score));
+    expect(b.log[0]!.text).toContain('in D minor');
+  });
+});
+
 describe('direct() with a derived palette', () => {
   const asset = (n: number, name: string): AssetRef => ({ id: `0000000000A00000000000000${n}`, kind: 'image', path: `C:/pics/${name}`, hash: `hash${n}`, size: 1, name, extra: {} });
   /** Neon Pulse, but its only backdrop is the image and its colours come from it. */
