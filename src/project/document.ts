@@ -299,6 +299,11 @@ export interface SourceSpec {
   /** `ramp`: the value at the start and at the end of the track. */
   readonly from: number;
   readonly to: number;
+  /** `midi`: the notes that count, inclusive; 0 and 127 is all of them. */
+  readonly noteLow: number;
+  readonly noteHigh: number;
+  /** `midi`: 0..15 (the file's channel 1 is 0), or null for every channel. */
+  readonly channel: number | null;
   readonly extra: Extra;
 }
 
@@ -536,6 +541,32 @@ export interface Marker {
 export const MARKER_COLORS: readonly string[] = ['#e5484d', '#f5a524', '#3ddc97', '#4cc2ff', '#8e7cff', '#ff6fd8'];
 
 // ---------------------------------------------------------------------------
+// MIDI (C3)
+// ---------------------------------------------------------------------------
+
+/** One note of an imported file, in project ticks from the start of the song. */
+export interface MidiNote {
+  readonly ticks: number;
+  readonly endTicks: number;
+  readonly note: number;
+  readonly velocity: number;
+  readonly channel: number;
+}
+
+/**
+ * An imported MIDI file: its notes are stored in the project, as lyrics are, so a render needs no
+ * file and a moved file breaks nothing. Timed like the song it goes with: from the start of the
+ * audio file, so a lead-in or a trim moves the two together.
+ */
+export interface MidiClip {
+  /** The file's name, for the panel. */
+  readonly name: string;
+  /** Sorted by ticks. */
+  readonly notes: readonly MidiNote[];
+  readonly extra: Extra;
+}
+
+// ---------------------------------------------------------------------------
 // The auto-director's record (auto-director-spec §8–§9)
 // ---------------------------------------------------------------------------
 
@@ -630,6 +661,8 @@ export interface ProjectDocument {
   readonly automation: readonly AutomationTrack[];
   /** Timeline markers (S9), sorted by ticks. */
   readonly markers: readonly Marker[];
+  /** The imported MIDI file a `midi` binding follows (C3); null when there is none. */
+  readonly midi: MidiClip | null;
   /** What the auto-director made of this project, when it made it (M21, M22); null otherwise. */
   readonly director: DirectorState | null;
   readonly extra: Extra;

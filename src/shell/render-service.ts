@@ -7,18 +7,22 @@
 // Plain Node: no Electron import, so it is exercised end to end by a Node script as well as by
 // the app. The main process wires its `onChange` to the renderer.
 
-import type { MotionBlur } from '../engine/core/time.ts';
+import { TICKS_PER_SECOND, type MotionBlur } from '../engine/core/time.ts';
 import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { findExportPreset } from '../export/export-presets.ts';
 import { ProgressTracker } from '../export/progress.ts';
+import { comparisonDocument, comparisonTicks, renderComparison } from '../export/comparison.ts';
+import { probeCodecs } from '../export/encoder-probe.ts';
+import { defaultEncodeSettings } from '../export/ffmpeg-args.ts';
 import { RenderQueue, type JobRange, type RenderJob } from '../export/queue.ts';
 import type { GpuQueue } from '../node/gpu-queue.ts';
 import { renderDocument } from '../export/render-document.ts';
 import { aspectBucket } from '../project/document.ts';
 import { newId } from '../project/ids.ts';
 import { loadDocument } from '../project/load.ts';
+import { FFMPEG_EXE, FFPROBE_EXE } from '../../setup/lib/paths.ts';
 
 /** Scratch no job needs any more: a finished render's, or one taken off the list. */
 export async function sweepWork(workRoot: string, keep: ReadonlySet<string>): Promise<void> {
@@ -59,6 +63,8 @@ export interface RenderRequest {
   readonly range?: JobRange | null;
   /** 'instrumental': a karaoke render (S15). Absent: the song. */
   readonly audioMix?: 'full' | 'instrumental';
+  /** An A/B render (C10): this project on the right, the request's own on the left. */
+  readonly compare?: { readonly text: string; readonly projectPath: string | null; readonly label: string };
 }
 
 export interface RenderService {
@@ -88,12 +94,24 @@ export class RenderRequestError extends Error {
   }
 }
 
+/** One render within a job: all of it, or a side of an A/B (round 0 or 1 of 2). */
+interface RenderSide {
+  readonly text: string;
+  readonly projectPath: string | null;
+  readonly outputPath: string;
+  readonly workDir: string;
+  readonly audioMix: 'full' | 'instrumental';
+  readonly seconds: number | undefined;
+  readonly rounds: number;
+  readonly round: number;
+}
+
 export async function createRenderService(options: RenderServiceOptions): Promise<RenderService> {
   const queue: RenderQueue = new RenderQueue({
     root: options.root,
     newId,
     ...(options.onChange !== undefined ? { onChange: options.onChange } : {}),
-    run: async ({ job, documentJson, report, isCancelled }) => {
+    run: async ({ job, documentJson, compareJson, report, isCancelled }) => {
       const preset = findExportPreset(job.presetName);
       if (preset === undefined) throw new Error(`Unknown export preset "${job.presetName}".`);
 
@@ -106,27 +124,66 @@ export async function createRenderService(options: RenderServiceOptions): Promis
       }, options.cancelPollMs ?? 200);
       let tracker: ProgressTracker | undefined;
       try {
-        const render = () => renderDocument({
-          documentText: documentJson,
-          projectPath: job.projectPath,
+        const renderOne = (side: RenderSide) => renderDocument({
+          documentText: side.text,
+          projectPath: side.projectPath,
           size: preset.size ?? undefined,
+          seconds: side.seconds,
           codec: preset.codec,
           motionBlur: job.motionBlur ?? undefined,
           supersample: job.supersample,
           range: job.range ?? undefined,
-          audioMix: job.audioMix ?? 'full',
-          outputPath: job.outputPath,
-          workDir: join(options.workRoot, job.id),
+          audioMix: side.audioMix,
+          outputPath: side.outputPath,
+          workDir: side.workDir,
           cacheRoot: typeof options.cacheRoot === 'function' ? options.cacheRoot() : options.cacheRoot,
           videoCacheRoot: typeof options.videoCacheRoot === 'function' ? options.videoCacheRoot() : options.videoCacheRoot,
           name: 'job',
           signal: controller.signal,
           onProgress: (progress) => {
-            tracker ??= new ProgressTracker({ total: progress.total, now: () => performance.now() });
-            tracker.update(progress.encoded);
+            // An A/B job is two renders of the same length under one bar.
+            tracker ??= new ProgressTracker({ total: progress.total * side.rounds, now: () => performance.now() });
+            tracker.update(progress.encoded + side.round * progress.total);
             report(tracker.snapshot);
           },
         });
+        const workDir = join(options.workRoot, job.id);
+        if (compareJson !== undefined) {
+          const compare = job.compare;
+          if (compare === undefined) throw new Error('This A/B job has lost the project it compares with.');
+          const seconds = comparisonTicks(loadDocument(documentJson).document, loadDocument(compareJson).document) / TICKS_PER_SECOND;
+          const compareRun = async () => {
+            const support = (await probeCodecs(FFMPEG_EXE))[preset.codec];
+            return renderComparison({
+              ffmpegExe: FFMPEG_EXE,
+              ffprobeExe: FFPROBE_EXE,
+              settings: { ...defaultEncodeSettings(preset.codec), encoder: support.encoder },
+              outputPath: job.outputPath,
+              workDir,
+              labels: { left: job.label, right: compare.label },
+              signal: controller.signal,
+              renderSide: (side, outputPath) => renderOne({
+                ...(side === 'left'
+                  ? { text: documentJson, projectPath: job.projectPath, audioMix: job.audioMix ?? 'full', round: 0 }
+                  // Only the left side's sound reaches the file, so the right renders plain.
+                  : { text: compareJson, projectPath: compare.projectPath, audioMix: 'full', round: 1 }),
+                outputPath,
+                workDir: join(workDir, side),
+                seconds,
+                rounds: 2,
+              }),
+            });
+          };
+          const compared = options.gpu === undefined
+            ? await compareRun()
+            : await options.gpu.run('render', job.label, compareRun, controller.signal);
+          tracker ??= new ProgressTracker({ total: compared.frames * 2, now: () => performance.now() });
+          tracker.update(compared.frames * 2);
+          report(tracker.snapshot);
+          await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+          return { reportPath: compared.reportPath };
+        }
+        const render = () => renderOne({ text: documentJson, projectPath: job.projectPath, outputPath: job.outputPath, workDir, audioMix: job.audioMix ?? 'full', seconds: undefined, rounds: 1, round: 0 });
         const result = options.gpu === undefined
           ? await render()
           : await options.gpu.run('render', job.label, render, controller.signal);
@@ -139,7 +196,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         tracker.update(result.frames);
         report(tracker.snapshot);
         // Scratch for this render alone; a failed job keeps its own, to retry and to read.
-        await rm(join(options.workRoot, job.id), { recursive: true, force: true }).catch(() => undefined);
+        await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
         return { reportPath: result.reportPath };
       } finally {
         clearInterval(poll);
@@ -168,8 +225,14 @@ export async function createRenderService(options: RenderServiceOptions): Promis
       const { document } = loadDocument(request.text);
       if (document.audio.path === '') throw new RenderRequestError('The project has no audio. Import audio before rendering.');
       const size = preset.size ?? document.canvas;
+      const compare = request.compare;
+      const other = compare === undefined ? undefined : loadDocument(compare.text).document;
+      if (other !== undefined && other.audio.path === '') throw new RenderRequestError(`${compare?.label ?? 'The other project'} has no audio, so there is nothing to render it to.`);
       const job = await queue.enqueue({
         document,
+        ...(other === undefined || compare === undefined ? {} : {
+          compare: { document: comparisonDocument(document, other), projectPath: compare.projectPath, label: compare.label },
+        }),
         projectPath: request.projectPath,
         aspect: aspectBucket(size.width, size.height),
         presetName: preset.id,
@@ -178,7 +241,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         range: request.range ?? null,
         ...(request.audioMix === undefined ? {} : { audioMix: request.audioMix }),
         outputPath: request.outputPath,
-        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.supersample === 2 ? ' · 2× supersampled' : ''}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}`,
+        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.supersample === 2 ? ' · 2× supersampled' : ''}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}${compare === undefined ? '' : ` · A/B with ${compare.label}`}`,
       });
       kick();
       return job;

@@ -20,7 +20,7 @@ import {
   DECISION_STEPS, DIRECTOR_LOCKS, MODULATION_MODES, QUANTISE_MODES, RESERVED_DOCUMENT_KEYS, SCALE_REFERENCES, walkLayers,
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
-  MASK_CHANNELS, NAMED_EASINGS, type MaskSettings, type AutomationTrack, type Keyframe, type KeyframeEasing, type Marker,
+  MASK_CHANNELS, NAMED_EASINGS, type MaskSettings, type AutomationTrack, type Keyframe, type KeyframeEasing, type Marker, type MidiClip,
   type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
   type ScaleReference, type SourceSpec, type TimeRange, type Transform,
@@ -397,6 +397,9 @@ function parseSource(node: Node): SourceSpec {
     octaves: s.num('octaves', 1, { integer: true, min: 1, max: 8 }),
     from: s.num('from', 0),
     to: s.num('to', 1),
+    noteLow: s.num('noteLow', 0, { integer: true, min: 0, max: 127 }),
+    noteHigh: s.num('noteHigh', 127, { integer: true, min: 0, max: 127 }),
+    channel: s.nullableNum('channel', { integer: true, min: 0, max: 15 }),
     extra: s.rest(),
   };
 }
@@ -689,6 +692,21 @@ function parseMarkers(nodes: readonly Node[], issues: DocumentIssue[]): Marker[]
   }).sort((a, b) => a.ticks - b.ticks);
 }
 
+/** The imported MIDI file (C3). Order is by time, whatever the file says. */
+function parseMidiClip(node: Node): MidiClip {
+  return {
+    name: node.str('name', ''),
+    notes: node.children('notes').map((n) => ({
+      ticks: n.ticks('ticks', 0),
+      endTicks: n.ticks('endTicks', 0),
+      note: n.num('note', 60, { integer: true, min: 0, max: 127 }),
+      velocity: n.num('velocity', 127, { integer: true, min: 1, max: 127 }),
+      channel: n.num('channel', 0, { integer: true, min: 0, max: 15 }),
+    })).sort((a, b) => a.ticks - b.ticks),
+    extra: node.rest(),
+  };
+}
+
 /**
  * The director's record (auto-director-spec §8–§9). Nothing in it affects a render — the project
  * it made is ordinary layers — so a damaged record is repaired with defaults and reported, never
@@ -922,6 +940,7 @@ export function parseDocument(raw: unknown): ParseResult {
     lyrics: parseLyrics(root.child('lyrics'), issues),
     automation: root.children('automation').map((n) => parseTrack(n, issues)),
     markers: parseMarkers(root.children('markers'), issues),
+    midi: root.take('midi') === undefined || root.take('midi') === null ? null : parseMidiClip(root.child('midi')),
     director: root.take('director') === undefined || root.take('director') === null ? null : parseDirector(root.child('director')),
     extra: root.rest(RESERVED_DOCUMENT_KEYS),
   };

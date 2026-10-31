@@ -62,6 +62,11 @@ export interface ModulationSource {
    * the first point and after the last.
    */
   readonly points?: readonly CurvePoint[];
+  /** `midi`: the notes that count, inclusive; absent is all of them. */
+  readonly noteLow?: number;
+  readonly noteHigh?: number;
+  /** `midi`: 0..15, or null or absent for every channel. */
+  readonly channel?: number | null;
 }
 
 export interface CurvePoint {
@@ -273,6 +278,16 @@ export interface CompileOptions {
   readonly placement?: ClipPlacement;
   /** Timeline markers' ticks, sorted (S9), for the `marker` and `markerProgress` sources. */
   readonly markers?: readonly number[];
+  /** An imported MIDI file's notes, sorted (C3), for the `midi` source. */
+  readonly midiNotes?: readonly RenderMidiNote[];
+}
+
+/** One note, in ticks from the start of the audio file. How long it was held does not matter here. */
+export interface RenderMidiNote {
+  readonly ticks: number;
+  readonly note: number;
+  readonly velocity: number;
+  readonly channel: number;
 }
 
 export interface ClipPlacement {
@@ -298,7 +313,7 @@ export interface ModulationProgram {
 const GENERATORS = new Set(['lfo', 'ramp', 'progress', 'noise']);
 
 /** Sources that are 0..1 by definition, so `inputRange: 'auto'` leaves them alone. */
-const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive', 'curve', 'marker', 'markerProgress']);
+const FIXED_RANGE = new Set([...GENERATORS, 'lyricActive', 'lineProgress', 'wordActive', 'curve', 'marker', 'markerProgress', 'midi']);
 
 /** Built once per compile and shared by every lyric binding: the signals scan the lines. */
 const lyricSignalCache = new WeakMap<RenderLyrics, ReturnType<typeof lyricSignals>>();
@@ -352,13 +367,18 @@ function featureTrack(analysis: AnalysisSet, source: ModulationSource, feature: 
  * missing until P6: with a lead-in or a trimmed clip, every audio binding read the wrong moment.
  */
 function trackReader(track: AnalysisTrack, placement: ClipPlacement | undefined): (t: number) => number {
-  if (placement === undefined) return (t) => sampleTrack(track, t);
+  return placedReader((source) => sampleTrack(track, source), placement);
+}
+
+/** Anything timed against the audio file, read at a timeline time. */
+function placedReader(read: (sourceSeconds: number) => number, placement: ClipPlacement | undefined): (t: number) => number {
+  if (placement === undefined) return read;
   const clipStart = placement.leadInTicks / TICKS_PER_SECOND;
   const clipOut = placement.clipOutTicks == null ? Infinity : placement.clipOutTicks / TICKS_PER_SECOND;
   return (t) => {
     if (t < clipStart) return 0;
     const source = timelineToSourceSeconds(t, placement);
-    return source >= clipOut ? 0 : sampleTrack(track, source);
+    return source >= clipOut ? 0 : read(source);
   };
 }
 
@@ -438,6 +458,18 @@ function rawSampler(
       }
       return source.type === 'marker' ? (t) => markerPulse(markers, t) : (t) => markerProgress(markers, t, durationSeconds);
     }
+    case 'midi': {
+      // Said, not silently zero, like the markers; and a filter that catches nothing says so too.
+      if (options.midiNotes === undefined || options.midiNotes.length === 0) {
+        return { error: 'unsupported', detail: '"midi" follows an imported MIDI file, and the project has none yet; the binding is kept and inactive' };
+      }
+      const notes = midiNotesFor(options.midiNotes, source);
+      if (notes.length === 0) {
+        return { error: 'unsupported', detail: 'no notes in the MIDI file match this note range and channel; the binding is kept and inactive' };
+      }
+      const ticks = notes.map((n) => n.ticks);
+      return placedReader((seconds) => midiPulse(notes, ticks, seconds), options.placement);
+    }
     case 'parameter':
       return { error: 'unsupported', detail: 'parameter chaining needs the dependency graph (modulation-spec §9.3); the binding is kept and inactive' };
     default:
@@ -471,6 +503,32 @@ export function markerPulse(markers: readonly number[], t: number): number {
   if (i < 0) return 0;
   const since = t - (markers[i] as number) / TICKS_PER_SECOND;
   return Math.max(0, 1 - since / MARKER_PULSE_SECONDS);
+}
+
+/** How long a note's hit takes to fall to 0: long enough that the 240 Hz envelope pass cannot miss one. */
+export const MIDI_PULSE_SECONDS = 0.25;
+
+/** The notes a `midi` source listens to, in the order given. */
+export function midiNotesFor(notes: readonly RenderMidiNote[], source: ModulationSource): readonly RenderMidiNote[] {
+  const low = source.noteLow ?? 0;
+  const high = source.noteHigh ?? 127;
+  const channel = source.channel ?? null;
+  return notes.filter((n) => n.note >= low && n.note <= high && (channel === null || n.channel === channel));
+}
+
+/**
+ * `midi` (C3): at each note, its velocity (0..1), falling linearly to 0 over MIDI_PULSE_SECONDS, and
+ * the strongest of them when several overlap, so a chord is one hit rather than a sum over 1.
+ * `ticks` is `notes`' start ticks, sorted. Pure, and closed-form in t, so seeking is free.
+ */
+export function midiPulse(notes: readonly RenderMidiNote[], ticks: readonly number[], t: number): number {
+  let strongest = 0;
+  for (let i = lastAtOrBefore(ticks, t * TICKS_PER_SECOND); i >= 0; i -= 1) {
+    const since = t - (ticks[i] as number) / TICKS_PER_SECOND;
+    if (since >= MIDI_PULSE_SECONDS) break;
+    strongest = Math.max(strongest, ((notes[i] as RenderMidiNote).velocity / 127) * (1 - since / MIDI_PULSE_SECONDS));
+  }
+  return strongest;
 }
 
 /**
@@ -540,6 +598,8 @@ function derivedKey(binding: ModulationBinding, range: ModulationRange): string 
     s.noiseScale ?? null, s.octaves ?? null, s.from ?? null, s.to ?? null,
     // Two curves with different points are different signals, whatever else they share.
     s.points === undefined ? null : s.points.map((p) => [p.ticks, p.value]),
+    // Two MIDI bindings on different notes likewise.
+    s.noteLow ?? null, s.noteHigh ?? null, s.channel ?? null,
     range.min, range.max, binding.curve.type, binding.curve.amount,
     binding.envelope.attackMs, binding.envelope.releaseMs, binding.envelope.mode,
     binding.lookAheadMs,

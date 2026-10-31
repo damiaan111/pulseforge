@@ -45,6 +45,8 @@ export function ExportDialog(): React.JSX.Element | null {
   const [karaoke, setKaraoke] = useState(false);
   // Spatial supersampling (export-spec §9): off by default, since it is four times the GPU work.
   const [supersample, setSupersample] = useState(false);
+  // A/B (C10): this project on the left, another version on the right, in one file.
+  const [compare, setCompare] = useState<{ text: string; projectPath: string; label: string } | null>(null);
   const stemsReady = useStudio((s) => s.stems.state === 'ready');
   const [readiness, setReadiness] = useState<RenderReadiness | null>(null);
   useEffect(() => {
@@ -88,6 +90,25 @@ export function ExportDialog(): React.JSX.Element | null {
     if (picked !== null) setOutputPath(picked);
   }
 
+  async function compareWithSaved(): Promise<void> {
+    if (path === null) return;
+    try {
+      const file = await window.pulseforge.readProject(path);
+      setCompare({ text: file.text, projectPath: path, label: 'the last saved version' });
+    } catch (error) {
+      notify({ text: `Could not read the saved project. ${error instanceof Error ? error.message : String(error)}`, kind: 'bad' });
+    }
+  }
+
+  async function compareWithFile(): Promise<void> {
+    try {
+      const file = await window.pulseforge.openProject();
+      if (file !== null) setCompare({ text: file.text, projectPath: file.path, label: file.path.split(/[/\\]/).pop() ?? file.path });
+    } catch (error) {
+      notify({ text: `Could not read that project. ${error instanceof Error ? error.message : String(error)}`, kind: 'bad' });
+    }
+  }
+
   async function enqueue(): Promise<void> {
     if (preset === undefined || outputPath === null) return;
     setBusy(true);
@@ -101,6 +122,7 @@ export function ExportDialog(): React.JSX.Element | null {
         ...(supersample ? { supersample: 2 as const } : {}),
         range: ranged ? { inTicks: fromTicks, outTicks: toTicks } : null,
         audioMix: karaoke && stemsReady ? 'instrumental' : 'full',
+        ...(compare === null ? {} : { compare }),
       });
       notify({ text: `Queued: ${document.name} — ${preset.label}`, kind: 'ok' });
       setOpen(false);
@@ -197,6 +219,18 @@ export function ExportDialog(): React.JSX.Element | null {
             {' '}Supersample 2×
           </label>
           {supersample ? <span className="dim-text">Smooths thin lines. Rendered at four times the pixels: slower, and it needs more video memory.</span> : null}
+        </fieldset>
+
+        <fieldset className="export-compare" data-testid="export-compare">
+          <span>A/B</span>
+          <button type="button" data-action="export-compare-saved" disabled={path === null} title={path === null ? 'This project has not been saved yet' : 'This project as it was last saved'} onClick={() => void compareWithSaved()}>Last saved version</button>
+          <button type="button" data-action="export-compare-file" onClick={() => void compareWithFile()}>Another project…</button>
+          {compare === null ? null : <button type="button" data-action="export-compare-clear" onClick={() => setCompare(null)}>No comparison</button>}
+          <span className="dim-text">
+            {compare === null
+              ? 'Render this project beside another version, in one file.'
+              : `Left: this project. Right: ${compare.label}. Both at the left's size and frame rate, for the length of the shorter one, with the left's sound. The picture is twice as wide, and it takes two renders.`}
+          </span>
         </fieldset>
 
         <div className="output-row">

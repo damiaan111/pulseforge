@@ -753,6 +753,17 @@ export function setBeatRefinement(refinement: BeatRefinement | null): Command {
   };
 }
 
+/**
+ * The project's MIDI file (C3), or none with null. Its bindings stay either way: without notes they
+ * are kept and reported inactive, and importing a new file brings them back.
+ */
+export function setMidi(midi: ProjectDocument['midi']): Command {
+  return {
+    label: midi === null ? 'Remove MIDI file' : `Import ${midi.name || 'MIDI file'}`,
+    apply: (document) => ({ ...document, midi }),
+  };
+}
+
 /** Rerolls the master seed — "Surprise me" (M22). */
 export function setSeed(seed: number): Command {
   return { label: 'Reroll seed', apply: (document) => ({ ...document, seed }) };

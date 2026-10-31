@@ -15,6 +15,7 @@ import { isBatchAudio } from '../../batch/plan.ts';
 import { SavePresetDialog } from './SavePresetDialog.tsx';
 import { RenderQueue } from './RenderQueue.tsx';
 import { ModulationMatrix } from './Modulation.tsx';
+import { NodeView } from './NodeView.tsx';
 import { Inspector } from './Inspector.tsx';
 import { RecoveryDialog } from './RecoveryDialog.tsx';
 import { LyricsDrawer } from './LyricsPanel.tsx';
@@ -170,6 +171,7 @@ export function App(): React.JSX.Element {
         else if (state.exportOpen) state.setExportOpen(false);
         else if (state.batchOpen) state.setBatchOpen(false);
         else if (state.shadertoyOpen) state.setShadertoyOpen(false);
+        else if (state.nodeViewOpen) state.setNodeViewOpen(false);
         else if (state.queueOpen) state.setQueueOpen(false);
         else if (state.matrixOpen) state.setMatrixOpen(false);
         else if (state.lyricsOpen) state.setLyricsOpen(false);
@@ -224,6 +226,7 @@ export function App(): React.JSX.Element {
       </div>
       <RenderQueue />
       <ModulationMatrix />
+      <NodeView />
       <LyricsDrawer />
       <AutoDrawer />
       <ExportDialog />
