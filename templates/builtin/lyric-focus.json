@@ -42,9 +42,9 @@
       "id": "WAVE", "role": "ACCENT", "name": "Voice line", "priority": 55, "opacity": 0.75,
       "candidates": [
         { "module": "core.visualizer.curve", "weight": 2, "label": "Line",
-          "params": { "fill": "@accent", "thickness": 0.003, "baseline": 0.82, "height": 0.1, "spread": 0.8, "fillBody": 0.12 } },
+          "params": { "fill": "@accent", "thickness": 0.003, "baseline": 0.94, "height": 0.08, "spread": 0.8, "fillBody": 0.12 } },
         { "module": "core.visualizer.bars", "weight": 1, "label": "Bars",
-          "params": { "fill": "@accent", "barCount": 96, "baseline": 0.9, "maxHeight": 0.1, "barWidth": 0.5 } }
+          "params": { "fill": "@accent", "barCount": 96, "baseline": 0.96, "maxHeight": 0.08, "barWidth": 0.5 } }
       ]
     },
     {

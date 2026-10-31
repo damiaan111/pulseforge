@@ -25,7 +25,7 @@
       },
       {
         "condition": "hasLyrics",
-        "amount": 0.35
+        "amount": 0.8
       },
       {
         "condition": "noLyrics",

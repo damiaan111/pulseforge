@@ -4689,6 +4689,11 @@ now reloads after one (at most once a minute), and the recovery dialog offers th
 `requestAnimationFrame` runs at 32 ms and the preview reports frames as dropped. Exports are unaffected. Earlier notes of 32 fps
 previews were this.
 
+**After that.** The project name in the top bar is a button: click to rename, Enter or leaving the field keeps it, Escape does not,
+and it is one undo step. With lyrics and MilkDrop installed the director now chooses MilkDrop Lyric, which the plate made readable,
+over Lyric Focus. The self-check keeps its renders in `out/smoke-render`, away from a person's list. Two more full crawls of the
+Lyrics panel: no crash.
+
 **Disk.** 15 GB is `vendor/`: Python and torch 4.7, Whisper 4.4 (large-v3 is 2.9 and optional), alignment 1.8 (four optional
 languages 1.4), the wheelhouse and archives 2.9 (kept on purpose, PROJECT.md), the rest under 1.5.
 

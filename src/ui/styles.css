@@ -149,7 +149,8 @@ h2 {
   border-bottom: 1px solid var(--line);
 }
 .wordmark { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); margin-right: 6px; }
-.project-name { color: var(--text-dim); }
+.project-name { color: var(--text-dim); background: none; border-color: transparent; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-name-edit { width: 260px; }
 
 /* --- left rail ----------------------------------------------------------- */
 

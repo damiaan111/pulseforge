@@ -1738,10 +1738,12 @@ app.whenReady().then(async () => {
   let batchService: BatchService | null = null;
   const completion = completionWatcher((summary) => onAllFinished(summary));
   let renders: RenderService;
+  // The self-check's renders are its own: they must never appear in a person's list.
+  const renderRoot = join(ROOT, 'out', process.env['PULSEFORGE_SMOKE'] === '1' ? 'smoke-render' : 'studio-render');
   try {
     renders = await createRenderService({
-      root: join(ROOT, 'out', 'studio-render', 'queue'),
-      workRoot: join(ROOT, 'out', 'studio-render', 'work'),
+      root: join(renderRoot, 'queue'),
+      workRoot: join(renderRoot, 'work'),
       cacheRoot: () => analysisCacheRoot(),
       videoCacheRoot: () => cacheRootPath(),
       gpu: gpuQueue,

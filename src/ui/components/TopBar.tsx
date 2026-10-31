@@ -1,6 +1,8 @@
 // The top bar (ui-spec §1): project actions, undo/redo with labels, and the dirty marker.
 
-import { findLayer } from '../../project/commands.ts';
+import { useState } from 'react';
+
+import { findLayer, renameProject } from '../../project/commands.ts';
 import { useStudio } from '../store.ts';
 
 export function TopBar(): React.JSX.Element {
@@ -30,6 +32,14 @@ export function TopBar(): React.JSX.Element {
   const lyricsOpen = useStudio((s) => s.lyricsOpen);
   const setLyricsOpen = useStudio((s) => s.setLyricsOpen);
   const activeRenders = useStudio((s) => s.renders.filter((job) => job.status === 'queued' || job.status === 'running').length);
+  const run = useStudio((s) => s.run);
+  const [editingName, setEditingName] = useState(false);
+
+  function commitName(value: string): void {
+    setEditingName(false);
+    const next = value.trim();
+    if (next !== '' && next !== name) run(renameProject(next));
+  }
 
   return (
     <header className="topbar">
@@ -52,9 +62,28 @@ export function TopBar(): React.JSX.Element {
       </button>
 
       <span className="spacer" />
-      <span className="project-name" title={path ?? 'not saved yet'}>
-        {name}{dirty ? ' •' : ''}
-      </span>
+      {editingName ? (
+        <input
+          className="project-name-edit"
+          aria-label="Project name"
+          data-action="project-name-input"
+          defaultValue={name}
+          autoFocus
+          onFocus={(event) => event.target.select()}
+          onBlur={(event) => commitName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            else if (event.key === 'Escape') {
+              event.stopPropagation();
+              setEditingName(false);
+            }
+          }}
+        />
+      ) : (
+        <button type="button" className="project-name" data-action="project-name" title={`${path ?? 'not saved yet'} — click to rename`} onClick={() => setEditingName(true)}>
+          {name}{dirty ? ' •' : ''}
+        </button>
+      )}
       <button type="button" data-action="auto-drawer" className={autoOpen ? 'active' : ''} title="The auto-director: a complete project from the track, Surprise me, and why it chose what it chose" onClick={() => setAutoOpen(!autoOpen)}>
         ✦ Auto
       </button>
