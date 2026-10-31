@@ -17,8 +17,8 @@
 //    measures lines *without* that trailing space, so centred text stays centred.
 //  - Chinese and Japanese have no spaces to wrap at, so a line may break between any two of their
 //    characters, except where typography forbids it (kinsoku): closing punctuation and small kana
-//    never start a line, opening punctuation never ends one. Thai is not segmented: it would need
-//    a dictionary, so a Thai phrase wraps at its spaces like any other.
+//    never start a line, opening punctuation never ends one. Thai has no spaces between words, so
+//    it breaks at the words ICU's dictionary finds; ICU is pinned with the Electron version.
 //  - A paragraph's direction is that of its first strong character. Words are shaped and ordered by
 //    the canvas (HarfBuzz and the bidi algorithm); this file only has to agree on where each word
 //    lands, which it does by ordering whole words, since a space ends any shaping or joining.
@@ -94,8 +94,12 @@ export function isRtlText(text: string): boolean {
   return false;
 }
 
+const THAI = /\p{Script=Thai}/u;
+const THAI_WORDS = new Intl.Segmenter('th', { granularity: 'word' });
+
 /** One chunk between spaces, cut at the places a line may break inside it. */
 function breakChunk(chunk: string): string[] {
+  if (THAI.test(chunk)) return [...THAI_WORDS.segment(chunk)].map((part) => part.segment);
   if (!BREAKABLE.test(chunk)) return [chunk];
   const parts: string[] = [];
   let current = '';

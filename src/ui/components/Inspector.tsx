@@ -23,7 +23,7 @@ import { ANCHORS, BLEND_MODES, SCALE_REFERENCES, walkLayers, type AspectBucket, 
 import { newId } from '../../project/ids.ts';
 import { useStudio } from '../store.ts';
 import { useModules } from '../modules.ts';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { OPACITY_SPEC, effectParamTarget, isModulatable, layerOpacityTarget, layerParamTarget } from '../../project/modulation-authoring.ts';
 import { ModulateButton, ModulationSection, useLiveValue } from './Modulation.tsx';
 import { KeyframeButton, KeyframesSection, useKeyframed } from './Keyframes.tsx';
@@ -493,6 +493,16 @@ function ParamControl(props: {
         />
       );
     case 'string':
+      if (spec.picker === 'milkdrop') {
+        return (
+          <MilkdropPicker
+            label={spec.label}
+            value={typeof raw === 'string' ? raw : spec.default}
+            badge={overridden ? <Badge onReset={onReset} /> : null}
+            onPick={(value) => onChange(value, true)}
+          />
+        );
+      }
       return (
         <TextControl
           label={spec.label}
@@ -649,6 +659,36 @@ function TextControl(props: {
           onBlur={() => onChange(value, true)}
         />
       )}
+    </label>
+  );
+}
+
+/**
+ * The installed presets, searched by typing. Only a real preset is applied, so a half-typed name
+ * never renders. A preset that is not installed stays shown and named, rather than being cleared.
+ */
+function MilkdropPicker(props: { label: string; value: string; badge: React.ReactNode; onPick: (value: string) => void }): React.JSX.Element {
+  const { label, value, badge, onPick } = props;
+  const presets = useStudio((s) => s.milkdropPresets);
+  const [draft, setDraft] = useState<string | null>(null);
+  const known = useMemo(() => new Set(presets), [presets]);
+  const typed = draft ?? value;
+  return (
+    <label className="field text">
+      <span>{label}{badge}</span>
+      <input
+        type="text"
+        list="milkdrop-presets"
+        value={typed}
+        data-action="milkdrop-preset"
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (known.has(e.target.value)) onPick(e.target.value);
+        }}
+        onBlur={() => setDraft(null)}
+      />
+      <datalist id="milkdrop-presets">{presets.map((name) => <option key={name} value={name} />)}</datalist>
+      {value !== '' && presets.length > 0 && !known.has(value) ? <span className="warn-text">Not installed here.</span> : null}
     </label>
   );
 }

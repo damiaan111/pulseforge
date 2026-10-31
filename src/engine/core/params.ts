@@ -105,6 +105,8 @@ export interface StringParam extends ParamCommon {
   readonly multiline?: boolean;
   /** Longer stored values are cut, reported. */
   readonly maxLength?: number;
+  /** A searchable list of what is installed, instead of a blank field. */
+  readonly picker?: 'milkdrop';
 }
 
 export type ParamSpec = FloatParam | IntParam | BoolParam | EnumParam | ColorParam | StemParam | AssetParam | StringParam;

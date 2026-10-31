@@ -21,7 +21,7 @@ export const milkdropManifest: ModuleManifest = {
   capabilities: { needsAnalysis: true, needsInput: false, supportsAspect: true, stateful: true, gpuCost: 'high' },
   paramsSchemaVersion: 1,
   params: [
-    { key: 'preset', label: 'Preset', group: 'MilkDrop', type: 'string', default: '', modulatable: false, description: 'Chosen in the Presets panel, under MilkDrop' },
+    { key: 'preset', label: 'Preset', group: 'MilkDrop', type: 'string', default: '', picker: 'milkdrop', modulatable: false, description: 'Type to search the installed presets' },
     { key: 'seed', label: 'Variation', group: 'MilkDrop', type: 'int', default: 1, min: 1, max: 9999, modulatable: false, description: 'The same preset grown from a different start' },
     { key: 'brightness', label: 'Brightness', group: 'MilkDrop', type: 'float', default: 1, min: 0, max: 2, modulatable: true },
   ],

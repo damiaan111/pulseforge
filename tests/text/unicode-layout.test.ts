@@ -14,6 +14,15 @@ const options = (overrides: Partial<LayoutOptions> = {}): LayoutOptions => ({
   sizePx: 10, lineHeight: 1.5, letterSpacingPx: 0, align: 'left', maxWidthPx: 1000, paddingPx: 0, ...overrides,
 });
 
+describe('Thai', () => {
+  it('breaks between words, though it has no spaces', () => {
+    const lines = layoutText('สวัสดีครับยินดีต้อนรับ', mono, options({ maxWidthPx: 100 })).lines.map((line) => line.text);
+    expect(lines.join('')).toBe('สวัสดีครับยินดีต้อนรับ');
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toBe('สวัสดีครับ');
+  });
+});
+
 describe('direction', () => {
   it('takes it from the first strong character', () => {
     expect(isRtlText('שלום world')).toBe(true);
