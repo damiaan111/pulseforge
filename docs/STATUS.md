@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1348 of 1348 with
+> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1355 of 1355 with
 > nothing skipped; golden 29/29 identical; smoke 45/45 (46/46 with a real queued render and an
 > auto-directed batch render, the day before); `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
@@ -4696,6 +4696,21 @@ Lyrics panel: no crash.
 
 **Disk.** 15 GB is `vendor/`: Python and torch 4.7, Whisper 4.4 (large-v3 is 2.9 and optional), alignment 1.8 (four optional
 languages 1.4), the wheelhouse and archives 2.9 (kept on purpose, PROJECT.md), the rest under 1.5.
+
+### 4.88 New visuals stay under the words
+
+The owner clicked a visual off and on again and lost the lyrics. A click on a card in use removes the layer, so the next click
+made a new one, and every new layer went to the top, above the words. Hiding with the eye keeps the place; this did not.
+`newLayerPosition` (`layer-order.ts`) now puts anything but text under the topmost block of text layers, or a group holding one,
+for a click, Shift+click, a MilkDrop card, a layer preset and a Shadertoy. What sits above that block stays above it, and without
+words a new layer goes on top as before. Project presets merged with "Add its layers" are unchanged: that button says above.
+
+The layer list gained **To bottom**, since a drag can only place a row above another, and a line saying the top row draws over the
+rest. Checked in the real studio with real input: off and on again lands under the lyrics; ↑, ↓, To top, To bottom and undo; and
+row dragging, through the browser's drag protocol (plain synthetic mouse events never start a drag, which earlier audits missed).
+
+One full `npm run check` failed four GPU tests with "the sidecar did not report ready within 60s"; they passed alone in 25 s and
+in the next full run, 1355 of 1355. A cold Python start under the whole suite's load, seen once.
 
 ## 5. Measured results
 

@@ -9,6 +9,7 @@ import { addLayer, findLayer, removeLayer, replaceLayer } from './commands.ts';
 import { createModuleLayer } from './create.ts';
 import { walkLayers, type Layer, type ModuleLayer, type ProjectDocument } from './document.ts';
 import type { Command } from './history.ts';
+import { newLayerPosition } from './layer-order.ts';
 
 export type LayerPick = 'add' | 'swap' | 'remove';
 export type KindLookup = (moduleId: string) => string | undefined;
@@ -71,7 +72,7 @@ export function pickLayer(document: ProjectDocument, selectedLayerId: string | n
     };
   }
   const layer = createModuleLayer(moduleId, { id: newId(), name: moduleId.split('.').pop() ?? 'Layer' });
-  return { command: addLayer(layer), select: layer.id, note: null };
+  return { command: addLayer(layer, newLayerPosition(document, moduleId)), select: layer.id, note: null };
 }
 
 /** The layer a preset is showing as, if any: named after it, with its module. */

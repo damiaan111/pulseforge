@@ -123,7 +123,7 @@ export function LeftRail(): React.JSX.Element {
               className={active ? 'active' : ''}
               aria-pressed={active}
               data-action="add-layer"
-              title={active ? 'In use. Click to remove it; Shift+click adds another on top' : 'Click to use it; Shift+click adds it on top'}
+              title={active ? 'In use. Click to remove it; Shift+click adds another' : 'Click to use it; Shift+click adds it as an extra layer'}
               onClick={(event) => pick(m.manifest.id, event.shiftKey)}
             >
               {m.manifest.name}
@@ -131,11 +131,12 @@ export function LeftRail(): React.JSX.Element {
           );
         })}
       </div>
-      <p className="dim note">Click to use, click again to remove. Shift+click adds on top. Esc deselects.</p>
+      <p className="dim note">Click to use, click again to remove. Shift+click adds another. New visuals stay under the words. Esc deselects.</p>
 
       <ModulesPanel />
 
       <h2>Layers</h2>
+      <p className="dim note">The top row draws over the rest. Drag a row onto another to put it above that one.</p>
       {/* The whole frame sits above every layer: its effects run after they are composited. Selecting
           it (or nothing) shows the global effect chain in the inspector. */}
       <button
@@ -216,8 +217,11 @@ export function LeftRail(): React.JSX.Element {
               </button>
             );
           })}
-          <button type="button" onClick={() => run(moveLayer(selectedLayerId, { index: Number.MAX_SAFE_INTEGER }))}>
+          <button type="button" data-action="layer-top" onClick={() => run(moveLayer(selectedLayerId, { index: Number.MAX_SAFE_INTEGER }))}>
             To top
+          </button>
+          <button type="button" data-action="layer-bottom" title="Under everything else" onClick={() => run(moveLayer(selectedLayerId, { index: 0 }))}>
+            To bottom
           </button>
           {/* Groups composite their children into one image, so the group's transform, opacity,
               blend and effects apply to the result (M38). */}

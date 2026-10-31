@@ -14,6 +14,8 @@ The first version meant for other people.
 - **A launcher:** `Pulseforge.cmd` downloads what it needs, and you choose the components. MIT licence.
 - Fixed: renders that stalled for two minutes at random, when two started as the app rebuilt its render page.
 - **Rename a project** by clicking its name in the top bar.
+- **New visuals stay under the words,** so turning one off and on again no longer hides the lyrics. The layer
+  list gained **To bottom**.
 - **With lyrics, Auto now reaches for MilkDrop Lyric:** the words sit on a plate and stay readable over any preset.
 - Fixed: keys acting on the studio behind an open dialog; a MilkDrop click stacking a second layer; panels running
   off the left rail; render scratch folders piling up. A crashed window reloads and offers the autosave.

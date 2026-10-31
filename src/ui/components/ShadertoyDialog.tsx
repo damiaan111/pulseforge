@@ -13,6 +13,7 @@ import { checkShaderModule, shadertoyFileSource, validateShaderModule } from '..
 import { addLayer } from '../../project/commands.ts';
 import { createModuleLayer } from '../../project/create.ts';
 import { newId } from '../../project/ids.ts';
+import { newLayerPosition } from '../../project/layer-order.ts';
 import { useStudio } from '../store.ts';
 
 const EXAMPLE = `// Paste a shader's "Image" code from shadertoy.com here.
@@ -72,7 +73,7 @@ export function ShadertoyDialog(): React.JSX.Element | null {
       // The module must be registered before a layer uses it, or the preview reports it unknown.
       await state.loadModules();
       const layer = createModuleLayer(saved.id, { id: newId(), name: saved.fileName.replace(/\.glsl$/i, '') });
-      state.run(addLayer(layer));
+      state.run(addLayer(layer, newLayerPosition(state.document, saved.id)));
       state.select(layer.id);
       notify({ text: `Added "${saved.fileName}" as a layer. Edit modules/${saved.fileName} and it reloads.`, kind: 'ok' });
       // The dialog stays mounted while closed: the next paste starts from the example again.

@@ -38,6 +38,26 @@ export function stepPosition(document: ProjectDocument, layerId: string, directi
   return { parentId: at.parentId, index };
 }
 
+/** Text and lyrics, or a group holding some. */
+function hasWords(layer: Layer): boolean {
+  return [...walkLayers([layer])].some(({ layer: inner }) => inner.kind === 'module' && inner.module.startsWith('core.text.'));
+}
+
+/**
+ * Where a new layer of `moduleId` goes. Words go on top; anything else goes under the top block of
+ * words, because a full-frame picture added above the lyrics hides them, and a click on a card gives
+ * no sign of why. Layers above that block (a flash, say) stay above it. Without words: the top.
+ */
+export function newLayerPosition(document: ProjectDocument, moduleId: string): InsertPosition {
+  if (moduleId.startsWith('core.text.')) return {};
+  const { layers } = document;
+  let index = layers.length;
+  while (index > 0 && !hasWords(layers[index - 1]!)) index -= 1;
+  if (index === 0) return {};
+  while (index > 0 && hasWords(layers[index - 1]!)) index -= 1;
+  return { index };
+}
+
 /**
  * Dropping `draggedId` onto the row of `targetId`: it goes directly above that row in the list, in
  * the target's group. Undefined for a drop that would change nothing, or onto itself or one of its

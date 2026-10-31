@@ -2,7 +2,7 @@
 //
 // The ways to apply, and what each keeps:
 //
-//   layer presets     add           a new layer of the preset's module, on top
+//   layer presets     add           a new layer of the preset's module, on top but under any words
 //                     replace       the selected layer becomes the preset (new id, new module)
 //                     style         the preset's look, the selected layer's own modulations kept
 //                     modulations   the selected layer kept whole, the preset's modulations added
@@ -18,6 +18,7 @@ import { createModuleLayer } from './create.ts';
 import { sameFamily, type KindLookup } from './layer-picker.ts';
 import type { ProjectDocument } from './document.ts';
 import type { Command } from './history.ts';
+import { newLayerPosition } from './layer-order.ts';
 import { applyLayerPreset, applyProjectPreset, type ManifestLookup, type Preset } from './presets.ts';
 
 export type PresetApplyMode = 'add' | 'replace' | 'style' | 'modulations' | 'look' | 'merge';
@@ -63,7 +64,7 @@ export function applyPreset(
     const target = createModuleLayer(preset.module.id, { id: newId(), name: preset.name });
     const applied = applyLayerPreset(preset, target, { newId, manifests });
     // Labelled with the preset, like every other apply, so the undo history says what happened.
-    return { command: { ...addLayer(applied.layer), label }, notes: applied.notes, select: applied.layer.id };
+    return { command: { ...addLayer(applied.layer, newLayerPosition(document, preset.module.id)), label }, notes: applied.notes, select: applied.layer.id };
   }
 
   const target = selectedLayerId === null ? undefined : findLayer(document, selectedLayerId);

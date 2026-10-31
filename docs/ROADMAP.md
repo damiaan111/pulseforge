@@ -50,7 +50,7 @@
 
 | | Requirement | State | Where | What is left |
 |---|---|---|---|---|
-| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | 4.79 time ranges drag on the timeline; 4.81 multi-select |
+| M9 | Layers: add/delete/reorder/duplicate/rename/solo/mute/lock, per-layer time range | ✅ | 4.15, 4.27, 4.47 | 4.79 time ranges drag on the timeline; 4.81 multi-select; 4.88 new visuals stay under the words, To bottom |
 | M10 | Schema-driven inspector | ✅ | 4.27 | |
 | M11 | ≥10 2D visualizers | ✅ | 4.28, 4.29 | 10 |
 | M12 | ≥10 effects | ✅ | 4.30, 4.31 | 10, plus depth of field (4.43). Feedback trails and shake from the example list are not among them |
