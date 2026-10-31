@@ -80,6 +80,19 @@ describe('removing a component', () => {
     expect(JSON.parse(readFileSync(join(vendor, 'vendor.lock.json'), 'utf8'))).toMatchObject({ artefacts: [] });
   });
 
+  it('takes the colour emoji font and its lock line', async () => {
+    const font = place(manifest.COLOR_EMOJI_FONT.installDir, manifest.COLOR_EMOJI_FONT.fileName);
+    writeFileSync(join(vendor, 'vendor.lock.json'), JSON.stringify({ schemaVersion: 1, artefacts: [{ id: manifest.COLOR_EMOJI_FONT.id }] }));
+    expect(components.componentRemovable('emoji')).toBe(true);
+    expect(components.componentInstalled('emoji')).toBe(true);
+
+    await remove.removeComponent('emoji');
+
+    expect(existsSync(font)).toBe(false);
+    expect(components.componentInstalled('emoji')).toBe(false);
+    expect(JSON.parse(readFileSync(join(vendor, 'vendor.lock.json'), 'utf8'))).toMatchObject({ artefacts: [] });
+  });
+
   it('refuses what shares the Python environment', async () => {
     expect(components.componentRemovable('stems')).toBe(false);
     expect(components.componentRemovable('lyrics')).toBe(false);

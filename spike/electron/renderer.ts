@@ -77,6 +77,7 @@ async function loadText(config: FontsConfig | undefined): Promise<CanvasTextRast
   const text = new CanvasTextRasterizer();
   await text.setDefaultFont(config.default.hash, readFileSync(config.default.file));
   for (const font of config.fallbacks ?? []) await text.addFallbackFont(font.hash, readFileSync(font.file));
+  if (config.colorEmoji !== undefined) await text.setColorEmojiFont(config.colorEmoji.hash, readFileSync(config.colorEmoji.file));
   for (const font of config.fonts) await text.addFont(font.hash, readFileSync(font.file));
   return text;
 }

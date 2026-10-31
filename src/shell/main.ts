@@ -30,7 +30,7 @@ import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, ses
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, MODULE_LIBRARIES, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
-import { FONT_EXTENSIONS, fallbackFontFiles } from '../assets/fonts.ts';
+import { FONT_EXTENSIONS, colorEmojiFontFile, fallbackFontFiles } from '../assets/fonts.ts';
 import { AnalysisCache } from '../analysis/cache.ts';
 import { analyzeCached } from '../analysis/cached.ts';
 import { readTemplateFiles } from '../director/template-store.ts';
@@ -964,7 +964,7 @@ function registerHandlers(): void {
     const chosen = (request as { components?: unknown }).components;
     const args = request.mode === 'verify' ? ['--verify', '--components', installed.join(',')]
       : request.mode === 'rebuild-check' ? ['--rebuild-check']
-      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats', 'milkdrop', 'isf'].includes(request.tier) ? ['--components', request.tier]
+      : request.mode === 'repair' && typeof request.tier === 'string' && ['core', 'stems', 'lyrics', 'beats', 'milkdrop', 'isf', 'emoji'].includes(request.tier) ? ['--components', request.tier]
         : request.mode === 'components' && Array.isArray(chosen) && chosen.every((id) => typeof id === 'string')
           ? ['--components', resolveChoice(chosen as string[]).components.map((c) => c.id).join(','), ...((request as { acceptNonCommercial?: unknown }).acceptNonCommercial === true ? ['--accept-non-commercial'] : [])]
           : null;
@@ -1380,6 +1380,10 @@ function registerHandlers(): void {
   });
 
   ipcMain.handle(IPC.fontFallbacks, () => fallbackFontFiles().map((font) => ({ hash: font.hash, bytes: readFileSync(font.file) })));
+  ipcMain.handle(IPC.fontColorEmoji, () => {
+    const font = colorEmojiFontFile();
+    return font === null ? null : { hash: font.hash, bytes: readFileSync(font.file) };
+  });
 
   ipcMain.handle(IPC.imageImport, async (): Promise<ImageBytes | null> => {
     const result = await dialog.showOpenDialog({

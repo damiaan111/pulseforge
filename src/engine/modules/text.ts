@@ -18,6 +18,9 @@
 // updated per frame — then rebuilds the mipmaps, so blur never smears hidden words into streaks.
 // The same id map is what the karaoke fill will use (lyrics-spec §4).
 //
+// A colour glyph is the one exception to "colour is a uniform": it brings a texture of its own, which
+// replaces the fill colour under the same masks, so everything above still works on it.
+//
 // Missing fonts draw with the default font and **say so** (§8.13: reported, never silently
 // substituted). A host without a rasteriser draws nothing and says so.
 
@@ -69,6 +72,7 @@ export const textManifest: ModuleManifest = {
       options: [{ value: 'left', label: 'Left' }, { value: 'center', label: 'Centre' }, { value: 'right', label: 'Right' }],
     },
     { key: 'maxWidth', label: 'Max width', group: 'Text', type: 'float', default: 0.9, min: 0.05, max: 1, aspectOverridable: true, modulatable: false, description: 'Wrap width, as a fraction of the canvas width; for vertical text, the column height as a fraction of its height' },
+    { key: 'colorEmoji', label: 'Colour emoji', group: 'Text', type: 'bool', default: false, modulatable: false, description: 'Emoji in their own colours, not the fill. Needs the Colour emoji component. This layer only: lyrics stay one colour' },
     {
       key: 'direction', label: 'Direction', group: 'Text', type: 'enum', default: 'horizontal', modulatable: false,
       options: [{ value: 'horizontal', label: 'Horizontal' }, { value: 'vertical', label: 'Vertical' }],
@@ -220,6 +224,8 @@ uniform vec2 u_glow;        // intensity, lod
 uniform vec3 u_plateColor;
 uniform vec3 u_plate;       // opacity, padding px, radius px
 uniform vec4 u_anim;        // offset y px, scale, blur lod, opacity
+uniform sampler2D u_emoji;  // colour glyphs, sRGB-decoded on read; alpha 0 everywhere else
+uniform int u_hasEmoji;
 uniform vec4 u_extrude;     // dx, dy (px), slices, lod
 uniform vec3 u_extrudeColor;
 out vec4 outColor;
@@ -238,6 +244,10 @@ void main() {
   float strokeA = m.g;
   float g = clamp((q.y - u_origin.y - u_content.y) / max(u_content.w, 1.0), 0.0, 1.0);
   vec3 fillColor = u_gradient == 1 ? mix(u_colorA, u_colorB, g) : u_colorA;
+  if (u_hasEmoji == 1) {
+    vec4 e = textureLod(u_emoji, uv, 0.0);
+    if (e.a > 0.0 && inside(uv) > 0.0) fillColor = e.rgb;
+  }
   vec4 glyph = vec4(fillColor * fillA, fillA) + vec4(u_strokeColor * strokeA, strokeA) * (1.0 - fillA);
 
   vec4 color = vec4(0.0);
@@ -279,7 +289,7 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
   const maskPass = createWordMaskPass(gl, textManifest.id);
   const names = [
     'u_canvas', 'u_mask', 'u_bitmap', 'u_origin', 'u_content', 'u_colorA', 'u_colorB', 'u_gradient', 'u_strokeColor',
-    'u_shadow', 'u_shadowColor', 'u_glowColor', 'u_glow', 'u_plateColor', 'u_plate', 'u_anim', 'u_extrude', 'u_extrudeColor',
+    'u_shadow', 'u_shadowColor', 'u_glowColor', 'u_glow', 'u_plateColor', 'u_plate', 'u_anim', 'u_extrude', 'u_extrudeColor', 'u_emoji', 'u_hasEmoji',
   ] as const;
   const u = Object.fromEntries(names.map((name) => [name, uniformLocation(gl, program, name)])) as Record<(typeof names)[number], WebGLUniformLocation>;
   const vao = gl.createVertexArray();
@@ -346,12 +356,14 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
         strokePx,
         paddingPx,
         ...(vertical ? { vertical: { maxHeightPx: num(params, 'maxWidth') * ctx.canvas.height } } : {}),
+        ...(params['colorEmoji'] === true ? { colorEmoji: true as const } : {}),
       };
       const key = JSON.stringify(request);
       const current = uploaded?.key === key ? uploaded : upload(key, rasterizer.rasterize(request), strokePx);
       const { raster } = current;
       if (!raster.fontFound && font.missing === undefined) ctx.warn(`text: font "${font.name}" could not be used; drawing with the default font`);
       if (raster.missingGlyphs !== undefined && raster.missingGlyphs.length > 0) ctx.warn(`text: no font has ${raster.missingGlyphs.join(' ')}; drawn as a box. Choose a font that does`);
+      if (raster.colorEmojiMissing === true) ctx.warn('text: colour emoji are not installed (Settings, Components); drawing them in the text colour');
       if (raster.clamped) ctx.warn('text: the text block is larger than the maximum texture size and was scaled down');
 
       const animation = textAnimation(ctx.time.t, ctx.layer, str(params, 'animIn'), str(params, 'animOut'), num(params, 'animSeconds'), raster.words.length);
@@ -402,8 +414,11 @@ function createText(gl: WebGL2RenderingContext): ModuleInstance {
       gl.uniform4f(u.u_extrude, Math.cos(depthAngle) * depthPx, Math.sin(depthAngle) * depthPx, slices, slices > 0 ? lodFor(depthPx / slices) : 0);
       gl.uniform3f(u.u_extrudeColor, dc[0], dc[1], dc[2]);
       bindTexture(gl, 0, mask, u.u_mask);
+      // Something valid on the unit either way; the uniform decides whether it is read.
+      bindTexture(gl, 1, current.color ?? mask, u.u_emoji);
+      gl.uniform1i(u.u_hasEmoji, current.color === null ? 0 : 1);
       drawFullscreenTriangle(gl, vao);
-      unbindTextures(gl, 1);
+      unbindTextures(gl, 2);
       gl.useProgram(null);
     },
 

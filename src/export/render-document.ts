@@ -26,7 +26,7 @@ import { loadLutAssets } from '../assets/luts.ts';
 /** The soundtrack of a render: the song, or its instrumental for a karaoke render (S15). */
 export type AudioMix = 'full' | 'instrumental';
 import { loadImageAssets } from '../assets/load-images.ts';
-import { defaultFontFile, fallbackFontFiles, loadFontAssets } from '../assets/fonts.ts';
+import { colorEmojiFontFile, defaultFontFile, fallbackFontFiles, loadFontAssets } from '../assets/fonts.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
 import { extractSequence, sequenceDir } from '../assets/video-cache.ts';
 import { videoFramesNeeded } from '../engine/modules/video.ts';
@@ -272,6 +272,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   }
   // Drop-in modules (M35), scanned exactly as the studio scans them, so a project using one renders
   // here too. A broken module is a note, and its layers draw nothing — the engine says which.
+  const colorEmoji = colorEmojiFontFile();
   const scanned = await scanModules(options.modulesDir ?? MODULES_DIR, new Set(BUILTIN_MODULES.map((m) => m.manifest.id)), MODULE_LIBRARIES);
   for (const broken of scanned.problems) say(`Warning: modules/${broken.folder}: ${broken.problems.join('; ')}`);
   const problems = [...loaded.problems, ...fontAssets.problems, ...lutAssets.problems, ...videoProblems];
@@ -337,7 +338,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     },
     durationTicks,
     images,
-    text: { default: defaultFontFile(), fonts: fontAssets.fonts, fallbacks: [...fallbackFontFiles()] },
+    text: { default: defaultFontFile(), fonts: fontAssets.fonts, fallbacks: [...fallbackFontFiles()], ...(colorEmoji === null ? {} : { colorEmoji }) },
     ...(lutAssets.luts.length > 0 ? { luts: lutAssets.luts } : {}),
     videos,
     modules: [...scanned.modules],

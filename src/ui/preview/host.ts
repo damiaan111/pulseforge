@@ -228,13 +228,14 @@ export class PreviewHost {
    * Registers font bytes with the rasteriser. Asynchronous (a FontFace has to be parsed), so each
    * one asks for a redraw as it lands rather than blocking the preview loop.
    */
-  setFonts(defaultFont: { hash: string; bytes: Uint8Array } | null, fonts: ReadonlyMap<string, Uint8Array>, fallbacks: readonly { readonly hash: string; readonly bytes: Uint8Array }[]): void {
-    const register = async (hash: string, bytes: Uint8Array, kind: 'default' | 'font' | 'fallback') => {
+  setFonts(defaultFont: { hash: string; bytes: Uint8Array } | null, fonts: ReadonlyMap<string, Uint8Array>, fallbacks: readonly { readonly hash: string; readonly bytes: Uint8Array }[], colorEmoji: { readonly hash: string; readonly bytes: Uint8Array } | null = null): void {
+    const register = async (hash: string, bytes: Uint8Array, kind: 'default' | 'font' | 'fallback' | 'emoji') => {
       if (this.registeredFonts.has(hash)) return;
       this.registeredFonts.add(hash);
       try {
         if (kind === 'default') await this.text.setDefaultFont(hash, bytes);
         else if (kind === 'font') await this.text.addFont(hash, bytes);
+        else if (kind === 'emoji') await this.text.setColorEmojiFont(hash, bytes);
         else await this.text.addFallbackFont(hash, bytes);
         this.needsRedraw = true;
       } catch (error) {
@@ -246,6 +247,7 @@ export class PreviewHost {
     // and a line rasterised before its fallback landed would stay a row of boxes in the layer's cache.
     void (async () => {
       for (const font of fallbacks) await register(font.hash, font.bytes, 'fallback');
+      if (colorEmoji !== null) await register(colorEmoji.hash, colorEmoji.bytes, 'emoji');
       if (defaultFont !== null) await register(defaultFont.hash, defaultFont.bytes, 'default');
     })();
     for (const [hash, bytes] of fonts) void register(hash, bytes, 'font');

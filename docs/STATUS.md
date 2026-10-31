@@ -4712,6 +4712,47 @@ row dragging, through the browser's drag protocol (plain synthetic mouse events 
 One full `npm run check` failed four GPU tests with "the sidecar did not report ready within 60s"; they passed alone in 25 s and
 in the next full run, 1355 of 1355. A cold Python start under the whole suite's load, seen once.
 
+### 4.89 ISF shaders; vertical, extruded and colour titles
+
+**ISF.** The module scan ignored `.fs` files without a word; they now load. `isf` is a third entry in `SHADER_DIALECTS`, with the
+reading in `src/engine/modules/isf.ts`: the JSON header becomes the schema, `inputImage` makes an effect, and everything else in
+the file stays as the author wrote it. A wrapper maps GLSL 1.x onto ES 3.00 and owns `main()`. Inputs are bare uniforms, so `scale`
+is allowed here and the reserved list is ISF's own. A `long` uploads its VALUES entry, not its index; a `color` is a display-referred
+`vec4` with alpha. Colour is converted once each way (`pf_isf_read` on reading, the generated `main()` on writing), unclamped above 1,
+so passing the input through stays within one level in 255. `shaderPrelude`'s text is unchanged.
+
+Refused with a reason: point2D, other images, audio, IMPORTED, `.vs` files, PERSISTENT buffers, more than one pass. The `isf` component
+(Vidvox ISF-Files at `395072d`, MIT, 346,802 bytes) goes to `vendor/isf/`, is scanned through `MODULE_LIBRARIES`, is removable, and its
+refusals sit in a folded list in the Modules panel instead of 217 red rows. Of its 327 files **110 load and 217 are refused**. Files can
+have several reasons: 81 another image, 71 point2D, 56 multi-pass, 49 persistent buffers, 38 a `.vs`, 5 audioFFT, 3 audio, 4 imported images, 1 a
+pass target. On the RTX 3060, **105 of the 110 compile**. The five that do not (Broken LCD, Poly Glitch, Random Characters, Tiny Date
+Time Overlay, VU Meter) redefine a built-in or rely on desktop GLSL's implicit conversions, and report that on the author's line.
+`tests/golden/isf-gpu.test.ts` runs them all when the library is installed, and writes `out/isf-library.json`.
+
+**A bug found, not fixed: the Shadertoy `input` channel.** It hands the shader linear light, and the wrapper decodes the output as
+display colour, so it decodes twice. A pass-through effect turned mid-grey 128 into 55, measured. Fixing it changes existing projects,
+so it waits for the owner (ROADMAP §6). ISF does not have this bug.
+
+**Vertical titles.** `direction` on `core.text.title`, and the optional `vertical` on `TextRequest`, absent from every horizontal
+request, so their cache keys are the same. `src/text/vertical.ts` places graphemes and the rasteriser draws each one, since the canvas has
+no vertical mode: upright, columns from the right, brackets and dashes turned, small stops in the corner. Letters that must join
+do not, and the layer says so. Lyrics stay horizontal: the karaoke fill sweeps across words and has no column form.
+
+**Depth (C9).** `depth`, `depthAngle` and `depthColor` on the title. The side is up to 64 slices of the same masks marched in the shader,
+so depth can be modulated with no new raster. With `depth` at 0 no slice runs. Beat sync is an ordinary binding.
+
+**Colour emoji.** Opt-in per layer (`colorEmoji`), through an optional `emoji` component (Noto Color Emoji, 25 MB) that is never in the
+fallback chain. Colour glyphs ignore the fill style, so the rasteriser draws twice, in white and in black, and what did not change is
+theirs: `raster.color`, an RGBA8 layer. It only recolours: the masks stay, so outline, shadow, depth and per-word animation treat an
+emoji like a letter. The monochrome default stands for everything else, lyrics included. The preview gets the font over IPC at start,
+if installed.
+
+**Existing frames:** fifteen text frames (five looks, three times each) hash identically on the base commit's text code and on this one.
+
+**Not run here:** the smoke check (it writes to the data folder's `modules/`), so the Modules panel's folded list, the preview's
+colour emoji path and the new Settings repair rows have not been seen in the real studio. The offline export path for these has not
+been run either, though it shares the renderer the tests use.
+
 ## 5. Measured results
 
 The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:

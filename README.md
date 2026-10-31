@@ -85,6 +85,7 @@ in all. Then Pulseforge opens and asks what you want:
 | Lyric transcription and timing | Writes down the lyrics and times them word by word, in English. | about 6.4 GB |
 | Beat refinement | Follows a tempo that moves. Runs on the CPU. | about 280 MB |
 | MilkDrop presets | About 1,750 audio visuals made by the MilkDrop community. | about 2 MB |
+| Colour emoji | Lets a title draw emoji in their own colours. | about 25 MB |
 | ISF shaders | Vidvox's generators and video effects (MIT). About 105 of its 327 files run here; the rest are listed with the reason. | under 1 MB |
 | Optional models | Finer stems, six stems, a larger transcription model, word timing for French, German, Spanish and Italian. | 0.05–3 GB each |
 

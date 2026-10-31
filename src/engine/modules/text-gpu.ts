@@ -80,6 +80,8 @@ export interface UploadedText {
   /** RG8 base × word visibility, rebuilt per frame during per-word animation. */
   readonly masked: WebGLTexture;
   readonly maskedFramebuffer: WebGLFramebuffer;
+  /** sRGB colour of the raster's colour glyphs, or null when it has none. */
+  readonly color: WebGLTexture | null;
 }
 
 export function rg8Texture(gl: WebGL2RenderingContext, width: number, height: number, data: Uint8Array | null, mipmaps: boolean): WebGLTexture {
@@ -147,7 +149,21 @@ export function uploadTextRaster(gl: WebGL2RenderingContext, key: string, raster
   gl.bindFramebuffer(gl.FRAMEBUFFER, maskedFramebuffer);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, masked, 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  return { key, raster, base: rg8Texture(gl, width, height, base, true), ids: rg8Texture(gl, width, height, ids, false), masked, maskedFramebuffer };
+  const color = raster.color === undefined ? null : colorTexture(gl, width, height, raster.color);
+  return { key, raster, base: rg8Texture(gl, width, height, base, true), ids: rg8Texture(gl, width, height, ids, false), masked, maskedFramebuffer, color };
+}
+
+/** Nearest: the masks shape the glyph, and blending these straight-alpha edges would bring in black. */
+function colorTexture(gl: WebGL2RenderingContext, width: number, height: number, data: Uint8Array): WebGLTexture {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  return tex;
 }
 
 export function releaseTextRaster(gl: WebGL2RenderingContext, uploaded: UploadedText): void {
@@ -155,6 +171,7 @@ export function releaseTextRaster(gl: WebGL2RenderingContext, uploaded: Uploaded
   gl.deleteTexture(uploaded.ids);
   gl.deleteTexture(uploaded.masked);
   gl.deleteFramebuffer(uploaded.maskedFramebuffer);
+  gl.deleteTexture(uploaded.color);
 }
 
 export function bindTexture(gl: WebGL2RenderingContext, unit: number, tex: WebGLTexture, location: WebGLUniformLocation): void {

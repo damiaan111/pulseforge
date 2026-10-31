@@ -20,6 +20,9 @@
 //    reordering) and bidirectional ordering are the canvas's own, through HarfBuzz.
 //  - Emoji are **monochrome** (Noto Emoji): every text effect works on a coverage mask, and a colour
 //    bitmap has none. An emoji takes the layer's colour, gradient and karaoke fill like a letter.
+//    A title can ask for colour (`colorEmoji`), and only then does the colour font join the chain.
+//    It still gets a mask. Colour glyphs ignore the fill style, so drawing the text twice, in white and
+//    in black, tells them from letters: what did not change is theirs.
 
 import type { TextRaster, TextRasterizer, TextRequest } from '../engine/core/text.ts';
 import { parseCmap, type FontCoverage } from './cmap.ts';
@@ -31,6 +34,8 @@ const MAX_SIDE = 8192;
 /** Drawn for a character no font has. */
 const NO_GLYPH = 0x25a1;
 const MAX_REPORTED = 8;
+/** Summed over the channels: a letter's edge differs by far more, a colour glyph by rounding at most. */
+const COLOR_TOLERANCE = 12;
 /** Never drawn, so never looked up: joiners, variation selectors, and spaces of every width. */
 const INVISIBLE = /[\s\p{Cf}\p{Cc}\p{Variation_Selector}]/u;
 
@@ -59,6 +64,7 @@ export class CanvasTextRasterizer implements TextRasterizer {
   private readonly coverage = new Map<string, FontCoverage | null>();
   private readonly fallbacks: string[] = [];
   private defaultFamily: string | undefined;
+  private colorEmojiFamily: string | undefined;
   private readonly measureCanvas = new OffscreenCanvas(1, 1);
   private readonly drawCanvas = new OffscreenCanvas(1, 1);
 
@@ -90,6 +96,12 @@ export class CanvasTextRasterizer implements TextRasterizer {
     this.defaultFamily = this.families.get(hash);
   }
 
+  /** The font a `colorEmoji` request adds to its chain. No other request ever sees it. */
+  async setColorEmojiFont(hash: string, bytes: Uint8Array): Promise<void> {
+    await this.addFont(hash, bytes);
+    this.colorEmojiFamily = this.families.get(hash);
+  }
+
   get ready(): boolean {
     return this.defaultFamily !== undefined;
   }
@@ -104,18 +116,21 @@ export class CanvasTextRasterizer implements TextRasterizer {
     if (family === undefined) throw new Error('no default font registered with the text rasteriser');
     const fontFound = request.fontHash === null || named !== undefined;
 
-    const stack = [...new Set([family, this.defaultFamily as string, ...this.fallbacks])];
+    const colorFamily = request.colorEmoji === true ? this.colorEmojiFamily : undefined;
+    const stack = [...new Set([family, this.defaultFamily as string, ...(colorFamily === undefined ? [] : [colorFamily]), ...this.fallbacks])];
+    const report = request.colorEmoji === true && colorFamily === undefined ? { colorEmojiMissing: true as const } : {};
     const { text, missing } = this.covered(request.text, stack);
     const drawn = text === request.text ? request : { ...request, text };
     const fonts = stack.map((name) => `"${name}"`).join(', ');
 
-    let raster = this.render(drawn, fonts, 1);
+    const colored = colorFamily !== undefined;
+    let raster = this.render(drawn, fonts, 1, colored);
     if (raster.width > MAX_SIDE || raster.height > MAX_SIDE) {
       const scale = MAX_SIDE / Math.max(raster.width, raster.height);
-      raster = this.render(drawn, fonts, scale * 0.999);
-      return { ...raster, fontFound, clamped: true, missingGlyphs: missing };
+      raster = this.render(drawn, fonts, scale * 0.999, colored);
+      return { ...raster, ...report, fontFound, clamped: true, missingGlyphs: missing };
     }
-    return { ...raster, fontFound, clamped: false, missingGlyphs: missing };
+    return { ...raster, ...report, fontFound, clamped: false, missingGlyphs: missing };
   }
 
   /**
@@ -154,14 +169,37 @@ export class CanvasTextRasterizer implements TextRasterizer {
     ctx.textBaseline = 'alphabetic';
   }
 
-  private render(request: TextRequest, fonts: string, scale: number): Omit<TextRaster, 'fontFound' | 'clamped'> {
+  /** The pixels a change of fill colour leaves alone: colour glyphs, and nothing else. */
+  private colorLayer(draw: Context2D, width: number, height: number, paint: (fillStyle: string) => void): Uint8Array {
+    const pixels = (fillStyle: string): Uint8ClampedArray => {
+      draw.clearRect(0, 0, width, height);
+      paint(fillStyle);
+      return draw.getImageData(0, 0, width, height).data;
+    };
+    const light = pixels('#ffffff');
+    const dark = pixels('#000000');
+    const out = new Uint8Array(width * height * 4);
+    for (let i = 0; i < out.length; i += 4) {
+      const r = light[i] ?? 0;
+      const g = light[i + 1] ?? 0;
+      const b = light[i + 2] ?? 0;
+      if ((light[i + 3] ?? 0) === 0 || Math.abs(r - (dark[i] ?? 0)) + Math.abs(g - (dark[i + 1] ?? 0)) + Math.abs(b - (dark[i + 2] ?? 0)) > COLOR_TOLERANCE) continue;
+      out[i] = r;
+      out[i + 1] = g;
+      out[i + 2] = b;
+      out[i + 3] = light[i + 3] ?? 0;
+    }
+    return out;
+  }
+
+  private render(request: TextRequest, fonts: string, scale: number, colored: boolean): Omit<TextRaster, 'fontFound' | 'clamped'> {
     const sizePx = request.sizePx * scale;
     const letterSpacingPx = request.letterSpacingPx * scale;
     const strokePx = request.strokePx * scale;
     const measure = context(this.measureCanvas);
     this.setup(measure, fonts, sizePx, letterSpacingPx);
     const metrics = measure.measureText('Hg');
-    if (request.vertical !== undefined) return this.renderVertical(request, request.vertical.maxHeightPx * scale, fonts, scale, metrics);
+    if (request.vertical !== undefined) return this.renderVertical(request, request.vertical.maxHeightPx * scale, fonts, scale, metrics, colored);
 
     const layout = layoutText(request.text, {
       measure: (text) => measure.measureText(text).width,
@@ -224,14 +262,24 @@ export class CanvasTextRasterizer implements TextRasterizer {
       stroke = alpha();
     }
 
-    return { ...base, fill, stroke };
+    if (!colored) return { ...base, fill, stroke };
+    const color = this.colorLayer(draw, width, height, (fillStyle) => {
+      this.setup(draw, fonts, sizePx, letterSpacingPx);
+      draw.fillStyle = fillStyle;
+      for (const line of layout.lines) {
+        if (line.text === '') continue;
+        draw.direction = line.rtl ? 'rtl' : 'ltr';
+        draw.fillText(line.text, line.x, line.baseline);
+      }
+    });
+    return { ...base, fill, stroke, color };
   }
 
   /**
    * Character by character (vertical.ts): the canvas has no vertical mode. Its letter spacing stays
    * at 0 for this, since the layout has already placed each character.
    */
-  private renderVertical(request: TextRequest, maxHeightPx: number, fonts: string, scale: number, metrics: TextMetrics): Omit<TextRaster, 'fontFound' | 'clamped'> {
+  private renderVertical(request: TextRequest, maxHeightPx: number, fonts: string, scale: number, metrics: TextMetrics, colored: boolean): Omit<TextRaster, 'fontFound' | 'clamped'> {
     const sizePx = request.sizePx * scale;
     const strokePx = request.strokePx * scale;
     const measure = context(this.measureCanvas);
@@ -264,10 +312,9 @@ export class CanvasTextRasterizer implements TextRasterizer {
     this.drawCanvas.width = width;
     this.drawCanvas.height = height;
     const draw = context(this.drawCanvas);
-    const pass = (paint: (glyph: VerticalGlyph, x: number, y: number) => void): Uint8Array => {
-      draw.clearRect(0, 0, width, height);
+    const place = (paint: (glyph: VerticalGlyph, x: number, y: number) => void, fillStyle: string): void => {
       this.setup(draw, fonts, sizePx, 0);
-      draw.fillStyle = '#ffffff';
+      draw.fillStyle = fillStyle;
       draw.strokeStyle = '#ffffff';
       draw.lineJoin = 'round';
       draw.miterLimit = 2;
@@ -284,6 +331,10 @@ export class CanvasTextRasterizer implements TextRasterizer {
         paint(glyph, -glyph.width / 2, (metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2);
         draw.restore();
       }
+    };
+    const pass = (paint: (glyph: VerticalGlyph, x: number, y: number) => void): Uint8Array => {
+      draw.clearRect(0, 0, width, height);
+      place(paint, '#ffffff');
       const rgba = draw.getImageData(0, 0, width, height).data;
       const out = new Uint8Array(width * height);
       for (let i = 0; i < out.length; i += 1) out[i] = rgba[i * 4 + 3] ?? 0;
@@ -291,6 +342,8 @@ export class CanvasTextRasterizer implements TextRasterizer {
     };
     const fill = pass((glyph, x, y) => draw.fillText(glyph.text, x, y));
     const stroke = strokePx > 0 ? pass((glyph, x, y) => draw.strokeText(glyph.text, x, y)) : null;
-    return { ...base, fill, stroke };
+    if (!colored) return { ...base, fill, stroke };
+    const color = this.colorLayer(draw, width, height, (fillStyle) => place((glyph, x, y) => draw.fillText(glyph.text, x, y), fillStyle));
+    return { ...base, fill, stroke, color };
   }
 }

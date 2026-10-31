@@ -9,8 +9,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { DEFAULT_FONT_FILE, FALLBACK_FONTS_DIR } from '../../setup/lib/paths.ts';
-import { FALLBACK_FONTS } from '../../setup/manifest.ts';
+import { COLOR_EMOJI_FILE, DEFAULT_FONT_FILE, FALLBACK_FONTS_DIR } from '../../setup/lib/paths.ts';
+import { COLOR_EMOJI_FONT, FALLBACK_FONTS } from '../../setup/manifest.ts';
 import type { ProjectDocument } from '../project/document.ts';
 import { resolveAssetPath } from './load-images.ts';
 import type { AssetProblem } from './load-images.ts';
@@ -47,6 +47,11 @@ export function fallbackFontFiles(): readonly FontFile[] {
     .map((font) => ({ hash: font.sha256 as string, file: join(FALLBACK_FONTS_DIR, font.fileName) }))
     .filter((font) => existsSync(font.file));
   return fallbackFonts;
+}
+
+/** The colour emoji font, if its component is installed. Not cached: it can be added while the app runs. */
+export function colorEmojiFontFile(): FontFile | null {
+  return existsSync(COLOR_EMOJI_FILE) ? { hash: COLOR_EMOJI_FONT.sha256 as string, file: COLOR_EMOJI_FILE } : null;
 }
 
 /**
