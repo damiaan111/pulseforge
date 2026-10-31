@@ -41,6 +41,8 @@ export interface ExtractInput {
   readonly style: StyleVector;
   readonly analysis: AnalysisSet | null;
   readonly vocalSegments: readonly VocalSegment[];
+  /** What the title slot was given: text equal to this goes back to being `$title`. */
+  readonly title: string;
 }
 
 export interface ExtractResult {
@@ -377,6 +379,8 @@ export function extractTemplate(input: ExtractInput, naming: { readonly id: stri
   const raisedBase = new Map<string, number>();
   for (const track of document.automation) {
     if (!track.enabled || track.keyframes.length === 0) continue;
+    // The fade, baked to keyframes: read below, with its curve.
+    if (fadeLayer !== null && track.target.startsWith(`layers.${(fadeLayer as ModuleLayer).id}.`)) continue;
     const info = describeTarget(document, track.target, schemas);
     const target = templateTarget(track.target);
     if (target === null || info.spec === undefined) {
@@ -483,7 +487,7 @@ export function extractTemplate(input: ExtractInput, naming: { readonly id: stri
     if (manifest === undefined) notes.push(`"${layer.name}" uses ${layer.module}, which is not installed here; the slot names it all the same.`);
     const needs: { value: string | null } = { value: null };
     const params = convertParams(layer.params, specs, layer.name, needs, `layers.${layer.id}.params.`);
-    if (role === 'TEXT' && typeof params['text'] === 'string' && params['text'] === document.name) params['text'] = '$title';
+    if (role === 'TEXT' && (params['text'] === input.title || params['text'] === document.name)) params['text'] = '$title';
     if (layer.module === 'core.source.milkdrop' || typeof params['preset'] === 'string') needs.value ??= 'hasMilkdrop';
 
     const overrides: Raw = {};
@@ -533,7 +537,9 @@ export function extractTemplate(input: ExtractInput, naming: { readonly id: stri
 
   let fadeIn = 0;
   let fadeOut = 0;
-  const fadePoints = (fadeLayer as ModuleLayer | null)?.modulations.find((b) => b.label === 'Fade')?.source.points ?? [];
+  const fade = fadeLayer as ModuleLayer | null;
+  const bakedFade = document.automation.find((t) => t.target === `layers.${fade?.id ?? ''}.opacity`)?.keyframes.map((k) => ({ ticks: k.ticks, value: Number(k.value) }));
+  const fadePoints: readonly CurvePoint[] = fade?.modulations.find((b) => b.label === 'Fade')?.source.points ?? bakedFade ?? [];
   if (fadePoints.length >= 2) {
     const [a, b] = fadePoints as readonly [CurvePoint, CurvePoint];
     const last = fadePoints[fadePoints.length - 1] as CurvePoint;

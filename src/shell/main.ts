@@ -1772,6 +1772,10 @@ app.whenReady().then(async () => {
     }
     process.env['PULSEFORGE_LIBRARY'] = library;
 
+    // Its own template folder, fresh each run: extracting a draft must not land in the owner's.
+    const templates = join(DATA_ROOT, 'out', 'smoke-templates');
+    await rm(templates, { recursive: true, force: true });
+    process.env['PULSEFORGE_TEMPLATES'] = templates;
     // Its own settings file, fresh each run: the smoke must not read or change the owner's tap latency.
     const settingsFile = join(DATA_ROOT, 'out', 'smoke-settings.json');
     await rm(settingsFile, { force: true });
@@ -2432,7 +2436,16 @@ app.whenReady().then(async () => {
         const older = [...document.querySelectorAll('#app [data-testid="auto-history"] .roll-tile')].find((tile) => !tile.disabled);
         older?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const restored = await waitFor(() => undoLabel().includes('Restore roll'), 100);
-        for (let i = 0; i < 3; i += 1) {
+        // The project tools: the song's key is on show, a song with no cover says so, the curves
+        // become keyframes in one undo step, and a draft lands in the template list.
+        const keyShown = (document.querySelector('#app [data-testid="track-key"]')?.textContent ?? '') !== '';
+        click('#app [data-action="auto-colour-cover"]');
+        const noCover = await waitFor(() => (document.body.textContent ?? '').includes('has no picture in it'), 100);
+        click('#app [data-action="auto-bake-curves"]');
+        const baked = await waitFor(() => undoLabel().includes('Curves to keyframes'), 100);
+        click('#app [data-action="auto-extract-template"]');
+        const extracted = await waitFor(() => document.querySelectorAll('#app [data-testid="auto-templates"] input[name="auto-template"]').length > templates, 200);
+        for (let i = 0; i < 4; i += 1) {
           click('#app header button[data-action="undo"]');
           await new Promise((done) => setTimeout(done, 80));
         }
@@ -2441,8 +2454,10 @@ app.whenReady().then(async () => {
         const steps = {
           ready: ready !== null && ready !== false, templates, generated: generated === true, logged: logged === true, grew: layersAfter > layersBefore,
           surprised: surprised === true, strip: strip === true, thumbnail: thumbnail === true, restored: restored === true, undone: undone === true,
+          keyShown, noCover: noCover === true, baked: baked === true, extracted: extracted === true,
         };
-        autoUi = steps.ready && templates >= 7 && steps.generated && steps.logged && steps.grew && steps.surprised && steps.strip && steps.thumbnail && steps.restored && steps.undone;
+        autoUi = steps.ready && templates >= 7 && steps.generated && steps.logged && steps.grew && steps.surprised && steps.strip && steps.thumbnail && steps.restored && steps.undone
+          && steps.keyShown && steps.noCover && steps.baked && steps.extracted;
         if (!autoUi) console.error('[smoke] autoUi steps ' + JSON.stringify(steps));
       }
 

@@ -5,7 +5,7 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-10-30.** P0–P8 are complete: **every Must-have and Should-have is done** (P1: core,
+> **Last updated: 2026-10-31.** P0–P8 are complete: **every Must-have and Should-have is done** (P1: core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
@@ -188,6 +188,7 @@
 | 4.85 | Exporting without NVENC |
 | 4.86 | Two real songs, start to finish: three fixes |
 | 4.87 | Every control pressed in the real studio; disk use |
+| 4.89 | The auto-director's Could-level list: image palettes, cover art, key, palette shifts, extract, curves to keyframes |
 
 ---
 
@@ -4711,6 +4712,50 @@ row dragging, through the browser's drag protocol (plain synthetic mouse events 
 
 One full `npm run check` failed four GPU tests with "the sidecar did not report ready within 60s"; they passed alone in 25 s and
 in the next full run, 1355 of 1355. A cold Python start under the whole suite's load, seen once.
+
+### 4.89 The auto-director's Could-level list — spec §5.3, §6, §10.2; C1, C7
+
+**`derive-from-image`** (`palette.ts`): dominant colours by chroma-weighted k-means (fixed-stride
+sample, seeded start, 12 iterations), the harmony rule, then the contrast tail `generatePalette`
+shares; that refactor was compared with the old code over 400 template and style pairs. The
+background pick moved above the palette, so palette and layer use one picture. `DirectorInput` gained
+`images` (hash → pixels) and `colourImage`; a batch has neither, so it falls back and reports it.
+
+**Colour source, C7** (Auto panel, Colours): a chosen file, or the song's embedded picture
+(`decodeAttachedPicture`, found by the `attached_pic` disposition, so a video track is not cover
+art). Session state: the project keeps the palette, not the picture. It is not remembered across a
+reload, and it leads every template but `fixed` and `user`, which log that it was not used.
+
+**Musical key, C1** (`src/analysis/key.ts`): chroma and Krumhansl-Schmuckler over at most 480
+frames; `key.json` beside `sections.json`, written into older entries on the first hit, and
+`ANALYSIS_VERSION` untouched. Shown under Tempo. `baseHue.from: "key"` walks the circle of fifths;
+it is not a style axis, so no score moves. **No built-in template uses it yet**: that is a taste
+choice for the owner.
+
+**Palette shifts, §6** (`palette-shift.ts`): `paletteShift` on a section state trades the primary
+with secondary, accent or glow, as colour keyframes that stay `@role` links, crossing over 0.75 s.
+Text keeps its contrast through the crossing, measured with the engine's own interpolation, or stays
+out and the log says so. Neon Pulse's `main` uses it, as in the spec's sketch.
+
+`applyDirection` now copies `automation`, and `GeneratedMark` has a `track` kind. A reroll replaces
+its own pristine tracks; keys the user set on a generated layer or effect count as an edit to it, so
+it stays with them. Found on the way: a kept layer whose slot the next template lacks used to vanish.
+It now stays on top as the user's own, and a kept Fade layer is no longer doubled.
+
+**Extract as template, §10.2** (`extract.ts`, Auto panel): layers to slots, each amount to the band
+`calibrate` would write on this track, the palette to a rule landing on the same colours (or `fixed`
+when no harmony fits), curves and keys to section states. What cannot become intent is listed in the
+panel. Drafts go through `parseTemplate` and into the user folder, never over a file.
+
+**Curves to keyframes** (`bakeArrangementCurves`, Auto panel): one undo step, one track per target,
+intensity and drop merged. The keys reproduce the curves exactly, but keys set a value before
+modulation and the curves scaled it after, so audio bindings on that target stop following the
+sections; the panel says so and a test pins it. Stored documents are not migrated.
+
+**Verified:** tests for each of the above; smoke `autoUi` now presses Use song cover, Curves to
+keyframes and Extract as template in the real studio, with its own template folder. **Not verified:**
+how any of it looks: no shift or derived palette has been judged by eye on a real song, and key
+accuracy has only been measured on synthetic chords.
 
 ## 5. Measured results
 

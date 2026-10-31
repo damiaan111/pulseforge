@@ -8,15 +8,15 @@ import { direct } from '../../src/director/direct.ts';
 import { ExtractError, extractTemplate, templateIdFor, type ExtractInput } from '../../src/director/extract.ts';
 import { hexToHsl } from '../../src/director/palette.ts';
 import { parseTemplate } from '../../src/director/template.ts';
-import { setKeyframe } from '../../src/project/automation-commands.ts';
+import { bakeArrangementCurves, setKeyframe } from '../../src/project/automation-commands.ts';
 import { createModuleLayer } from '../../src/project/create.ts';
 import type { ModuleLayer, ProjectDocument } from '../../src/project/document.ts';
 import { stringifyDocument } from '../../src/project/serialize.ts';
 import { MODULES, builtinTemplates, directorInput, songDocument } from './fixture.ts';
 
 const extractInput = (document: ProjectDocument): ExtractInput => {
-  const { digest, style, analysis, vocalSegments } = directorInput(document);
-  return { document, modules: MODULES, digest, style, analysis, vocalSegments };
+  const { digest, style, analysis, vocalSegments, title } = directorInput(document);
+  return { document, modules: MODULES, digest, style, analysis, vocalSegments, title };
 };
 const NAMING = { id: 'tpl.user.draft', name: 'Draft' };
 let ids = 0;
@@ -77,6 +77,18 @@ describe('extracting a directed project', () => {
     expect(arrangement.sections.main?.intensity).toBeGreaterThan(arrangement.sections.intro?.intensity ?? 1);
     expect(arrangement.sections.main?.paletteShift).toBe('accent');
     expect(arrangement.sections.intro?.paletteShift ?? null).toBeNull();
+  });
+
+  it('reads a title back as the token when it came from the track, and a baked project\'s fades from its keys', () => {
+    const { document } = direct({ ...directorInput(), title: 'from-the-file' }, { seed: 7, templateId: 'tpl.neon.pulse' });
+    const input = { ...extractInput(document), title: 'from-the-file' };
+    expect(extractTemplate(input, NAMING).template.slots.find((s) => s.role === 'TEXT')!.candidates[0]!.params['text']).toBe('$title');
+    const baked = bakeArrangementCurves((id) => MODULES.get(id), { newId }).apply(document);
+    const { template, issues, notes } = extractTemplate({ ...input, document: baked }, NAMING);
+    expect(issues).toEqual([]);
+    expect(template.arrangement.fadeIn).toBeCloseTo(1, 2);
+    expect(template.arrangement.fadeOut).toBeCloseTo(3, 2);
+    expect(notes.filter((n) => n.includes('nowhere to go'))).toEqual([]);
   });
 
   it('puts the palette back as a rule that lands on the same colours', () => {

@@ -119,4 +119,25 @@ describe.skipIf(!existsSync(FFMPEG_EXE))('directTrack', () => {
     expect(document.director?.current.summary).toBe(directed.summary);
     expect(document.audio.path.replace(/\\/g, '/')).toBe(audioPath.replace(/\\/g, '/'));
   }, 60_000);
+
+  it('reports the fallback when a template wants its colours from an image a batch does not have', async () => {
+    const audioPath = join(root, 'Colour Song.wav');
+    const mono = synthesizeTestTrack(8);
+    await writeFile(audioPath, encodeWavFloat32([mono, mono], 48_000));
+    const library = loadTemplates(await readTemplateFiles({ builtin: join(ROOT, 'templates', 'builtin'), user: join(root, 'no-user-templates') }));
+    const templates = library.templates.map(({ template }) => ({ ...template, palette: { ...template.palette, strategy: 'derive-from-image' as const } }));
+    const manifests = BUILTIN_MODULES.map((m) => m.manifest);
+    const [track] = planBatch([audioPath], { outDir: join(root, 'out'), preset: findExportPreset('youtube-1080p')!, seed: 3, templateId: 'tpl.neon.pulse' });
+    const directed = await directTrack(track!, {
+      milkdropPresets: [],
+      ffmpegExe: FFMPEG_EXE,
+      cacheRoot: join(root, 'cache'),
+      templates,
+      modules: { get: (id) => manifests.find((m) => m.id === id), all: manifests },
+      preset: findExportPreset('youtube-1080p')!,
+      templateId: 'tpl.neon.pulse',
+    });
+    expect(directed.notes.join(' ')).toContain('generated them from the track instead');
+    expect(directed.document.palette.colors.length).toBeGreaterThan(0);
+  }, 60_000);
 });
