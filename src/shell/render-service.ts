@@ -15,7 +15,7 @@ import { findExportPreset } from '../export/export-presets.ts';
 import { ProgressTracker } from '../export/progress.ts';
 import { comparisonDocument, comparisonTicks, renderComparison } from '../export/comparison.ts';
 import { probeCodecs } from '../export/encoder-probe.ts';
-import { defaultEncodeSettings } from '../export/ffmpeg-args.ts';
+import { encodeSettingsFor, type ExportQuality } from '../export/ffmpeg-args.ts';
 import { RenderQueue, type JobRange, type RenderJob } from '../export/queue.ts';
 import type { GpuQueue } from '../node/gpu-queue.ts';
 import { renderDocument } from '../export/render-document.ts';
@@ -59,6 +59,8 @@ export interface RenderRequest {
   readonly motionBlur?: MotionBlur | null;
   /** Spatial supersampling (export-spec §9); absent is off. */
   readonly supersample?: 1 | 2;
+  /** Picture against file size; absent is best. */
+  readonly quality?: ExportQuality;
   /** Part of the timeline (S9); absent or null renders all of it. */
   readonly range?: JobRange | null;
   /** 'instrumental': a karaoke render (S15). Absent: the song. */
@@ -132,6 +134,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
           codec: preset.codec,
           motionBlur: job.motionBlur ?? undefined,
           supersample: job.supersample,
+          quality: job.quality,
           range: job.range ?? undefined,
           audioMix: side.audioMix,
           outputPath: side.outputPath,
@@ -157,7 +160,7 @@ export async function createRenderService(options: RenderServiceOptions): Promis
             return renderComparison({
               ffmpegExe: FFMPEG_EXE,
               ffprobeExe: FFPROBE_EXE,
-              settings: { ...defaultEncodeSettings(preset.codec), encoder: support.encoder },
+              settings: { ...encodeSettingsFor(preset.codec, job.quality), encoder: support.encoder },
               outputPath: job.outputPath,
               workDir,
               labels: { left: job.label, right: compare.label },
@@ -238,10 +241,11 @@ export async function createRenderService(options: RenderServiceOptions): Promis
         presetName: preset.id,
         motionBlur: request.motionBlur ?? null,
         ...(request.supersample === 2 ? { supersample: 2 as const } : {}),
+        ...(request.quality === undefined ? {} : { quality: request.quality }),
         range: request.range ?? null,
         ...(request.audioMix === undefined ? {} : { audioMix: request.audioMix }),
         outputPath: request.outputPath,
-        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.supersample === 2 ? ' · 2× supersampled' : ''}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}${compare === undefined ? '' : ` · A/B with ${compare.label}`}`,
+        label: `${document.name} — ${preset.label}${request.range == null ? '' : ` · ${clock(request.range.inTicks)}–${clock(request.range.outTicks)}`}${request.motionBlur == null ? '' : ' · motion blur'}${request.supersample === 2 ? ' · 2× supersampled' : ''}${request.quality === undefined || request.quality === 'best' ? '' : ` · ${request.quality}`}${request.audioMix === 'instrumental' ? ' · karaoke' : ''}${compare === undefined ? '' : ` · A/B with ${compare.label}`}`,
       });
       kick();
       return job;

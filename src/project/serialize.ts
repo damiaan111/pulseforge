@@ -202,6 +202,7 @@ function rollJson(roll: DirectorRoll): Json {
     locks: [...roll.locks],
     palette: [...roll.palette],
     summary: roll.summary,
+    ...(roll.colourSource === undefined ? {} : { colourSource: { ...roll.colourSource } }),
   });
 }
 

@@ -42,6 +42,50 @@ interface Running {
   random: number;
   /** The last frame drawn; -1 before the first. */
   frame: number;
+  /** What this preset could not run, for the layer to say. */
+  problem: string | null;
+}
+
+type Preset = Record<string, unknown>;
+
+/** Runs `load`, and gives the first error of every shader that would not link. Butterchurn never asks. */
+function failedLinks(gl: WebGL2RenderingContext, load: () => void): string[] {
+  const failed: string[] = [];
+  const link = gl.linkProgram.bind(gl);
+  gl.linkProgram = (program) => {
+    link(program);
+    if (gl.getProgramParameter(program, gl.LINK_STATUS) === true) return;
+    const logs = (gl.getAttachedShaders(program) ?? []).map((shader) => gl.getShaderInfoLog(shader) ?? '');
+    failed.push(/ERROR: \d+:\d+: ([^|]*?)(?= ERROR:|$)/.exec(logs.join(' '))?.[1]?.trim() ?? 'it would not link');
+  };
+  try {
+    load();
+  } finally {
+    delete (gl as Partial<WebGL2RenderingContext>).linkProgram;
+  }
+  return failed;
+}
+
+/**
+ * Loads a preset. 23 of the library's presets name a texture file nobody shipped, or code MilkDrop's
+ * own compiler let through. Such a program does not link, and Butterchurn then skips that stage on
+ * every frame with a WebGL warning, so the picture is wrong and nothing says why. The stage that
+ * fails goes back to Butterchurn's default instead, and the layer reports it. A preset whose
+ * shaders link takes the first line and nothing else, so its pixels cannot change.
+ */
+function loadChecked(visualizer: Running['visualizer'], canvas: HTMLCanvasElement, name: string): string | null {
+  const preset = scope.__pfMilkdrop?.[name] as Preset | undefined;
+  const gl = canvas.getContext('webgl2');
+  if (gl === null) throw new Error('The MilkDrop canvas lost its WebGL2 context');
+  const failed = failedLinks(gl, () => visualizer.loadPreset(preset, 0));
+  if (failed.length === 0) return null;
+  for (const stages of [['warp'], ['comp'], ['warp', 'comp']]) {
+    const lighter = { ...preset, ...Object.fromEntries(stages.map((stage) => [stage, ''])) };
+    if (failedLinks(gl, () => visualizer.loadPreset(lighter, 0)).length === 0) {
+      return `MilkDrop: "${name}" asks for what this renderer lacks (${failed[0] ?? ''}), so its ${stages.join(' and ')} shader runs as the default`;
+    }
+  }
+  return `MilkDrop: "${name}" has shaders this renderer cannot run (${failed[0] ?? ''})`;
 }
 
 export function presetLoaded(name: string): boolean {
@@ -83,11 +127,12 @@ export class MilkdropRenderer implements MilkdropHost {
       key: this.keyOf(request),
       random: request.seed | 0,
       frame: -1,
+      problem: null,
     } as Running;
     const visualizer = this.seeded(state, () => {
       if (butterchurn === undefined) throw new Error('Butterchurn is not loaded');
       const created = butterchurn.createVisualizer(audio, canvas, { width: request.width, height: request.height, pixelRatio: 1, textureRatio: 1 });
-      created.loadPreset(scope.__pfMilkdrop?.[request.preset], 0);
+      state.problem = loadChecked(created, canvas, request.preset);
       return created;
     });
     const running: Running = { ...state, visualizer };
@@ -110,7 +155,9 @@ export class MilkdropRenderer implements MilkdropHost {
 
   frame(request: MilkdropRequest): TexImageSource {
     let state = this.running.get(request.owner);
-    if (state === undefined || state.key !== this.keyOf(request)) state = this.start(request);
+    // A driver reset takes this context too, and Butterchurn would go on drawing into nothing.
+    const lost = state?.canvas.getContext('webgl2')?.isContextLost() === true;
+    if (state === undefined || state.key !== this.keyOf(request) || lost) state = this.start(request);
     const target = request.frameIndex;
     if (state.frame === target) return state.canvas;
 
@@ -127,6 +174,10 @@ export class MilkdropRenderer implements MilkdropHost {
     }
     for (let frame = state.frame + 1; frame <= target; frame += 1) this.step(state, request, frame);
     return state.canvas;
+  }
+
+  problem(owner: object): string | null {
+    return this.running.get(owner)?.problem ?? null;
   }
 
   release(owner: object): void {

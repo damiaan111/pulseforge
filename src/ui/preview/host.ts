@@ -110,6 +110,30 @@ export class PreviewHost {
   private timingsSent: GpuFrameTimings | null = null;
   private lastNotes = '';
   private failed = false;
+  /** Runs out when a lost context never comes back. */
+  private contextTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** A driver reset takes everything on the GPU, and nothing else: the project, audio and pictures are all still here. */
+  private readonly onContextLost = (event: Event): void => {
+    event.preventDefault();
+    this.running = false;
+    if (this.rafHandle !== 0) cancelAnimationFrame(this.rafHandle);
+    this.rafHandle = 0;
+    this.feeder?.dispose();
+    this.feeder = null;
+    this.stills = null;
+    this.engine = null;
+    this.gl = null;
+    this.contextTimer = setTimeout(() => {
+      this.callbacks.onError('The graphics driver reset and has not come back. Your project is safe: save it, then restart Pulseforge.');
+    }, 10_000);
+  };
+
+  private readonly onContextRestored = (): void => {
+    clearTimeout(this.contextTimer);
+    this.needsRedraw = true;
+    this.start();
+  };
   /**
    * Forces one redraw even though the clock has nothing new to give.
    *
@@ -129,6 +153,8 @@ export class PreviewHost {
 
   start(): void {
     if (this.running) return;
+    this.canvas.addEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.addEventListener('webglcontextrestored', this.onContextRestored);
     try {
       this.gl = createContext(this.canvas);
       this.engine = createEngine(this.gl, {
@@ -157,6 +183,9 @@ export class PreviewHost {
   }
 
   dispose(): void {
+    clearTimeout(this.contextTimer);
+    this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.running = false;
     if (this.rafHandle !== 0) cancelAnimationFrame(this.rafHandle);
     this.rafHandle = 0;
@@ -519,6 +548,7 @@ export class PreviewHost {
         milkdrop: {
           hasPreset: (name) => this.milkdrop.hasPreset(name),
           frame: (request) => this.milkdrop.frame({ ...request, exact: false }),
+          problem: (owner) => this.milkdrop.problem(owner),
           release: (owner) => this.milkdrop.release(owner),
         },
         output: { transfer: 'srgb', dither: false, flipY: true, bitDepth: 8 },

@@ -119,6 +119,8 @@ export interface AutoColourSource {
   readonly name: string;
   readonly image: DecodedImage;
   readonly origin: 'file' | 'cover';
+  /** The picture's file; for a cover, the song's. */
+  readonly path: string;
 }
 
 export interface StudioState {
@@ -178,6 +180,7 @@ export interface StudioState {
   /** The picture embedded in the loaded song, as Auto's colour source; says so when there is none. */
   useCoverArtColours(): Promise<void>;
   clearAutoColourSource(): void;
+  restoreAutoColourSource(): Promise<void>;
   /** Per asset id: loaded, missing, changed on disk, or unreadable — shown, never silent (M40). */
   assetStatus: Readonly<Record<string, AssetStatus>>;
   /** Font file bytes by content hash, for the preview's text rasteriser. */
@@ -520,7 +523,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     try {
       const picked = await window.pulseforge.importImage();
       if (picked === null) return;
-      set({ autoColourSource: { name: picked.name, image: imageOf(picked), origin: 'file' }, toast: { text: `Auto takes its colours from ${picked.name} on the next roll.`, kind: 'ok' } });
+      set({ autoColourSource: { name: picked.name, image: imageOf(picked), origin: 'file', path: picked.path }, toast: { text: `Auto takes its colours from ${picked.name} on the next roll.`, kind: 'ok' } });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Reading the image'), kind: 'bad' } });
     }
@@ -535,13 +538,36 @@ export const useStudio = create<StudioState>((set, get) => ({
         set({ toast: { text: `${audio.path.split(/[/\\]/).pop() ?? 'This file'} has no picture in it. Choose an image instead.`, kind: 'warn' } });
         return;
       }
-      set({ autoColourSource: { name: `cover of ${cover.name}`, image: imageOf(cover), origin: 'cover' }, toast: { text: 'Auto takes its colours from the song\'s cover on the next roll.', kind: 'ok' } });
+      set({ autoColourSource: { name: `cover of ${cover.name}`, image: imageOf(cover), origin: 'cover', path: audio.path }, toast: { text: 'Auto takes its colours from the song\'s cover on the next roll.', kind: 'ok' } });
     } catch (error) {
       set({ toast: { text: describeError(error, 'Reading the cover art'), kind: 'bad' } });
     }
   },
   clearAutoColourSource() {
     set({ autoColourSource: null });
+  },
+  /** What the last roll took its colours from, read again when the project comes back. */
+  async restoreAutoColourSource() {
+    const document = history.current;
+    const source = document.director?.current.colourSource;
+    if (source === undefined || get().autoColourSource !== null) return;
+    if (source.origin === 'cover' && get().audio?.path !== source.path) return;
+    try {
+      const bytes = source.origin === 'cover'
+        ? await window.pulseforge.loadCoverArt(source.path)
+        : await (async () => {
+          const loaded = await window.pulseforge.loadImage(source.path, get().path);
+          return loaded.status === 'ok' ? loaded.image : null;
+        })();
+      if (history.current.id !== document.id) return;
+      if (bytes === null) {
+        set({ toast: { text: `Auto's colours came from ${source.name}, which could not be found. Colours stay as they are; a new roll makes its own.`, kind: 'warn' } });
+        return;
+      }
+      set({ autoColourSource: { name: source.name, image: imageOf(bytes), origin: source.origin, path: source.path } });
+    } catch (error) {
+      set({ toast: { text: describeError(error, 'Reading the colour picture'), kind: 'warn' } });
+    }
   },
   fonts: new Map(),
   luts: new Map(),
@@ -1139,6 +1165,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     }
     set({ images: new Map(), autoColourSource: null, fonts: new Map(), videos: new Map(), assetStatus: {} });
     void get().loadAssets();
+    void get().restoreAutoColourSource();
   },
 
   openRequested(file) {
@@ -1254,6 +1281,7 @@ export const useStudio = create<StudioState>((set, get) => ({
         autoColourSource: get().autoColourSource?.origin === 'cover' ? null : get().autoColourSource,
         stems: stemsFromPayload(payload, history.current.analysisSettings.stemModel),
       });
+      void get().restoreAutoColourSource();
     } catch (error) {
       if (url !== undefined) URL.revokeObjectURL(url);
       if (request !== audioRequest) return;

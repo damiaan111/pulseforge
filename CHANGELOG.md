@@ -14,6 +14,16 @@
 - **MIDI files** drive parameters, note by note. **Combine audio files** into one track. **A video file** works as audio,
   and can stay as the background. **A/B render** puts two versions side by side. A read-only **node view** of the project.
 - Thai breaks between words; the MilkDrop preset field is a searchable list; new visuals stay under the words.
+- **File size** in the export dialog and `--quality`: Best, Balanced (about half on a busy picture) or Small (about a third).
+- **After a crash, the studio comes back and offers your work.** Before, the autosave was on disk but the offer never appeared.
+  A second crash within a minute asks what to do rather than leaving a blank window. Crash dumps stay on your disk.
+- The preview comes back after a graphics driver reset.
+- 23 MilkDrop presets with a shader that cannot run now fall back for that stage and say so. Auto no longer picks them.
+- **Changed:** a Shadertoy effect that reads its input now sees the right colours, where the picture came out too dark. Projects
+  with such an effect will look different.
+- Auto remembers the picture its colours came from, ignores a key it is unsure of, and Lyric Focus and Cinematic Particles follow the
+  key. Neon Grid and Cinematic Particles shift colour at the chorus.
+- Uninstalling removes the `.pvproj` association. The Python sidecar gets three minutes to start.
 
 ## 1.0.0
 

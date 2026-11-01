@@ -594,7 +594,16 @@ export interface DirectorRoll {
   readonly palette: readonly string[];
   /** One line for the history strip: "Neon Pulse · Radial · magenta". */
   readonly summary: string;
+  /** The picture its colours came from, so the next session's rolls can use it too. */
+  readonly colourSource?: ColourSource;
   readonly extra: Extra;
+}
+
+export interface ColourSource {
+  /** 'cover': `path` is the song, whose embedded picture is read again. */
+  readonly origin: 'file' | 'cover';
+  readonly path: string;
+  readonly name: string;
 }
 
 export const DECISION_STEPS = ['classify', 'match', 'populate', 'calibrate', 'palette', 'arrange', 'guardrail', 'keep'] as const;

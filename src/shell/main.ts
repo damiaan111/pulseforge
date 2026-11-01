@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { BrowserWindow, Menu, Notification, app, clipboard, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
+import { BrowserWindow, Menu, Notification, app, clipboard, crashReporter, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, MODULE_LIBRARIES, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
@@ -50,6 +50,7 @@ import {
 } from './ipc.ts';
 import { IMAGE_EXTENSIONS, decodeAttachedPicture, decodeImageFile } from '../assets/image-decode.ts';
 import { resolveAssetPath } from '../assets/load-images.ts';
+import { EXPORT_QUALITIES } from '../export/ffmpeg-args.ts';
 import { collectProject } from '../assets/collect-files.ts';
 import { findFilesInFolder } from '../assets/find-in-folder.ts';
 import { addToLibrary, listLibrary } from '../assets/library.ts';
@@ -192,7 +193,7 @@ function sidecar(): SidecarSupervisor {
  * quit removes it, so a folder found at the next start is a run that crashed. `PULSEFORGE_RECOVERY`
  * moves the folder — the smoke check uses its own, so it never sees or touches the owner's.
  */
-const recoverySessionId = newId();
+let recoverySessionId = newId();
 /**
  * A clean quit: this run's autosaves are not needed at the next start. (A crash never gets here,
  * which is the whole mechanism.) If the user chose to quit with unsaved changes, they were asked
@@ -299,9 +300,35 @@ function guardWebContents(): void {
       log().error('studio', `the renderer process ended: ${details.reason} (exit code ${details.exitCode})`);
       // A blank window with the work out of reach is the worst outcome: come back, and the recovery
       // dialog offers the autosave. Not twice in a minute, or a page that dies at once loops for ever.
-      if (details.reason === 'clean-exit' || contents.isDestroyed() || Date.now() - lastRendererRestart < 60_000) return;
-      lastRendererRestart = Date.now();
-      contents.reload();
+      if (details.reason === 'clean-exit' || contents.isDestroyed()) return;
+      const window = BrowserWindow.fromWebContents(contents);
+      const comeBack = () => {
+        // This process lives on, so its session would count as the one running, and recovery passes
+        // over the running session. A new one leaves the snapshots to be offered like any crash's.
+        if (window?.isVisible() === true) recoverySessionId = newId();
+        lastRendererRestart = Date.now();
+        contents.reload();
+      };
+      if (Date.now() - lastRendererRestart >= 60_000) {
+        comeBack();
+        return;
+      }
+      if (window === null || !window.isVisible()) return;
+      void dialog.showMessageBox(window, {
+        type: 'error',
+        title: 'Pulseforge',
+        message: 'The studio stopped twice within a minute',
+        detail: `Your work is in the autosave. Try again to get it back, or quit and open the project later. The details are in ${app.getPath('crashDumps')}.`,
+        buttons: ['Try again', 'Quit'],
+        defaultId: 0,
+        cancelId: 1,
+      }).then(({ response }) => {
+        if (response !== 0) {
+          app.quit();
+        } else if (!contents.isDestroyed()) {
+          comeBack();
+        }
+      });
     });
     contents.on('will-navigate', (event, url) => {
       // The app is one local page; there is no legitimate navigation.
@@ -1673,6 +1700,7 @@ function registerRenderHandlers(renders: RenderService): void {
       throw new Error('enqueueRender: the range must be whole ticks with 0 ≤ in < out');
     }
     if (request.supersample !== undefined && request.supersample !== 1 && request.supersample !== 2) throw new Error('enqueueRender: supersample must be 1 or 2');
+    if (request.quality !== undefined && !EXPORT_QUALITIES.some((q) => q.id === request.quality)) throw new Error('enqueueRender: unknown quality');
     const compare = request.compare;
     if (compare !== undefined && (typeof compare !== 'object' || typeof compare.text !== 'string' || typeof compare.label !== 'string'
       || (compare.projectPath !== null && typeof compare.projectPath !== 'string'))) {
@@ -1811,9 +1839,16 @@ if (INSTALLED) {
 // window someone happens to cover mid-check stalled it. Set before the app is ready, as switches must be.
 if (process.env['PULSEFORGE_SMOKE'] === '1') app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
+// A crash that nobody can explain costs twice. Dumps stay on this disk; nothing is ever sent.
+app.setPath('crashDumps', join(app.getPath('userData'), 'crashes'));
+crashReporter.start({ uploadToServer: false });
+
 app.whenReady().then(async () => {
   lockDownSession();
   guardWebContents();
+  app.on('child-process-gone', (_event, details) => {
+    if (details.reason !== 'clean-exit') log().error('studio', `the ${details.type} process ended: ${details.reason} (exit code ${details.exitCode}); dumps in ${app.getPath('crashDumps')}`);
+  });
   if (process.env['PULSEFORGE_SMOKE'] === '1' && process.env['PULSEFORGE_LOGS'] === undefined) {
     // The smoke's own log folder, fresh each run: its checks read the log back.
     process.env['PULSEFORGE_LOGS'] = join(DATA_ROOT, 'out', 'smoke-logs');

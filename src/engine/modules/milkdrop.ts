@@ -92,7 +92,7 @@ function createMilkdrop(gl: WebGL2RenderingContext): ModuleInstance {
     const frameSeconds = fps.den / fps.num;
     // Timeline to audio is a fixed offset, so any frame's audio can be read while stepping to it.
     const offset = ctx.audioSeconds - ctx.time.t;
-    return ctx.milkdrop.frame({
+    const picture = ctx.milkdrop.frame({
       owner,
       preset,
       seed,
@@ -103,6 +103,9 @@ function createMilkdrop(gl: WebGL2RenderingContext): ModuleInstance {
       exact: ctx.quality === 'final',
       samples: (frame) => waveformBytes(track, frame * frameSeconds + offset, scratch),
     });
+    const problem = ctx.milkdrop.problem(owner);
+    if (problem !== null) ctx.warn(problem);
+    return picture;
   }
 
   return {

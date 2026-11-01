@@ -16,7 +16,7 @@
   "palette": {
     "strategy": "generate-from-style",
     "harmony": "complementary",
-    "baseHue": { "from": "brightness", "range": [190, 350] },
+    "baseHue": { "from": "key", "range": [190, 350] },
     "saturation": [0.5, 0.85],
     "background": [0.03, 0.1],
     "minTextContrast": 7

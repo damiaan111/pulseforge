@@ -15,7 +15,7 @@
   "palette": {
     "strategy": "generate-from-style",
     "harmony": "analogous",
-    "baseHue": { "from": "energy", "range": [210, 340] },
+    "baseHue": { "from": "key", "range": [210, 340] },
     "saturation": [0.6, 0.9],
     "background": [0.02, 0.07],
     "minTextContrast": 4.5
@@ -98,7 +98,7 @@
     "sections": {
       "intro": { "intensity": 0.35, "addLayers": ["GLOW"] },
       "build": { "intensity": 0.65, "addLayers": ["ACCENT"] },
-      "main": { "intensity": 1, "addLayers": ["ACCENT"] },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"], "paletteShift": "glow" },
       "breakdown": { "intensity": 0.4, "removeLayers": ["ACCENT"] },
       "outro": { "intensity": 0.3, "removeLayers": ["ACCENT"] }
     },

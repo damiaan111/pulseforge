@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { encodeWavFloat32, placeAudio, samplesForFrames } from '../../src/export/audio.ts';
 import { diagnoseEncoderFailure } from '../../src/export/encoder.ts';
-import { buildFfmpegArgs, defaultEncodeSettings, gopLength, resolveConversion, settingsProblems, type EncodeJob } from '../../src/export/ffmpeg-args.ts';
+import { buildFfmpegArgs, defaultEncodeSettings, encodeSettingsFor, gopLength, resolveConversion, settingsProblems, type EncodeJob, type EncodeSettings } from '../../src/export/ffmpeg-args.ts';
 import { PumpCancelled, pumpFrames, type PumpSink, type PumpSource } from '../../src/export/pump.ts';
 import { checkOutput, type ProbeResult } from '../../src/export/verify.ts';
 import { rational } from '../../src/engine/core/time.ts';
@@ -299,5 +299,31 @@ describe('diagnoseEncoderFailure', () => {
     expect(diagnoseEncoderFailure('[h264_nvenc @ 0x1] OpenEncodeSessionEx failed: out of memory (10)')).toMatch(/NVENC could not start/);
     expect(diagnoseEncoderFailure('av1_nvenc: Unknown encoder')).toMatch(/does not include/);
     expect(diagnoseEncoderFailure('all good')).toBeUndefined();
+  });
+});
+
+describe('file size against picture', () => {
+  it('leaves the default where D40 put it', () => {
+    expect(encodeSettingsFor('h264')).toEqual(defaultEncodeSettings('h264'));
+    expect(encodeSettingsFor('hevc', 'best')).toEqual(defaultEncodeSettings('hevc'));
+  });
+
+  it('lowers the target and sets a ceiling, and nothing else', () => {
+    expect(encodeSettingsFor('h264', 'balanced')).toEqual({ ...defaultEncodeSettings('h264'), cq: 22, maxBitsPerPixel: 0.16 });
+    expect(encodeSettingsFor('h264', 'small')).toEqual({ ...defaultEncodeSettings('h264'), cq: 27, maxBitsPerPixel: 0.1 });
+  });
+
+  const job = (settings: EncodeSettings): EncodeJob => ({ width: 1920, height: 1080, fps: rational(60), settings, audioPath: undefined, outputPath: 'x.mp4', bitexact: false });
+
+  it('reaches the encoder as a rate for this size', () => {
+    const args = buildFfmpegArgs(job(encodeSettingsFor('h264', 'small')));
+    expect(args[args.indexOf('-maxrate') + 1]).toBe('12441600');
+    expect(args[args.indexOf('-bufsize') + 1]).toBe('24883200');
+    expect(buildFfmpegArgs(job(encodeSettingsFor('h264')))).not.toContain('-maxrate');
+  });
+
+  it('caps the software encoder too', () => {
+    const args = buildFfmpegArgs(job({ ...encodeSettingsFor('h264', 'small'), encoder: 'software' }));
+    expect(Number(args[args.indexOf('-b:v') + 1])).toBeLessThanOrEqual(12441600);
   });
 });

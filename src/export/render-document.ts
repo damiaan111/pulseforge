@@ -34,7 +34,7 @@ import { analyzeCached } from '../analysis/cached.ts';
 import { cacheOptionsFor } from '../analysis/project-settings.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { probeCodecs } from './encoder-probe.ts';
-import { defaultEncodeSettings, type VideoCodec } from './ffmpeg-args.ts';
+import { encodeSettingsFor, type ExportQuality, type VideoCodec } from './ffmpeg-args.ts';
 import { rational, TICKS_PER_SECOND } from '../engine/core/time.ts';
 import { loadDocument } from '../project/load.ts';
 import { timelineDurationTicks, toRenderProject, type SnapshotNote } from '../project/snapshot.ts';
@@ -88,6 +88,8 @@ export interface RenderDocumentOptions {
   readonly size?: { readonly width: number; readonly height: number } | undefined;
   readonly seconds?: number | undefined;
   readonly codec: VideoCodec;
+  /** Picture against file size; absent is best. */
+  readonly quality?: ExportQuality | undefined;
   /** Motion blur (S10, export-spec §9); absent renders each frame at one instant. */
   readonly motionBlur?: MotionBlur | undefined;
   /** Spatial supersampling (export-spec §9); absent is 1. */
@@ -221,7 +223,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
   if (!support.available) {
     throw new RenderDocumentError(`This machine cannot encode ${options.codec === 'hevc' ? 'HEVC' : 'H.264'}. ${support.reason ?? ''}`.trim(), ['Choose an H.264 export preset, or update the graphics driver']);
   }
-  const encodeSettings = { ...defaultEncodeSettings(options.codec), encoder: support.encoder };
+  const encodeSettings = { ...encodeSettingsFor(options.codec, options.quality), encoder: support.encoder };
   if (support.encoder === 'software') say(`Encoding in software, which is slower: NVENC is not usable here (${support.reason ?? 'unknown reason'})`);
   const neededBytes = estimateOutputBytes({ ...canvas, frames, fps: fps.num / fps.den, audioBitrateKbps: encodeSettings.audioBitrateKbps });
   const noRoom = spaceProblem(options.outputPath, neededBytes, await (options.freeBytes ?? freeBytesAt)(options.outputPath));

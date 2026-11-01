@@ -26,6 +26,8 @@ export interface EncodeSettings {
   readonly preset: NvencPreset;
   /** Constant-quality target (lower = better). */
   readonly cq: number;
+  /** A ceiling on the rate, in bits per pixel of video. Absent: the quality target alone decides. */
+  readonly maxBitsPerPixel?: number;
   readonly conversion: ColorConversion;
   readonly audioBitrateKbps: number;
   /** Absent is NVENC. */
@@ -49,6 +51,28 @@ export function defaultEncodeSettings(codec: VideoCodec): EncodeSettings {
   return codec === 'hevc'
     ? { codec: 'hevc', bitDepth: 10, chroma: '420', preset: 'p5', cq: 19, conversion: 'swscale', audioBitrateKbps: 320 }
     : { codec: 'h264', bitDepth: 8, chroma: '420', preset: 'p5', cq: 17, conversion: 'gpu-nv12', audioBitrateKbps: 320 };
+}
+
+/**
+ * What the export dialog offers against the file's size. Best is D40's default. The others need a
+ * ceiling as well as a lower quality target: on a busy picture NVENC sits at its level's limit
+ * whatever the target says, and CQ 22 came out the same size as CQ 17 (STATUS 4.93). Calm pictures
+ * stay under the ceiling, and there the target does the work. At 1080p60 the ceilings are 20 and
+ * 12 Mbit/s, the second being the rate YouTube asks for.
+ */
+export const EXPORT_QUALITIES = [
+  { id: 'best', label: 'Best quality', cqOffset: 0, maxBitsPerPixel: undefined },
+  { id: 'balanced', label: 'Balanced', cqOffset: 5, maxBitsPerPixel: 0.16 },
+  { id: 'small', label: 'Small file', cqOffset: 10, maxBitsPerPixel: 0.1 },
+] as const;
+export type ExportQuality = (typeof EXPORT_QUALITIES)[number]['id'];
+
+/** The default for a codec at a chosen quality; absent is best. */
+export function encodeSettingsFor(codec: VideoCodec, quality: ExportQuality = 'best'): EncodeSettings {
+  const settings = defaultEncodeSettings(codec);
+  const chosen = EXPORT_QUALITIES.find((q) => q.id === quality);
+  if (chosen === undefined || chosen.maxBitsPerPixel === undefined) return settings;
+  return { ...settings, cq: settings.cq + chosen.cqOffset, maxBitsPerPixel: chosen.maxBitsPerPixel };
 }
 
 /** GPU NV12 needs 8-bit 4:2:0 and a width divisible by 4; otherwise fall back to swscale. */
@@ -111,8 +135,10 @@ export function softwareBitrate(width: number, height: number, fps: Rational, cq
 
 function videoEncoderArgs(job: EncodeJob): string[] {
   const { settings, fps } = job;
+  const ceiling = settings.maxBitsPerPixel === undefined ? undefined : Math.round(job.width * job.height * (fps.num / fps.den) * settings.maxBitsPerPixel);
   if (settings.encoder === 'software') {
-    return ['-c:v', 'libopenh264', '-rc_mode', 'bitrate', '-b:v', String(softwareBitrate(job.width, job.height, fps, settings.cq)), '-profile:v', 'high', '-g', String(gopLength(fps))];
+    const rate = Math.min(softwareBitrate(job.width, job.height, fps, settings.cq), ceiling ?? Infinity);
+    return ['-c:v', 'libopenh264', '-rc_mode', 'bitrate', '-b:v', String(rate), '-profile:v', 'high', '-g', String(gopLength(fps))];
   }
   return [
     '-c:v', settings.codec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc',
@@ -121,6 +147,7 @@ function videoEncoderArgs(job: EncodeJob): string[] {
     '-rc', 'vbr',
     '-cq', String(settings.cq),
     '-b:v', '0',
+    ...(ceiling === undefined ? [] : ['-maxrate', String(ceiling), '-bufsize', String(ceiling * 2)]),
     '-profile:v', profile(settings),
     '-g', String(gopLength(fps)),
     '-bf', '3',

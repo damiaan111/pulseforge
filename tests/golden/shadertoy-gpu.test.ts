@@ -34,6 +34,16 @@ const AUDIO = shadertoyFileSource('Audio.glsl', `void mainImage(out vec4 fragCol
 }
 `);
 
+/** Hands its input back untouched, as an effect, so anything but the same picture is the wrapper's doing. */
+const PASS_THROUGH: ShaderModuleSource = {
+  manifest: { id: 'user.shadertoy.pass', version: '1', kind: 'effect', name: 'Pass', dialect: 'shadertoy', channels: ['input'] },
+  shader: `void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+  fragColor = texture(iChannel0, fragCoord / iResolution.xy);
+}
+`,
+  origin: 'Pass.glsl',
+};
+
 /** Line 3 has a type error. */
 const BROKEN = shadertoyFileSource('Broken.glsl', `void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   float ok = 1.0;
@@ -91,6 +101,19 @@ describe.skipIf(!available)('Shadertoy shaders on the GPU', () => {
     expect(at8k.r).toBeLessThan(60);
     // Row 1 (the waveform) is not available from the analysis: flat 0.5, as Shadertoy's silence.
     expect(Math.abs(at1k.g - 128)).toBeLessThanOrEqual(3);
+  }, 180_000);
+
+  it('the input channel is display colour, read once: mid-grey comes back as mid-grey', async () => {
+    const grey: AnyLayerSpec = {
+      id: 'grey', module: 'core.source.background', enabled: true, opacity: 1, blend: 'normal', params: { mode: 'solid', colorA: '#808080' },
+      effects: [{ id: 'fx', module: PASS_THROUGH.manifest.id, enabled: true, params: {} }],
+    };
+    const run = await renderFrames({ name: 'st-input', project: project([grey]), frames: [0], modules: [PASS_THROUGH] });
+    const middle = run.frames[0]!.at(W / 2, H / 2);
+    expect(run.warnings).toEqual([]);
+    expect(Math.abs(middle.r - 128)).toBeLessThanOrEqual(1);
+    expect(Math.abs(middle.g - 128)).toBeLessThanOrEqual(1);
+    expect(Math.abs(middle.b - 128)).toBeLessThanOrEqual(1);
   }, 180_000);
 
   it('a compile error names the author’s own line, and the layer is skipped', async () => {

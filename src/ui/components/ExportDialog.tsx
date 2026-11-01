@@ -11,7 +11,7 @@ import { timelineDurationTicks } from '../../project/snapshot.ts';
 import { formatTime } from './TransportBar.tsx';
 import { EXPORT_PRESETS, findExportPreset, presetCanvas, suggestedOutputName } from '../../export/export-presets.ts';
 import { estimateOutputBytes, formatBytes, spaceProblem } from '../../export/disk-space.ts';
-import { defaultEncodeSettings } from '../../export/ffmpeg-args.ts';
+import { EXPORT_QUALITIES, defaultEncodeSettings, type ExportQuality } from '../../export/ffmpeg-args.ts';
 import type { RenderReadiness } from '../../shell/ipc.ts';
 import { stringifyDocument } from '../../project/serialize.ts';
 import { history, useStudio } from '../store.ts';
@@ -45,6 +45,7 @@ export function ExportDialog(): React.JSX.Element | null {
   const [karaoke, setKaraoke] = useState(false);
   // Spatial supersampling (export-spec §9): off by default, since it is four times the GPU work.
   const [supersample, setSupersample] = useState(false);
+  const [quality, setQuality] = useState<ExportQuality>('best');
   // A/B (C10): this project on the left, another version on the right, in one file.
   const [compare, setCompare] = useState<{ text: string; projectPath: string; label: string } | null>(null);
   const stemsReady = useStudio((s) => s.stems.state === 'ready');
@@ -120,6 +121,7 @@ export function ExportDialog(): React.JSX.Element | null {
         outputPath,
         motionBlur: blurOn ? { samples, shutterDegrees: shutter } : null,
         ...(supersample ? { supersample: 2 as const } : {}),
+        ...(quality === 'best' ? {} : { quality }),
         range: ranged ? { inTicks: fromTicks, outTicks: toTicks } : null,
         audioMix: karaoke && stemsReady ? 'instrumental' : 'full',
         ...(compare === null ? {} : { compare }),
@@ -219,6 +221,17 @@ export function ExportDialog(): React.JSX.Element | null {
             {' '}Supersample 2×
           </label>
           {supersample ? <span className="dim-text">Smooths thin lines. Rendered at four times the pixels: slower, and it needs more video memory.</span> : null}
+        </fieldset>
+
+        <fieldset className="export-blur">
+          <label>
+            File size
+            {' '}
+            <select aria-label="File size" data-action="export-quality" value={quality} onChange={(event) => setQuality(event.target.value as ExportQuality)}>
+              {EXPORT_QUALITIES.map((q) => <option key={q.id} value={q.id}>{q.label}</option>)}
+            </select>
+          </label>
+          {quality === 'best' ? null : <span className="dim-text">{quality === 'balanced' ? 'About half the size on a busy picture; fine for uploading.' : 'About a third of the size on a busy picture. Fine detail softens.'}</span>}
         </fieldset>
 
         <fieldset className="export-compare" data-testid="export-compare">

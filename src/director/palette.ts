@@ -155,14 +155,18 @@ function enforceContrast(spec: TemplatePalette, hex: Record<PaletteRole, string>
   return notes;
 }
 
+/** Below this the analysis is guessing: a hue would rest on a coin toss, and a brightness reading is at least true. */
+const MIN_KEY_CONFIDENCE = 0.25;
+
 const toPalette = (hex: Record<PaletteRole, string>): Palette => ({ colors: PALETTE_ROLES.map((role) => hex[role]), roles: Object.fromEntries(PALETTE_ROLES.map((role, i) => [role, i])), extra: {} });
 
 /**
  * A palette from the template's rule and the track's style. `seed` is the palette aspect's own
  * seed, so a palette lock reproduces it and a reroll moves only the hue within `hueJitter`.
  */
-export function generatePalette(spec: TemplatePalette, style: StyleVector, seed: number, hueJitter: number, key: MusicalKey | null = null): GeneratedPalette {
+export function generatePalette(spec: TemplatePalette, style: StyleVector, seed: number, hueJitter: number, detected: MusicalKey | null = null): GeneratedPalette {
   // A template that follows the key still needs a hue on a track without one: brightness, said so.
+  const key = detected !== null && detected.confidence >= MIN_KEY_CONFIDENCE ? detected : null;
   const source = spec.baseHue.from === 'key' ? (key === null ? 'brightness' : 'key') : spec.baseHue.from;
   const axis = source === 'key' ? keyWheelPosition(key as MusicalKey) : style[source];
   const [h0, h1] = spec.baseHue.range;
@@ -180,7 +184,7 @@ export function generatePalette(spec: TemplatePalette, style: StyleVector, seed:
 
   const notes = enforceContrast(spec, hex);
   notes.unshift(`${hueName(hex.primary)} primary (hue ${Math.round(hue)}° from ${source === 'key' ? `the key, ${keyName(key as MusicalKey)}` : `${source} ${axis.toFixed(2)}`}), ${spec.harmony} harmony, ${light ? 'light' : 'dark'} ground.`);
-  if (spec.baseHue.from === 'key' && key === null) notes.push('No key was detected in this track, so its brightness set the hue instead.');
+  if (spec.baseHue.from === 'key' && key === null) notes.push(detected === null ? 'No key was detected in this track, so its brightness set the hue instead.' : `The key is too uncertain to choose a colour (${keyName(detected)}, ${Math.round(detected.confidence * 100)}% sure), so the track's brightness set the hue instead.`);
   return {
     palette: toPalette(hex),
     notes,

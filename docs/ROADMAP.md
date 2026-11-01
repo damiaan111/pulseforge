@@ -203,8 +203,7 @@ it was made; they are collected here so none is a surprise.
 Every Must-have and Should-have is done. These are the gaps inside finished features, smallest
 effect on a finished video last. Each is noted beside its requirement in §2.
 
-**Lyrics:** transcribed line breaks follow Whisper's segments, and text over a busy MilkDrop preset can be hard to
-read (STATUS 4.86).
+**Lyrics:** text over a busy MilkDrop preset can be hard to read (STATUS 4.86).
 
 **Before a public release:** a PC with no NVIDIA card has not been tried, only this one with NVENC unusable; the
 installer is unsigned, so Windows SmartScreen warns about it until there is a code-signing certificate; the app's own
@@ -213,13 +212,12 @@ before BtbN drops it, around 2028.
 
 **Visuals:** MilkDrop is in, and the director uses it (STATUS 4.83, 4.84). ISF is in as a dialect and an optional
 component (STATUS 4.89): 105 of Vidvox's 327 files run; point2D inputs, more image inputs and passes are what
-would bring in the rest. The Shadertoy `input` channel darkens what it reads (mid-grey 128 comes out 55): fixing
-it changes existing projects, so it waits for the owner. Hydra is ruled out (AGPL would bind
+would bring in the rest. Hydra is ruled out (AGPL would bind
 the whole app). LYGIA and gl-transitions have unchecked licences, and Shadertoy's site default is
 non-commercial, so nothing is bundled from it without checking each shader.
 
-**Auto-director:** the Could-level list is done (STATUS 4.91). Left: choosing which built-in templates
-follow the key or shift their palette, which is taste, not engineering.
+**Auto-director:** the Could-level list is done (STATUS 4.91, 4.93). The templates that follow the key or shift their palette
+have not been judged by eye.
 
 **Text:** colour emoji in lyrics, vertical lyrics (STATUS 4.89 did titles).
 

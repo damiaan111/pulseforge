@@ -78,6 +78,13 @@ describe.skipIf(!available)('MilkDrop on the GPU', () => {
     expect((one.frames[0] as RenderedFrame).sha256).not.toBe((two.frames[0] as RenderedFrame).sha256);
   }, 180_000);
 
+  it('a shader that will not link falls back to the default, and the layer says so', async (test) => {
+    if (!existsSync(MILKDROP_JS_DIR)) test.skip();
+    const run = await renderFrames({ name: 'md-broken', project: project('cope - matrixcode7'), frames: [60] });
+    expect(run.warnings.join(' ')).toMatch(/runs as the default/);
+    expect(ink(run.frames[0] as RenderedFrame)).toBeGreaterThan(0);
+  }, 180_000);
+
   it('says so when the preset is not installed, or none is chosen', async () => {
     const [missing, none] = await Promise.all([
       renderFrames({ name: 'md-missing', project: project('No such preset'), frames: [5] }),

@@ -5,7 +5,7 @@
 > in the same commit. **`docs/ROADMAP.md`** is the companion: every requirement (M1–M40, S1–S19)
 > with its state and what is left, and the recommended order of the remaining work.
 >
-> **Last updated: 2026-10-31.** P0–P8 are complete: **every Must-have and Should-have is done** (P1: core,
+> **Last updated: 2026-11-01.** P0–P8 are complete: **every Must-have and Should-have is done** (P1: core,
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
@@ -193,6 +193,7 @@
 | 4.90 | Video as audio, combined audio, A/B render, MIDI, the node view |
 | 4.91 | The auto-director's Could-level list: image palettes, cover art, key, palette shifts, extract, curves to keyframes |
 | 4.92 | A real Windows app; removing components; the whole thing tested again |
+| 4.93 | The known problems: recovery after a crash, MilkDrop shaders, the Shadertoy input, file size, Auto |
 
 ---
 
@@ -4734,9 +4735,8 @@ pass target. On the RTX 3060, **105 of the 110 compile**. The five that do not (
 Time Overlay, VU Meter) redefine a built-in or rely on desktop GLSL's implicit conversions, and report that on the author's line.
 `tests/golden/isf-gpu.test.ts` runs them all when the library is installed, and writes `out/isf-library.json`.
 
-**A bug found, not fixed: the Shadertoy `input` channel.** It hands the shader linear light, and the wrapper decodes the output as
-display colour, so it decodes twice. A pass-through effect turned mid-grey 128 into 55, measured. Fixing it changes existing projects,
-so it waits for the owner (ROADMAP §6). ISF does not have this bug.
+**A bug found (fixed in 4.93): the Shadertoy `input` channel.** It hands the shader linear light, and the wrapper decodes the output as
+display colour, so it decodes twice. A pass-through effect turned mid-grey 128 into 55, measured. ISF does not have this bug.
 
 **Vertical titles.** `direction` on `core.text.title`, and the optional `vertical` on `TextRequest`, absent from every horizontal
 request, so their cache keys are the same. `src/text/vertical.ts` places graphemes and the rasteriser draws each one, since the canvas has
@@ -4848,10 +4848,53 @@ launch with a project opens it in the first window. Real input in the real app: 
 picker (a half-typed name applies nothing), MIDI import, node view, colours from an image, Extract as template, Combine with two
 real songs (3:30 FLAC), the video choice. A rendered MIDI binding flashes on exactly 0, 0.5 and 1.0 s.
 
-**Known.** Uninstalling leaves the `.pvproj` registry key. `program not linked` WebGL warnings come with a MilkDrop project and
-never in an empty studio; the preset is not identified. A CQ 17 export of a busy MilkDrop preset ran to 40 Mbit/s (383 MB for 79 s).
+**Known then, solved in 4.93:** the `.pvproj` key left by uninstalling, the `program not linked` warnings, and a CQ 17 export of a busy
+MilkDrop preset running to 40 Mbit/s (383 MB for 79 s).
 
 **Final build.** Packaged smoke 46/46. The journey, empty studio to a verified 4744-frame MP4, 18/18.
+
+### 4.93 The known problems: recovery after a crash, MilkDrop shaders, the Shadertoy input, file size, Auto
+
+**Crash recovery did not work, and nothing showed it.** The main process outlives a renderer crash, so its session id stays, and
+`listRecoverable` passes over the running session. The reload came up empty, with the autosave on disk and no offer. Now the session
+gets a new id before the reload (`comeBack` in `guardWebContents`), so the snapshots are offered like any crash's, and a restore that
+discards them cannot take the new snapshot with it. Proved with `Page.crash` in the real app after a real edit: the dialog appears with
+the project. A second crash within a minute used to leave a blank window for good; it now asks Try again or Quit (the test stub answered
+Quit, the app exited 0, the box itself is untested by hand). Crash dumps go to `<userData>/crashes` and are never uploaded, so the
+unexplained crash in 4.87 will leave evidence if it comes back. `child-process-gone` is logged, so a GPU process dying shows too.
+
+**A driver reset.** Nothing handled `webglcontextlost`: the preview stayed black. `PreviewHost` now rebuilds its engine on
+`webglcontextrestored`, MilkDrop restarts a layer whose context was lost, and after 10 s without one the studio says so. With
+`WEBGL_lose_context` at 1:02 the picture came back identical and seeking still drew. A real driver reset has not been caused.
+
+**`program not linked`, found.** Butterchurn never reads `LINK_STATUS`, so a shader that fails drops its stage on every frame with only a
+WebGL warning. A scan of all 1,754 presets found **23**: nearly all name a texture file nobody shipped (`sampler_mcode1`, `texsize_*`),
+the others use a variable MilkDrop's compiler let through. `loadChecked` in `src/milkdrop/renderer.ts` catches this at load, tries the
+preset with warp, then comp, then both on Butterchurn's default, and the layer warns. Other presets take one path and nothing else
+changes. `scripts/measure-milkdrop.ts` already marks a warning as failed, so those 23 count as failed in `out/milkdrop-measure.json` and
+the catalogue went from 1,416 to 1,410 (six of them were in it). They stay in the picker.
+
+**Shadertoy `input`, fixed.** The input is converted to display colour on a pooled target before the shader sees it, so every kind of
+`texture` call reads the right values, and highlights above 1 pass through an effect that reads its input. A pass-through keeps grey 128
+within one level, where it gave 55 (`tests/golden/shadertoy-gpu.test.ts`). This changes the look of any existing project with such an
+effect, as the owner accepted. `alpha: 'opaque'` shaders see the layer over black, `straight` ones see unpremultiplied colour.
+
+**File size.** The export dialog and `--quality` offer Best (D40's default, unchanged), Balanced and Small. A lower CQ alone does nothing
+on a busy picture: CQ 22 and CQ 17 came out at 104 MB each, because NVENC already sits at its limit. So the others also set `-maxrate`
+from a bits-per-pixel ceiling (20 and 12 Mbit/s at 1080p60; 12 is what YouTube asks for). Measured on 20 s of a busy MilkDrop project at
+1080p60, against Best: **Best 104 MB, Balanced 53 MB at 35.4 dB, Small 33 MB at 32.6 dB**. OpenH264 takes the lower of its rate and the ceiling.
+
+**Auto.** The roll records `colourSource` (a chosen picture, or the song for its cover), and the store reads it again when a project opens
+or its analysis lands, so colours from an image no longer end with the session; a missing file says so. A palette lock or a restored roll
+keeps it. A key below 25% confidence no longer picks a hue: the analysis is guessing, so brightness does, and the note says why. Lyric Focus
+and Cinematic Particles now take their hue from the key; Neon Grid and Cinematic Particles shift their palette at the main section. None of
+these looks has been judged by eye.
+
+**The installer** takes the `.pvproj` keys with it (`assets/installer.nsh`), except during an update. **The sidecar** gets 180 s to start, not
+60: a cold torch import under load failed four GPU tests on two different days, and a slow disk would do the same to a person.
+
+**Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
+voice line was not reproduced, and is left as it was.
 
 ## 5. Measured results
 

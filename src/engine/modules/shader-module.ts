@@ -31,6 +31,7 @@ import { parseHexColor, srgbToLinear } from '../core/color.ts';
 import { STEMS, type ParamSpec, type ParamValues, type Stem } from '../core/params.ts';
 import { HASH_GLSL, hash32 } from '../core/prng.ts';
 import { FULLSCREEN_VERT, ShaderCompileError, createProgram, drawFullscreenTriangle } from '../render/gl.ts';
+import type { RenderTarget } from '../render/targets.ts';
 import { AnalysisTexture, SPECTRUM_GLSL } from './analysis-texture.ts';
 import { ISF_MAIN, isfNameReserved, isfPrelude, parseIsf } from './isf.ts';
 import { SHADERTOY_AUDIO_WIDTH, ShadertoyAudioTexture } from './shadertoy-audio.ts';
@@ -263,7 +264,9 @@ uniform sampler2D iChannel3;
  * After the author's `mainImage`: call it at this pixel (Shadertoy's origin is bottom-left, as
  * gl_FragCoord's is here) and turn its display-referred colour into linear, premultiplied light.
  */
-function shadertoyMain(alpha: 'opaque' | 'straight'): string {
+function shadertoyMain(alpha: 'opaque' | 'straight', readsInput: boolean): string {
+  // Reading the layer below may bring highlights above 1, and a pass-through must keep them.
+  const colour = readsInput ? 'max(c.rgb, vec3(0.0))' : 'clamp(c.rgb, 0.0, 1.0)';
   return `
 vec3 pf_st_decode(vec3 c) {
   vec3 lo = c / 12.92;
@@ -274,7 +277,29 @@ void main() {
   vec4 c = vec4(0.0, 0.0, 0.0, 1.0);
   mainImage(c, gl_FragCoord.xy);
   float a = ${alpha === 'straight' ? 'clamp(c.a, 0.0, 1.0)' : '1.0'};
-  outColor = vec4(pf_st_decode(clamp(c.rgb, 0.0, 1.0)) * a, a);
+  outColor = vec4(pf_st_decode(${colour}) * a, a);
+}
+`;
+}
+
+/**
+ * A Shadertoy shader expects display colour on its channels, and reads them with whatever `texture`
+ * call it likes, so the input is converted before it arrives rather than at each read. Negative
+ * values cannot occur; above 1 is kept, for the same reason as the output.
+ */
+function inputToDisplayFrag(alpha: 'opaque' | 'straight'): string {
+  // An opaque shader's picture is the layer over black, which is what premultiplied colour already is.
+  const colour = alpha === 'straight' ? 'c.a > 0.0 ? c.rgb / c.a : vec3(0.0)' : 'c.rgb';
+  return `#version 300 es
+precision highp float;
+uniform sampler2D u_source;
+out vec4 outColor;
+void main() {
+  vec4 c = texelFetch(u_source, ivec2(gl_FragCoord.xy), 0);
+  vec3 linear = ${colour};
+  vec3 lo = linear * 12.92;
+  vec3 hi = 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055;
+  outColor = vec4(mix(hi, lo, vec3(lessThanEqual(linear, vec3(0.0031308)))), c.a);
 }
 `;
 }
@@ -285,7 +310,7 @@ export function shaderWrapping(manifest: ShaderModuleManifest): { readonly prelu
   if (manifest.dialect === 'isf') return { prelude: shaderPrelude(manifest.kind, []) + isfPrelude(manifest.kind, manifest.params ?? []), suffix: ISF_MAIN };
   const base = shaderPrelude(manifest.kind, manifest.params ?? []);
   if ((manifest.dialect ?? 'pulseforge') !== 'shadertoy') return { prelude: base, suffix: '' };
-  return { prelude: base + SHADERTOY_UNIFORMS, suffix: shadertoyMain(manifest.alpha ?? 'opaque') };
+  return { prelude: base + SHADERTOY_UNIFORMS, suffix: shadertoyMain(manifest.alpha ?? 'opaque', shadertoyChannels(manifest).includes('input')) };
 }
 
 /** What `iChannel0…3` read, with the defaults filled in. */
@@ -337,6 +362,23 @@ function uploadIsfParam(gl: WebGL2RenderingContext, location: WebGLUniformLocati
   }
 }
 
+/** The layer's input in display colour, on a pooled target the caller releases; null with no input. */
+function inputAsDisplay(ctx: RenderContext, program: WebGLProgram, location: WebGLUniformLocation | null, vao: WebGLVertexArrayObject): RenderTarget | null {
+  const { gl, input } = ctx;
+  if (input === null) return null;
+  const target = ctx.targets.acquire(input.width, input.height, 'rgba16f');
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+  gl.disable(gl.BLEND);
+  gl.useProgram(program);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, input.texture);
+  gl.uniform1i(location, 1);
+  drawFullscreenTriangle(gl, vao);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, ctx.outputTarget.framebuffer);
+  return target;
+}
+
 function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSource): ModuleInstance {
   const program = compile(gl, source);
   const params = source.manifest.params ?? [];
@@ -363,6 +405,9 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
+  const readsInput = channels.includes('input');
+  const toDisplay = readsInput ? createProgram(gl, `${source.manifest.id} input`, FULLSCREEN_VERT, inputToDisplayFrag(source.manifest.alpha ?? 'opaque')) : null;
+  const toDisplaySource = toDisplay === null ? null : gl.getUniformLocation(toDisplay, 'u_source');
   const st = shadertoy ? {
     resolution: loc('iResolution'), time: loc('iTime'), delta: loc('iTimeDelta'), rate: loc('iFrameRate'), frame: loc('iFrame'),
     mouse: loc('iMouse'), date: loc('iDate'), sampleRate: loc('iSampleRate'),
@@ -374,6 +419,7 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
     resize() {},
 
     render(ctx: RenderContext, values: ParamValues) {
+      const displayInput = toDisplay === null ? null : inputAsDisplay(ctx, toDisplay, toDisplaySource, vao);
       // The first stem parameter chooses what the audio uniforms describe; with none, the mix.
       const stem = (stemParam === undefined ? 'mix' : values[stemParam.key]) as Stem;
       const { bins, features } = analysis.update(ctx, (STEMS as readonly string[]).includes(stem) ? stem : 'mix');
@@ -445,7 +491,7 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
         channels.forEach((channel, i) => {
           // Units 2–5: 0 is the spectrum, 1 the Pulseforge input.
           gl.activeTexture(gl.TEXTURE2 + i);
-          const texture = channel === 'audio' ? stAudio?.texture ?? black : channel === 'input' ? ctx.input?.texture ?? black : black;
+          const texture = channel === 'audio' ? stAudio?.texture ?? black : channel === 'input' ? displayInput?.texture ?? black : black;
           gl.bindTexture(gl.TEXTURE_2D, texture);
           gl.uniform1i(st.channels[i] ?? null, 2 + i);
           if (channel === 'audio') resolutions.push(SHADERTOY_AUDIO_WIDTH, 2, 1);
@@ -457,6 +503,7 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
       }
 
       drawFullscreenTriangle(gl, vao);
+      if (displayInput !== null) ctx.targets.release(displayInput);
       if (st !== null) {
         for (let i = 0; i < 4; i += 1) {
           gl.activeTexture(gl.TEXTURE2 + i);
@@ -474,6 +521,7 @@ function createShaderInstance(gl: WebGL2RenderingContext, source: ShaderModuleSo
       analysis.dispose();
       stAudio?.dispose();
       if (black !== null) gl.deleteTexture(black);
+      if (toDisplay !== null) gl.deleteProgram(toDisplay);
       gl.deleteProgram(program);
       gl.deleteVertexArray(vao);
     },

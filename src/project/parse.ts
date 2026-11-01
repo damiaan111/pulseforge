@@ -21,7 +21,7 @@ import {
   type AnalysisSettings, type Anchor, type AspectBucket, type AspectOverride, type AssetKind, type AssetRef,
   type AudioSettings, type BandDefinition, type CanvasSettings, type CurveSpec,
   MASK_CHANNELS, NAMED_EASINGS, type MaskSettings, type AutomationTrack, type Keyframe, type KeyframeEasing, type Marker, type MidiClip,
-  type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
+  type ColourSource, type DecisionEntry, type DirectorLock, type DirectorRoll, type DirectorState, type DocumentBlendMode, type GeneratedMark, type EffectSpec, type EnvelopeSpec, type Extra, type Layer,
   type ModulationBinding, type Palette, type ProjectDocument, type QuantiseSpec, type Range,
   type ScaleReference, type SourceSpec, type TimeRange, type Transform,
 } from './document.ts';
@@ -712,6 +712,10 @@ function parseMidiClip(node: Node): MidiClip {
  * it made is ordinary layers — so a damaged record is repaired with defaults and reported, never
  * a reason to refuse the file.
  */
+function colourSource(n: Node): ColourSource {
+  return { origin: n.oneOf('origin', ['file', 'cover'] as const, 'file'), path: n.str('path', ''), name: n.str('name', '') };
+}
+
 function parseDirector(node: Node): DirectorState {
   const roll = (n: Node): DirectorRoll => {
     const seeds = n.child('seeds');
@@ -726,6 +730,7 @@ function parseDirector(node: Node): DirectorState {
       locks: n.strings('locks').filter((lock): lock is DirectorLock => (DIRECTOR_LOCKS as readonly string[]).includes(lock)),
       palette: n.strings('palette'),
       summary: n.str('summary', ''),
+      ...(n.take('colourSource') === undefined ? {} : { colourSource: colourSource(n.child('colourSource')) }),
       extra: n.rest(),
     };
   };

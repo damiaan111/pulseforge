@@ -2,7 +2,70 @@
 
 Turn a song into a music video, on your own machine, with your own GPU doing the work.
 
-![The Pulseforge studio, playing a project the auto-director built with MilkDrop](docs/images/studio.png)
+![The Pulseforge studio with a MilkDrop visual, lyrics and the timeline](docs/images/01-studio.png)
+
+Local, offline after setup, and free. No account, no credits, no uploads, no watermark.
+
+**Windows 10/11, 64-bit** · Electron, TypeScript and WebGL2, with Demucs and WhisperX on the side, and FFmpeg for export · [MIT](LICENSE)
+
+## Contents
+
+[Features](#features) · [Screenshots](#screenshots) · [Install](#install) · [Running it](#running-it) · [How it works](#how-it-works) · [Where the build is right now](#where-the-build-is-right-now) · [Documentation](#the-documentation)
+
+## Features
+
+**Visuals**
+- About 1,750 MilkDrop presets through Butterchurn, searchable, with a picture of each
+- Ten built-in visualizers, three 3D scenes, images, video backgrounds, text and logos
+- Layers with transforms, blend modes, groups and masks, with effect chains on each layer and on the whole frame
+- Depth of field, bloom, LUTs and more; film-like motion blur and 2× supersampling on export
+- Your own shaders: `.glsl` from Shadertoy, ISF `.fs` files, or a module with a small JSON file. The controls build themselves
+- Vertical titles, 3D extruded titles that follow the beat, and colour emoji in titles
+
+**Music reaction**
+- Any audio feature can drive any parameter, with a one-click recipe or shaped by hand
+- Stems: vocals, drums, bass and other (six stems with the optional model), so each part drives its own thing
+- Beats, onsets, sections, tempo and the musical key are analysed up front
+- MIDI files drive parameters note by note
+- Keyframes with easing and a curve editor, markers that layers can react to, and a modulation matrix
+- A read-only node view of the whole project
+
+**Lyrics and karaoke**
+- Transcribe with WhisperX and time every word, or paste lyrics and tap along
+- Words fill in as they are sung, in seven styles; the vocals are drawn behind the lyric lane
+- Right-to-left text, CJK and Thai line breaks, with bundled fonts for every script
+- Karaoke export: the instrumental, with the words on screen
+
+**Auto-director**
+- Ten templates ranked for the song; a project in one click, with the decisions listed so you can see why
+- Every result is an ordinary project: nothing is locked, and undo works
+- Surprise Me rolls another take and keeps what you edited or locked
+- Colours from the track, an image or the song's cover art, with palette shifts at a chorus
+- Save a project as your own template with Extract
+
+**Export**
+- MP4 to 4K60: H.264 and HEVC on NVENC, H.264 on the CPU where there is no usable card
+- Landscape, vertical and square from one project
+- File size choice: best quality, balanced or small
+- A render queue, a batch mode for whole folders, a command line, and an A/B render of two versions side by side
+- Every frame is deterministic: the same project gives the same pixels
+
+**Looking after itself**
+- A real Windows installer, with `.pvproj` files opening in the app
+- Choose what to install and where it goes; remove components from the app again
+- Autosave with crash recovery; the preview comes back after a graphics driver reset
+- A performance HUD, draft preview, and storage and log views
+
+## Screenshots
+
+| | |
+|---|---|
+| ![The auto-director with its ranked templates](docs/images/02-auto-director.png) **Auto-director:** templates ranked for the song | ![The lyrics panel with timed lines](docs/images/03-lyrics.png) **Lyrics:** timing, checking and correcting |
+| ![The modulation matrix](docs/images/04-modulation.png) **Modulation matrix:** every connection in one place | ![The node view](docs/images/05-node-view.png) **Node view:** how the project fits together |
+| ![The export dialog](docs/images/06-export.png) **Export:** shapes, file size, range and motion blur | ![Settings](docs/images/07-settings.png) **Settings** |
+| ![Batch mode](docs/images/08-batch.png) **Batch:** a folder of songs, a video each | ![The component chooser](docs/images/00-first-start.png) **First start:** choose what to install |
+
+The song and lyrics in these pictures were made up for them.
 
 ## What it is
 
@@ -71,10 +134,10 @@ You do not need Node, Python, FFmpeg or git. The launcher fetches what is missin
 
 ## Install
 
-**The easy way:** run `Pulseforge-Setup-1.0.0.exe`, from `npm run dist` or a release. It installs for you alone, needs no
-administrator rights, and adds a Start menu and desktop shortcut. The first start offers the components. They go to
-`%LOCALAPPDATA%\Pulseforge` unless you choose another folder there, and uninstalling leaves them. The installer is not
-code-signed, so Windows may warn the first time: choose More info, then Run anyway.
+**The easy way:** run `Pulseforge-Setup-1.0.0.exe`. There is no published release yet, so build it with `npm run dist`; it lands
+in `release/`. It installs for you alone, needs no administrator rights, and adds a Start menu and desktop shortcut. The first
+start offers the components. They go to `%LOCALAPPDATA%\Pulseforge` unless you choose another folder there, and uninstalling
+leaves them. The installer is not code-signed, so Windows may warn the first time: choose More info, then Run anyway.
 
 **From source:**
 
@@ -103,13 +166,14 @@ against a known checksum. You can add more at any time in **Settings → Compone
 CC BY-NC 4.0, for non-commercial use. They are never installed unless you choose them and confirm
 that you have read the notice. English alignment is not affected.
 
-Nothing is installed outside this folder, so your own Python and FFmpeg are left alone, and
-deleting the folder removes all of it. Once the download has finished, the app never reaches out to
-the internet again.
+Your own Python and FFmpeg are left alone. Running from source, everything stays in this folder, so
+deleting it removes all of it. Once the download has finished, the app never reaches out to the
+internet again.
 
 ## Running it
 
-Double-click `Pulseforge.cmd`. To open a project, pass it along:
+Installed, use the Start menu or desktop shortcut, or double-click a `.pvproj` file. From source,
+double-click `Pulseforge.cmd`. To open a project, pass it along:
 
 ```bash
 Pulseforge.cmd song.pvproj
@@ -137,6 +201,7 @@ Some things you can pass it:
 | `--aspect 9:16` | Render vertical instead of the project's own shape |
 | `--size 3840x2160` | Pick the resolution yourself |
 | `--codec hevc` | HEVC instead of H.264, better quality per megabyte |
+| `--quality balanced` | A smaller file: `balanced` or `small`. The default is `best` |
 | `--seconds 30` | Only render the first thirty seconds, handy for checking a look |
 | `--audio other.wav` | Swap the audio without touching the project |
 | `--no-cache` | Analyse the audio again instead of reading the cached analysis |
@@ -152,6 +217,7 @@ Some things you can pass it:
 | `npm run contact-sheet -- <folder>` | Run every auto template on every track in a folder; a grid of stills in `out/contact-sheet/` |
 | `npm run validate` | The full hardware validation run, writes a report to `out/validate/` |
 | `npm run build` | Bundle the app without launching it |
+| `npm run dist` | Build the Windows installer into `release/` |
 
 ## How it works
 
@@ -253,7 +319,8 @@ scale while the vocal drives the glow.
 
 **Autosave:** unsaved work is snapshotted every minute and before a preset is applied. If the app
 ever dies, the next start offers the work back, says when it was saved and what differs from the
-file on disk, and lets you restore or discard it.
+file on disk, and lets you restore or discard it. If only the studio window crashes, it comes back
+by itself with the same offer. Crash dumps stay on your disk and are never sent anywhere.
 
 **Lyrics:** paste them or import a subtitle file, then let WhisperX time every word from the
 isolated vocals in about a minute, or tap along yourself. Correct anything on the lyrics lane
@@ -261,6 +328,8 @@ of the timeline, with the vocals drawn behind it. Words fill in as they are sung
 
 **MilkDrop:** the Presets panel opens on about 1,750 visuals by the MilkDrop community, with search
 and a picture of each. They render byte-identically from one run to the next, like everything else.
+23 presets ask for texture files nobody shipped: the part that cannot run falls back to the default, and
+the layer says so.
 
 **Auto:** import a track into an empty project and it offers to build one. Ten templates (three
 built on MilkDrop, then Neon Pulse, Neon Grid, Minimal Type, Minimal Mono, Cinematic Depth, Cinematic
@@ -311,6 +380,15 @@ any strength.
 **Draft mode:** one click renders the preview at 640 px with the costliest effects approximated,
 so heavy projects stay smooth while you edit — exports always use full quality.
 
+**Also in since 1.0:** ISF shaders, vertical and 3D titles, colour emoji in titles, MIDI files as a
+modulation source, combining audio files into one track, a video file as the audio, A/B renders, the
+node view, colours from an image or cover art, palette shifts, Extract as template, and a choice of
+file size.
+
+**Known limits:** it has been used by one person on one PC, with an RTX 3060. A PC without an NVIDIA
+card has not been tried. The installer is not code-signed, so Windows warns about it. Live input,
+WebGPU and NDI/Spout are left out on purpose. The reasons are in `docs/ROADMAP.md` §6.
+
 Every Must-have and Should-have is done; `docs/ROADMAP.md` lists what is left.
 
 `docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
@@ -323,6 +401,7 @@ The design was written before the code, and it is all in the repo.
 
 | File | What is in it |
 |---|---|
+| `CHANGELOG.md` | What changed, release by release. |
 | `PROJECT.md` | The whole plan. What it is, what it needs, what it will never do. |
 | `docs/STATUS.md` | Where the build actually is. Read this first if you are picking it up. |
 | `docs/ROADMAP.md` | Every requirement, done or not, and what gets built next. |

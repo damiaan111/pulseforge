@@ -15,6 +15,7 @@
 // that owns *how*. That split is what makes the whole thing testable without a renderer, and it
 // is also why the queue can be driven from the CLI and the app alike.
 
+import type { ExportQuality } from './ffmpeg-args.ts';
 import type { MotionBlur } from '../engine/core/time.ts';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -69,6 +70,8 @@ export interface RenderJob {
   /** 'instrumental' for a karaoke render (S15). Absent or 'full': the song — every earlier job. */
   /** Spatial supersampling (export-spec §9). Absent: 1, every job queued before it existed. */
   readonly supersample?: 1 | 2;
+  /** Picture against file size. Absent: best, every job queued before it existed. */
+  readonly quality?: ExportQuality;
   readonly audioMix?: 'full' | 'instrumental';
   /** An A/B render (C10): this document is the right-hand side, the job's own the left. */
   readonly compare?: JobComparison;
@@ -91,6 +94,7 @@ export interface EnqueueRequest {
   readonly range?: JobRange | null;
   readonly motionBlur?: MotionBlur | null;
   readonly supersample?: 1 | 2;
+  readonly quality?: ExportQuality;
   readonly audioMix?: 'full' | 'instrumental';
   readonly compare?: { readonly document: ProjectDocument; readonly projectPath: string | null; readonly label: string };
   readonly outputPath: string;
@@ -229,6 +233,7 @@ export class RenderQueue {
       range: request.range ?? null,
       motionBlur: request.motionBlur ?? null,
       ...(request.supersample === 2 ? { supersample: 2 as const } : {}),
+      ...(request.quality === undefined || request.quality === 'best' ? {} : { quality: request.quality }),
       ...(request.audioMix === 'instrumental' ? { audioMix: 'instrumental' as const } : {}),
       ...(compare === undefined ? {} : { compare }),
       outputPath: request.outputPath,

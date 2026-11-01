@@ -15,6 +15,7 @@
 //   --aspect 16:9|9:16|1:1|4:5   render at that shape, keeping the project's pixel count
 //   --size WxH                   explicit canvas size, overriding the project's
 //   --codec h264|hevc            default h264
+//   --quality best|balanced|small  picture against file size; default best
 //   --audio <file>               override the document's audio path
 //   --no-cache                   re-analyse instead of reading the analysis cache
 //   --seconds N                  render only the first N seconds
@@ -28,6 +29,7 @@
 //                                (seconds, or m:ss); either may be left out (S9)
 //   --quiet                      only errors and the final line
 
+import { EXPORT_QUALITIES, type ExportQuality } from '../export/ffmpeg-args.ts';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -53,6 +55,7 @@ export interface Options {
   readonly aspect: string | undefined;
   readonly size: { width: number; height: number } | undefined;
   readonly codec: 'h264' | 'hevc';
+  readonly quality: ExportQuality;
   readonly audioOverride: string | undefined;
   readonly noCache: boolean;
   readonly seconds: number | undefined;
@@ -104,6 +107,9 @@ export function parseArgs(argv: readonly string[]): Options {
     throw new CliError(`Unknown codec "${codec}".`, ['Use --codec h264 (default) or --codec hevc']);
   }
 
+  const quality = EXPORT_QUALITIES.find((q) => q.id === (flags.get('quality') ?? 'best'))?.id;
+  if (quality === undefined) throw new CliError(`Unknown quality "${flags.get('quality') ?? ''}".`, [`Use ${EXPORT_QUALITIES.map((q) => q.id).join(', ')}`]);
+
   let size: { width: number; height: number } | undefined;
   const sizeFlag = flags.get('size');
   if (sizeFlag !== undefined) {
@@ -136,6 +142,7 @@ export function parseArgs(argv: readonly string[]): Options {
     aspect: flags.get('aspect'),
     size,
     codec,
+    quality,
     audioOverride: flags.get('audio'),
     seconds,
     motionBlur,
@@ -211,6 +218,7 @@ export async function render(argv: readonly string[]): Promise<void> {
       size: options.size,
       seconds: options.seconds,
       codec: options.codec,
+      quality: options.quality,
       motionBlur: options.motionBlur,
       supersample: options.supersample ? 2 : undefined,
       outputPath: options.outputPath,

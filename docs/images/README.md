@@ -1,3 +1,3 @@
 # Screenshots
 
-Images referenced by the main README.md. `studio.png` is the smoke check's capture (`out/smoke-milkdrop.png`) with a real song as `out/smoke-song.wav`.
+Images referenced by the main README.md, captured from the real app. The song, title and lyrics in them were made up for the pictures, so that nothing here is anyone else's work.

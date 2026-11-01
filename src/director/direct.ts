@@ -30,7 +30,7 @@ import { createBinding, createEffect, createModuleLayer } from '../project/creat
 import {
   DIRECTOR_HISTORY_LIMIT, IDENTITY_TRANSFORM, aspectBucket, walkLayers,
   type AspectBucket, type AspectOverride, type AutomationTrack, type DecisionEntry, type DecisionStep, type DirectorAspect, type DirectorLock,
-  type DirectorRoll, type EffectSpec, type GeneratedMark, type Layer, type ModulationBinding, type ModuleLayer,
+  type ColourSource, type DirectorRoll, type EffectSpec, type GeneratedMark, type Layer, type ModulationBinding, type ModuleLayer,
   type Palette, type ProjectDocument, type Transform,
 } from '../project/document.ts';
 import { createIdFactory } from '../project/ids.ts';
@@ -68,7 +68,7 @@ export interface DirectorInput {
   /** Decoded image assets by content hash; absent where nothing decoded them (a batch). */
   readonly images?: ReadonlyMap<string, DecodedImage>;
   /** A picture the user chose as the colour source: it leads any palette that is not fixed. */
-  readonly colourImage?: { readonly name: string; readonly image: DecodedImage } | null;
+  readonly colourImage?: { readonly name: string; readonly image: DecodedImage; readonly origin?: ColourSource['origin']; readonly path?: string } | null;
 }
 
 export interface DirectOptions {
@@ -211,11 +211,14 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
 
   // --- palette --------------------------------------------------------------------------------
   let palette: Palette;
+  let colourSource: ColourSource | undefined;
   if (restore !== undefined && restore.palette.length === document.palette.colors.length && restore.palette.length > 0) {
     palette = { ...document.palette, colors: [...restore.palette] };
+    colourSource = restore.colourSource;
     note('palette', 'Restored the palette of that roll.');
   } else if (locks.has('palette') && previous !== null) {
     palette = document.palette;
+    colourSource = previous.current.colourSource;
     note('palette', 'Kept the palette (locked).');
   } else if (template.palette.strategy === 'user') {
     palette = document.palette;
@@ -228,6 +231,9 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     if (strategy === 'fixed' && input.colourImage != null) note('palette', `"${input.colourImage.name}" was not used: ${template.name} fixes its colours.`);
     if (chosenImage !== null) {
       generated = derivePalette(template.palette, chosenImage.image, chosenImage.name, style, seeds.palette);
+      if (generated !== null && chosenImage.origin !== undefined && chosenImage.path !== undefined) {
+        colourSource = { origin: chosenImage.origin, path: chosenImage.path, name: chosenImage.name };
+      }
       if (generated === null) note('palette', `"${chosenImage.name}" has nothing visible in it: generated the colours from the track instead.`, { imageFallback: true });
     } else if (strategy === 'derive-from-image') {
       const asset = backgroundFor(backgroundImageKey(template));
@@ -829,6 +835,7 @@ export function direct(input: DirectorInput, options: DirectOptions): DirectResu
     locks: [...locks],
     palette: [...palette.colors],
     summary: [template.name, heroFilled?.label, hueName(primary)].filter(Boolean).join(' · '),
+    ...(colourSource === undefined ? {} : { colourSource }),
     extra: {},
   };
   const history = previous === null ? [] : dedupeRolls([...previous.history, previous.current]).filter((r) => !sameRoll(r, roll)).slice(-DIRECTOR_HISTORY_LIMIT);

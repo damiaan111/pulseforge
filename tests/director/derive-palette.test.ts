@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { MusicalKey } from '../../src/analysis/key.ts';
 import { direct } from '../../src/director/direct.ts';
 import { contrastRatio, derivePalette, dominantColours, generatePalette, hexToHsl } from '../../src/director/palette.ts';
 import { parseTemplate, type Template, type TemplatePalette } from '../../src/director/template.ts';
@@ -57,6 +58,24 @@ describe('dominantColours', () => {
     const halfClear = image(32, 32, (x) => (x < 16 ? [255, 0, 0, 0] : [0, 0, 255, 255]));
     expect(gap(dominantColours(halfClear, 1)[0]!.h, 240)).toBeLessThan(2);
     expect(dominantColours(image(8, 8, () => [255, 0, 0, 0]), 1)).toEqual([]);
+  });
+});
+
+describe('a palette that follows the key', () => {
+  const follows = (): TemplatePalette => {
+    const base = spec();
+    return { ...base, strategy: 'generate-from-style', baseHue: { from: 'key', range: [0, 360] } };
+  };
+  const key = (confidence: number): MusicalKey => ({ tonic: 0, mode: 'minor', confidence } as MusicalKey);
+
+  it('uses a key the analysis is sure of', () => {
+    expect(generatePalette(follows(), STYLE, 4, 0, key(0.8)).notes[0]).toContain('from the key');
+  });
+
+  it('does not rest a colour on a guess, and says why', () => {
+    const made = generatePalette(follows(), STYLE, 4, 0, key(0.15));
+    expect(made.notes[0]).toContain('brightness');
+    expect(made.notes.join(' ')).toContain('15% sure');
   });
 });
 

@@ -242,7 +242,8 @@ export class SidecarSupervisor {
     this.session = session;
 
     return new Promise<void>((resolve, reject) => {
-      const startTimeout = this.options.startTimeoutMs ?? 60_000;
+      // Importing torch from cold takes well over a minute with the disk busy, and a slow start is not a failure.
+      const startTimeout = this.options.startTimeoutMs ?? 180_000;
       const timer = setTimeout(() => {
         if (session.ready) return;
         child.kill();

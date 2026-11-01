@@ -32,6 +32,8 @@ export interface MilkdropHost {
   hasPreset(name: string): boolean;
   /** Synchronous: presets are loaded before rendering, so a frame never waits. */
   frame(request: MilkdropRequest): TexImageSource;
+  /** What the preset on this layer could not run; null when it runs whole. */
+  problem(owner: object): string | null;
   /** The layer is gone: free its context. Browsers allow only a handful at once. */
   release(owner: object): void;
 }
