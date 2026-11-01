@@ -62,8 +62,8 @@ Local, offline after setup, and free. No account, no credits, no uploads, no wat
 |---|---|
 | ![The auto-director with its ranked templates](docs/images/02-auto-director.png) **Auto-director:** templates ranked for the song | ![The lyrics panel with timed lines](docs/images/03-lyrics.png) **Lyrics:** timing, checking and correcting |
 | ![The modulation matrix](docs/images/04-modulation.png) **Modulation matrix:** every connection in one place | ![The node view](docs/images/05-node-view.png) **Node view:** how the project fits together |
-| ![The export dialog](docs/images/06-export.png) **Export:** shapes, file size, range and motion blur | ![Settings](docs/images/07-settings.png) **Settings** |
-| ![Batch mode](docs/images/08-batch.png) **Batch:** a folder of songs, a video each | ![The component chooser](docs/images/00-first-start.png) **First start:** choose what to install |
+| ![The export dialog](docs/images/06-export.png) **Export:** shapes, file size, range and motion blur | ![Settings with the components](docs/images/07-settings.png) **Settings:** add or remove components |
+| ![Batch mode](docs/images/08-batch.png) **Batch:** a folder of songs, a video each | ![The render queue](docs/images/09-render-queue.png) **Renders:** a queue you can keep working beside |
 
 The song and lyrics in these pictures were made up for them.
 

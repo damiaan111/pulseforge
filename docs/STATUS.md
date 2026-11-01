@@ -9,7 +9,7 @@
 > stems and lyrics tiers). The studio runs end to end: import audio, build a look from 25+ layer and effect
 > modules (2D visualizers, text, logo, image/video backgrounds, groups, drop-in shader modules, three
 > Three.js scenes), browse and save presets, preview on the audio clock, and queue NVENC renders at
-> any aspect. Last full verification, 2026-10-31, driver 621.01: `npm run check` 1553 passed and 13 skipped (optional
+> any aspect. Last full verification, 2026-11-02, driver 621.01: `npm run check` 1563 passed and 13 skipped (optional
 > components; see 4.92); golden 29/29 identical; smoke 46/46 (46/46 with a real queued render and an
 > auto-directed batch render, the day before); `--verify` and `--rebuild-check` pass (4.5 GB in 100 s with no network). On the owner's fixed machine, before that driver
 > changed: check 1177/1177, smoke 38/38 with a queued render, `--verify` and `--rebuild-check` pass.
@@ -4892,6 +4892,12 @@ these looks has been judged by eye.
 
 **The installer** takes the `.pvproj` keys with it (`assets/installer.nsh`), except during an update. **The sidecar** gets 180 s to start, not
 60: a cold torch import under load failed four GPU tests on two different days, and a slow disk would do the same to a person.
+
+**Checked afterwards.** Packaged smoke 46/46 (`PULSEFORGE_SMOKE=1` with `PULSEFORGE_DATA` on the repo: `--smoke` is only `npm run dev`'s switch,
+and on the exe it simply opens the app). A silent install writes the `.pvproj` keys and a silent uninstall removes them. One smoke run hung for over two hours
+with the renderer idle, right after the check for the blocked network request, and was killed. The rerun passed 46/46 in about 4 minutes.
+The cause is unknown: its output sat behind `| tail`, so the step was not visible. Log a smoke run to a file, and if it hangs again read the
+last `[smoke] step:` line. The other projects on the machine were busy at the time.
 
 **Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
 voice line was not reproduced, and is left as it was.
