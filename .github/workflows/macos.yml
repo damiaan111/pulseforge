@@ -68,7 +68,7 @@ jobs:
         run: |
           mkdir -p out
           rm -f out/smoke-result.json
-          npm run dev -- --smoke > out/smoke-run.log 2>&1 || true
+          PULSEFORGE_UI_TOUR=1 npm run dev -- --smoke > out/smoke-run.log 2>&1 || true
           tail -40 out/smoke-run.log
           cat out/smoke-result.json || echo "no smoke result"
 
@@ -86,6 +86,7 @@ jobs:
             out/smoke-run.log
             out/smoke.png
             out/smoke-milkdrop.png
+            out/ui-tour/
             out/vitest-last.json
             vendor/setup.log
           if-no-files-found: ignore

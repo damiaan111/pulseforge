@@ -68,6 +68,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font: 12.5px/1.45 "Segoe UI", system-ui, sans-serif;
+  /* macOS only: light text on a dark studio reads heavy and blurred with subpixel smoothing. */
+  -webkit-font-smoothing: antialiased;
   /* Chrome, not a document: the window itself never scrolls or selects like a web page. */
   overflow: hidden;
   user-select: none;
@@ -148,6 +150,12 @@ h2 {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+/* One line whatever the system font: SF on a Mac runs wider than Segoe UI, and one wrapped button doubles
+   the bar's height. The undo and redo labels name what they reverse, so they are the ones that give way. */
+.topbar { overflow: hidden; }
+.topbar > button { white-space: nowrap; flex-shrink: 0; }
+.topbar > button[data-action="undo"], .topbar > button[data-action="redo"] { flex-shrink: 1; min-width: 60px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.topbar > .project-name { flex-shrink: 1; min-width: 0; }
 .wordmark { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); margin-right: 6px; }
 .project-name { color: var(--text-dim); background: none; border-color: transparent; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-name-edit { width: 260px; }

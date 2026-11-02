@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 import { findLayer, renameProject } from '../../project/commands.ts';
+import { shortcutLabel } from '../platform-keys.ts';
 import { useStudio } from '../store.ts';
 
 export function TopBar(): React.JSX.Element {
@@ -101,13 +102,13 @@ export function TopBar(): React.JSX.Element {
       <button type="button" data-action="render-queue" className={queueOpen ? 'active' : ''} onClick={() => setQueueOpen(!queueOpen)}>
         Renders{activeRenders > 0 ? ` (${activeRenders})` : ''}
       </button>
-      <button type="button" data-action="settings" title="Settings (Ctrl+,)" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+      <button type="button" data-action="settings" title={`Settings (${shortcutLabel('Ctrl+,')})`} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
         ⚙
       </button>
       <button type="button" data-action="batch" title="Auto-direct and render many tracks — or drop audio files onto the window" onClick={() => useStudio.getState().openBatch()}>
         Batch…
       </button>
-      <button type="button" className="primary" data-action="export" title="Ctrl+E" onClick={() => setExportOpen(true)}>
+      <button type="button" className="primary" data-action="export" title={shortcutLabel('Ctrl+E')} onClick={() => setExportOpen(true)}>
         ▸ Export
       </button>
     </header>

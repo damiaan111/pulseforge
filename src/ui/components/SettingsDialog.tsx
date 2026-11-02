@@ -22,13 +22,14 @@ import type { SettingsInfo, UserSettings } from '../../shell/ipc.ts';
 import { useStudio } from '../store.ts';
 import { SHORTCUT_ACTIONS, keyLabel, keyName, keysFor, remap, type ShortcutMap } from '../shortcuts.ts';
 import { StorageSection } from './StorageSection.tsx';
+import { ON_MAC, shortcutLabel } from '../platform-keys.ts';
 
-/** The keys that do not move: Windows' own, and the ones that mean something only inside a panel. */
+/** The keys that do not move: the system's own, and the ones that mean something only inside a panel. */
 const FIXED_SHORTCUTS: readonly (readonly [string, string])[] = [
-  ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
-  ['Ctrl+S', 'Save'],
-  ['Ctrl+E', 'Export'],
-  ['Ctrl+,', 'Settings'],
+  [shortcutLabel('Ctrl+Z / Ctrl+Shift+Z'), 'Undo / redo'],
+  [shortcutLabel('Ctrl+S'), 'Save'],
+  [shortcutLabel('Ctrl+E'), 'Export'],
+  [shortcutLabel('Ctrl+,'), 'Settings'],
   ['Esc', 'Close the topmost panel or dialog'],
   ['↑ / ↓ (lyrics)', 'Previous / next line'],
   ['I / O (lyrics)', 'Line starts / ends at the playhead'],
@@ -88,7 +89,7 @@ export function SettingsDialog(): React.JSX.Element | null {
               <select value={settings.theme} data-setting="theme" onChange={(e) => void save({ theme: e.target.value as UserSettings['theme'] })}>
                 <option value="dark">Dark</option>
                 <option value="light">Light</option>
-                <option value="system">Follow Windows</option>
+                <option value="system">{ON_MAC ? 'Follow macOS' : 'Follow Windows'}</option>
               </select>
             </label>
             <label className="field">

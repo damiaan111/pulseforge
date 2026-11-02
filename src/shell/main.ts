@@ -26,9 +26,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { BrowserWindow, Menu, Notification, app, clipboard, crashReporter, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
+import { BrowserWindow, Menu, Notification, app, clipboard, crashReporter, dialog, ipcMain, screen, session, shell, type Rectangle } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, MODULE_LIBRARIES, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
 import { MAC } from '../../setup/lib/platform.ts';
+import { macMenu } from './mac-menu.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS, colorEmojiFontFile, fallbackFontFiles } from '../assets/fonts.ts';
@@ -1780,9 +1781,12 @@ async function seedModules(): Promise<void> {
 }
 
 async function createWindow(): Promise<BrowserWindow> {
+  // As large as the studio was designed at, but never larger than the screen: a 13-inch MacBook Air is
+  // 1470 points wide, and a window that starts past the edge looks broken before anything is used.
+  const area = screen.getPrimaryDisplay().workAreaSize;
   const window = new BrowserWindow({
-    width: 1600,
-    height: 950,
+    width: Math.min(1600, area.width),
+    height: Math.min(950, area.height),
     minWidth: 1100,
     minHeight: 700,
     // Dark studio chrome (ui-spec §12): paint it before the page loads so there is no flash.
@@ -1843,15 +1847,8 @@ app.enableSandbox();
 // From source a second copy is often the point.
 if (INSTALLED) {
   app.setAppUserModelId('app.pulseforge.studio');
-  // Windows shows no menu bar. A Mac always has one, and without Edit in it Cmd+C and Cmd+V do nothing in
-  // a text field. Undo is left out on purpose: Cmd+Z reaches the studio, whose undo is the project's.
-  Menu.setApplicationMenu(MAC
-    ? Menu.buildFromTemplate([
-      { role: 'appMenu' },
-      { label: 'Edit', submenu: [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
-      { role: 'windowMenu' },
-    ])
-    : null);
+  // Windows shows no menu bar: the studio's top bar is the menu there. The Mac's is set for every run below.
+  if (!MAC) Menu.setApplicationMenu(null);
   if (!app.requestSingleInstanceLock()) app.exit(0);
   app.on('second-instance', (_event, argv) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -1861,6 +1858,19 @@ if (INSTALLED) {
     const project = projectPathIn(argv);
     if (project === undefined) return;
     void readProjectText(project).then((text) => window.webContents.send(IPC.projectOpenRequest, { path: project, text } satisfies ProjectFile));
+  });
+}
+
+// A Mac always has a menu bar, from source too; without Edit in it Cmd+C and Cmd+V do nothing in a field.
+if (MAC) {
+  void app.whenReady().then(() => {
+    Menu.setApplicationMenu(macMenu());
+    app.setAboutPanelOptions({
+      applicationName: 'Pulseforge',
+      applicationVersion: app.getVersion(),
+      copyright: 'MIT licence',
+      credits: 'MilkDrop through Butterchurn, FFmpeg, Demucs and WhisperX. Offline, on your own Mac.',
+    });
   });
 }
 

@@ -9,7 +9,7 @@
 // renderer that, in principle, could be running a third-party module).
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { IPC, type ProjectFile, type PulseforgeApi, type RenderJob, type SaveRequest, type SaveResult } from './ipc.ts';
+import { IPC, type MenuCommand, type ProjectFile, type PulseforgeApi, type RenderJob, type SaveRequest, type SaveResult } from './ipc.ts';
 // (SaveResult stays imported for saveProject's cast.)
 
 const api: PulseforgeApi = {
@@ -19,6 +19,13 @@ const api: PulseforgeApi = {
     ipcRenderer.on(IPC.projectOpenRequest, handler);
     return () => {
       ipcRenderer.removeListener(IPC.projectOpenRequest, handler);
+    };
+  },
+  onMenuCommand: (listener) => {
+    const handler = (_event: unknown, command: MenuCommand) => listener(command);
+    ipcRenderer.on(IPC.menuCommand, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.menuCommand, handler);
     };
   },
   openProject: () => ipcRenderer.invoke(IPC.projectOpen) as Promise<ProjectFile | null>,

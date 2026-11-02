@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from './components/App.tsx';
 import { history, useStudio } from './store.ts';
+import { runMenuCommand } from './menu-commands.ts';
 
 const container = document.getElementById('app');
 if (container === null) throw new Error('The renderer page has no #app element');
@@ -39,6 +40,7 @@ async function start(): Promise<void> {
 
 void start();
 window.pulseforge.onProjectOpenRequest((file) => useStudio.getState().openRequested(file));
+window.pulseforge.onMenuCommand(runMenuCommand);
 
 // Closing the window with unsaved work asks first. The renderer only says "there is something to
 // lose"; the main process shows the question (`will-prevent-unload`), since a page cannot.

@@ -26,6 +26,8 @@ import type { BeatRefinement, BeatRefinementState } from '../analysis/beat-refin
 export const IPC = {
   projectInitial: 'pf:project:initial',
   projectOpenRequest: 'pf:project:open-request',
+  /** The Mac's menu bar asking the page to do something (shell/mac-menu.ts). */
+  menuCommand: 'pf:menu:command',
   projectOpen: 'pf:project:open',
   projectRead: 'pf:project:read',
   projectSave: 'pf:project:save',
@@ -465,6 +467,9 @@ export interface EnvironmentReport {
  * What `contextBridge` exposes on `window.pulseforge`. Deliberately small: every entry is a
  * capability the renderer would otherwise not have, so the list is the security review.
  */
+/** What the Mac's menu bar can ask of the page; each runs what its key runs (ui/menu-commands.ts). */
+export type MenuCommand = 'new' | 'open' | 'save' | 'save-as' | 'export' | 'settings' | 'undo' | 'redo';
+
 export interface RenderReadiness {
   /** Null when the encoders have not been checked: FFmpeg is missing. */
   readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null; readonly encoder: 'nvenc' | 'software' | 'videotoolbox' }>> | null;
@@ -507,6 +512,8 @@ export interface PulseforgeApi {
   initialProject(): Promise<ProjectFile | null>;
   /** A project double-clicked while the studio is already open. */
   onProjectOpenRequest(listener: (file: ProjectFile) => void): () => void;
+  /** A command from the Mac's menu bar. */
+  onMenuCommand(listener: (command: MenuCommand) => void): () => void;
   /** Shows an open dialog. Resolves to null when the user cancels. */
   openProject(): Promise<ProjectFile | null>;
   /** Reads a known path — for recent files and the crash-recovery flow. */
