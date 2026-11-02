@@ -4902,6 +4902,11 @@ last `[smoke] step:` line. The other projects on the machine were busy at the ti
 **Released as v1.1.0** on GitHub, with `Pulseforge-Setup-1.1.0.exe` attached (SHA-256 `d58bc130…f4a49d`). Its build passed the
 packaged smoke 46/46 and a silent install and uninstall.
 
+**Found afterwards, through the macOS branch's UI tour (fixed, `b5ee850`):** the engine kept the module instance of every layer it
+ever drew. A MilkDrop instance holds a WebGL context, so removed MilkDrop layers and Surprise Me rolls piled contexts up until
+Chromium dropped the oldest, the preview's, and it went white. `releaseUnused` in `src/engine/engine.ts` lets go of the instances
+of layers and effects the project no longer has; the tour now loses no context. Not yet in a released installer.
+
 **Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
 voice line was not reproduced, and is left as it was.
 
