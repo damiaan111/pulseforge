@@ -31,7 +31,7 @@ const DEAD_PROXY = 'http://127.0.0.1:9';
 const PROBE = String.raw`
 import json, os, sys, importlib.util
 from importlib import metadata
-# `nvidia` exists only beside the CUDA build: on a Mac find_spec of a child of a missing package raises.
+# The nvidia package exists only beside the CUDA build: on a Mac find_spec of a child of a missing package raises.
 spec = importlib.util.find_spec("nvidia.cublas") if importlib.util.find_spec("nvidia") is not None else None
 if spec is not None and spec.submodule_search_locations:
     b = os.path.join(list(spec.submodule_search_locations)[0], "bin")
