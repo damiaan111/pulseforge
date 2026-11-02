@@ -1,0 +1,209 @@
+{
+  "engineVersion": "0.1.0-p0",
+  "generatedOn": "2026-09-25T11:03:51.583Z",
+  "records": [
+    {
+      "key": "neon-bars-16x9-00000",
+      "width": 640,
+      "height": 360,
+      "sha256": "5f63378585f26cb3ea988c436457e8f6ca4003e7729d42d3b01820ef1822466a",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-16x9-00045",
+      "width": 640,
+      "height": 360,
+      "sha256": "ac5bbdc6f503603a50898643ea9e3520428e66b6d7458a8db7f949645e09ff22",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-16x9-00090",
+      "width": 640,
+      "height": 360,
+      "sha256": "f2f29012326a17d2d1f6befffd9bd699a8cc389ed7916bafd21042432d660270",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-9x16-00000",
+      "width": 360,
+      "height": 640,
+      "sha256": "ad71b32cdb54ce90cde2b2034b10988f034a4c3141a7fc03aedc2a9685a5bb24",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-9x16-00045",
+      "width": 360,
+      "height": 640,
+      "sha256": "4aa85d09c34a81a5e427ce070f8b46974dc20f775001f0797c39e405e12244d9",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-9x16-00090",
+      "width": 360,
+      "height": 640,
+      "sha256": "883719c1d8acf128ebc20f0cbc7ed0331f2847bf0ddb312b7843cb702e6c8a42",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-1x1-00000",
+      "width": 480,
+      "height": 480,
+      "sha256": "5552812becf4839c5ffd3bc63804ca95f426512c0209fad72713b523d9e2c16c",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-1x1-00045",
+      "width": 480,
+      "height": 480,
+      "sha256": "f17065caf6e3f7c73c68e75ac72c1777fbd0952d8f3d5209b6086668ae1648ab",
+      "notes": []
+    },
+    {
+      "key": "neon-bars-1x1-00090",
+      "width": 480,
+      "height": 480,
+      "sha256": "cf276a74cde7c6bbd6945e4dcb4c0118e9452d8a762c2f4f16caac304a08981c",
+      "notes": []
+    },
+    {
+      "key": "scene3d-16x9-00000",
+      "width": 640,
+      "height": 360,
+      "sha256": "0e6bee3fe28790fdf2a61d6bf1342b330178e8657f600eb354fc6340586c08b7",
+      "notes": []
+    },
+    {
+      "key": "scene3d-16x9-00045",
+      "width": 640,
+      "height": 360,
+      "sha256": "aae0689cfbe16202548732508266eaa1b6ea160f851e357edb6d1d9b8f233854",
+      "notes": []
+    },
+    {
+      "key": "scene3d-16x9-00090",
+      "width": 640,
+      "height": 360,
+      "sha256": "87934cf9df9a72a0cf3e599bc201c680e536bc495953c1ee7312fd63ce45e599",
+      "notes": []
+    },
+    {
+      "key": "scene3d-9x16-00000",
+      "width": 360,
+      "height": 640,
+      "sha256": "6cf007f02e122677d6db2f4f730f93ca49b82036a92639ef30ad28685ed96c80",
+      "notes": []
+    },
+    {
+      "key": "scene3d-9x16-00045",
+      "width": 360,
+      "height": 640,
+      "sha256": "b3e453558b97697a6d890b9315208fa84c42ebc204f748d9a50e9e959806cb4d",
+      "notes": []
+    },
+    {
+      "key": "scene3d-9x16-00090",
+      "width": 360,
+      "height": 640,
+      "sha256": "49d6a76b2f85da30d407597cd09d8d3fbea68570f66ba208ae20f84d869e0568",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00030",
+      "width": 640,
+      "height": 360,
+      "sha256": "f62e5c8bcb31a74a101d0053dc2509fc0cb3e15c789c8a54b83646de1706e616",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00050",
+      "width": 640,
+      "height": 360,
+      "sha256": "19047169bfe29255e64491e4cdd436f032a8feb8f2849196e609a79503242ef5",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00064",
+      "width": 640,
+      "height": 360,
+      "sha256": "282b52df44364633ea1acffe3c17bcb5c1c1430702085fdd81389c2b66356e50",
+      "notes": []
+    },
+    {
+      "key": "lyrics-16x9-00100",
+      "width": 640,
+      "height": 360,
+      "sha256": "dac500b8f6be601525351be7890dac1211870e3ff3965ce1f3c7bf3eba9e6715",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00030",
+      "width": 360,
+      "height": 640,
+      "sha256": "7440630ba4a8dba7a1ac083e06001a6c3212ebc6a23fcf0b56d62f7d9744cb77",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00050",
+      "width": 360,
+      "height": 640,
+      "sha256": "ae10bbd09035fbc19bab5e18f769f13ff439db97b0585f24788d90d37d7409ea",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00064",
+      "width": 360,
+      "height": 640,
+      "sha256": "a86b8abe254a7aa0e22374b177cbbeca01084c7b3227c36eb414bd6819a7fecb",
+      "notes": []
+    },
+    {
+      "key": "lyrics-9x16-00100",
+      "width": 360,
+      "height": 640,
+      "sha256": "1187eaea173fb04eaca4e51865640df7c9b2d5d3bf86224cd8c457a08528d634",
+      "notes": []
+    },
+    {
+      "key": "layered-16x9-00000",
+      "width": 640,
+      "height": 360,
+      "sha256": "c26335a97e6b3988ffc4c10d1b535a01a26c0d278007a3ccb4b08cf70015c8d2",
+      "notes": []
+    },
+    {
+      "key": "layered-16x9-00030",
+      "width": 640,
+      "height": 360,
+      "sha256": "4ec5267c23bce4f6b456f3d968a985503052d79a254bf5201f73c2fa3b8c3fa5",
+      "notes": []
+    },
+    {
+      "key": "layered-16x9-00075",
+      "width": 640,
+      "height": 360,
+      "sha256": "3c230ac7430d44713a7d99db29ac2f9463049378189138ccc456a14e3a0d644f",
+      "notes": []
+    },
+    {
+      "key": "layered-9x16-00000",
+      "width": 360,
+      "height": 640,
+      "sha256": "dbf3d9b4c063f64afa75d18dec4974b1472b8ba02c74dc963a18c87b47d61d6f",
+      "notes": []
+    },
+    {
+      "key": "layered-9x16-00030",
+      "width": 360,
+      "height": 640,
+      "sha256": "e4b8eb53038ee4e84715a3d40437e0eda863f2dfc892922e5a9f72cd5ccba961",
+      "notes": []
+    },
+    {
+      "key": "layered-9x16-00075",
+      "width": 360,
+      "height": 640,
+      "sha256": "aec01a2b03595adfe8e0bcd0d9be3896b44d5cacd5e7934fb64eaf51dda045e1",
+      "notes": []
+    }
+  ]
+}

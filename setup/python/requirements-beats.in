@@ -1,0 +1,10 @@
+# Beat tracking and structure (S16, D28): librosa, on its own. It runs on the CPU, so choosing it
+# must not bring torch and an NVIDIA requirement along.
+#
+# Resolved with the lyrics lock as constraints (setup/steps/python-env.ts), so every package they
+# share keeps its version: this tier can sit beside stem separation and transcription and never
+# changes them. The pinned lock is requirements-beats.lock.txt.
+#
+# madmom, the other tool D28 names, publishes no Windows wheels, and the lock is wheels only.
+
+librosa

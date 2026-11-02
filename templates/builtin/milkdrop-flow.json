@@ -1,0 +1,264 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.milkdrop.flow",
+  "name": "MilkDrop Flow",
+  "description": "A MilkDrop preset chosen for the track, left to breathe: it rises and falls with the song, with a soft finish.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": {
+      "energy": [
+        0.2,
+        0.65
+      ]
+    },
+    "tolerate": {
+      "organic": "any",
+      "tempo": "any",
+      "dynamics": "any"
+    },
+    "weight": 1,
+    "bonus": [
+      {
+        "condition": "hasMilkdrop",
+        "amount": 0.3
+      }
+    ]
+  },
+  "aspects": [
+    "16:9",
+    "9:16",
+    "1:1"
+  ],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "complementary",
+    "baseHue": {
+      "from": "brightness",
+      "range": [
+        170,
+        260
+      ]
+    },
+    "saturation": [
+      0.5,
+      0.85
+    ],
+    "background": [
+      0.02,
+      0.07
+    ],
+    "minTextContrast": 4.5
+  },
+  "slots": [
+    {
+      "id": "HERO",
+      "role": "HERO",
+      "required": true,
+      "name": "MilkDrop",
+      "candidates": [
+        {
+          "module": "core.visualizer.milkdrop",
+          "weight": 1,
+          "needs": "hasMilkdrop",
+          "label": "MilkDrop",
+          "params": {
+            "preset": "$milkdrop",
+            "seed": "$seed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "TEXT",
+      "role": "TEXT",
+      "condition": "hasTitle",
+      "candidates": [
+        {
+          "module": "core.text.title",
+          "weight": 1,
+          "params": {
+            "text": "$title",
+            "color": "@text",
+            "case": "upper",
+            "size": 0.08,
+            "letterSpacing": 0.16,
+            "shadow": 0.8,
+            "shadowColor": "@textShadow",
+            "animSeconds": 1.2
+          }
+        }
+      ],
+      "transform": {
+        "y": 0.14
+      },
+      "aspectOverrides": {
+        "9:16": {
+          "transform": {
+            "y": 0.14
+          }
+        }
+      }
+    },
+    {
+      "id": "LYRICS",
+      "role": "LYRICS",
+      "condition": "hasLyrics",
+      "params": {
+        "size": 0.062,
+        "upcoming": "@glow",
+        "active": "@text",
+        "sung": "@text",
+        "nextOpacity": 0.85,
+        "plate": true,
+        "plateColor": "@textShadow",
+        "plateOpacity": 0.92,
+        "shadow": 0.9,
+        "glowColor": "@glow",
+        "shadowColor": "@textShadow"
+      },
+      "transform": {
+        "y": 0.76
+      },
+      "aspectOverrides": {
+        "9:16": {
+          "transform": {
+            "y": 0.7
+          }
+        }
+      }
+    },
+    {
+      "id": "LOGO",
+      "role": "LOGO",
+      "condition": "hasLogo",
+      "candidates": [
+        {
+          "module": "core.source.logo",
+          "weight": 1,
+          "params": {
+            "image": "$logo",
+            "size": 0.1,
+            "opacity": 0.9
+          }
+        }
+      ],
+      "transform": {
+        "x": 0.92,
+        "y": 0.9
+      },
+      "aspectOverrides": {
+        "9:16": {
+          "transform": {
+            "x": 0.85,
+            "y": 0.14
+          }
+        }
+      }
+    },
+    {
+      "id": "POST",
+      "role": "POST",
+      "required": true,
+      "effects": [
+        {
+          "key": "bloom",
+          "module": "core.effect.bloom",
+          "params": {
+            "intensity": 0.45,
+            "threshold": 0.7,
+            "radius": 0.05
+          }
+        },
+        {
+          "key": "vignette",
+          "module": "core.effect.vignette",
+          "params": {
+            "amount": 0.5,
+            "softness": 0.6
+          }
+        },
+        {
+          "key": "grain",
+          "module": "core.effect.grain",
+          "params": {
+            "amount": 0.04
+          },
+          "probability": 0.6
+        }
+      ]
+    }
+  ],
+  "modulations": [
+    {
+      "label": "Swell",
+      "target": [
+        "HERO.params.brightness"
+      ],
+      "source": {
+        "type": "rms",
+        "stem": "mix"
+      },
+      "mode": "multiply",
+      "intensity": "medium",
+      "response": "slow"
+    },
+    {
+      "label": "Glow",
+      "target": [
+        "POST.bloom.intensity"
+      ],
+      "source": {
+        "type": "band",
+        "stem": "mix",
+        "band": "presence"
+      },
+      "mode": "add",
+      "intensity": "subtle",
+      "response": "smooth"
+    }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": {
+        "intensity": 0.5
+      },
+      "build": {
+        "intensity": 0.75
+      },
+      "main": {
+        "intensity": 1
+      },
+      "breakdown": {
+        "intensity": 0.55
+      },
+      "outro": {
+        "intensity": 0.45
+      }
+    },
+    "intensityTargets": [
+      "HERO.params.brightness"
+    ],
+    "floor": 0.6,
+    "textHold": "untilFirstVocal",
+    "fadeIn": 2,
+    "fadeOut": 4
+  },
+  "variation": {
+    "rerollable": [
+      "slots.HERO.candidate",
+      "palette.baseHue",
+      "slots.POST.effects.probability"
+    ],
+    "locked": [
+      "arrangement",
+      "modulations.response"
+    ],
+    "hueJitter": 25,
+    "intensityJitter": 0.1
+  },
+  "budget": {
+    "maxLayers": 7,
+    "maxCost": 14
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.cinematic.particles",
+  "name": "Cinematic Particles",
+  "description": "A drifting field of light that flares with the drums, over a soft glow. Works for almost anything busy.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "density": [0.4, 1] },
+    "tolerate": { "energy": "any", "organic": "any" },
+    "avoid": {},
+    "weight": 0.9
+  },
+  "aspects": ["16:9", "9:16", "1:1", "4:5"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "analogous",
+    "baseHue": { "from": "key", "range": [210, 340] },
+    "saturation": [0.6, 0.9],
+    "background": [0.02, 0.07],
+    "minTextContrast": 4.5
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Backdrop",
+      "candidates": [
+        { "module": "core.source.background", "weight": 3, "label": "Deep field",
+          "params": { "mode": "gradient", "gradient": "radial", "colorA": "@background", "colorB": "#000000", "drift": 0.3 } },
+        { "module": "core.source.background", "weight": 1, "label": "Image", "needs": "hasBackgroundImage",
+          "params": { "mode": "image", "image": "$backgroundImage", "dim": 0.7, "zoom": 1.1, "drift": 0.4 } }
+      ]
+    },
+    {
+      "id": "GLOW", "role": "ACCENT", "name": "Glow", "probability": 0.6, "priority": 25, "opacity": 0.5, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.orb", "weight": 1, "label": "Glow",
+          "params": { "fill": "@glow", "drive": "rms", "radius": 0.3, "softness": 0.95, "core": 0.6, "swell": 0.3, "ripple": 0 } }
+      ]
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": true, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.particles", "weight": 4, "label": "Field",
+          "params": { "fill": "@primary", "count": 2500, "size": 0.008, "sizeVariance": 0.8, "speed": 0.04, "sway": 0.03, "flare": 1.5, "reactivity": 0.8, "softness": 0.8, "flareOn": "onset", "seed": "$seed" } },
+        { "module": "core.visualizer.blobs", "weight": 1, "label": "Blobs",
+          "params": { "fill": "@primary", "count": 6, "swell": 0.8, "orbit": 0.25, "rim": 0.5 } }
+      ]
+    },
+    {
+      "id": "ACCENT", "role": "ACCENT", "probability": 0.8, "opacity": 0.85, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.particles", "weight": 1, "label": "Sparks",
+          "params": { "fill": "@accent", "count": 300, "size": 0.015, "flareOn": "beat", "direction": "up", "speed": 0.12, "flare": 1, "seed": "$seed" } }
+      ]
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "size": 0.08, "letterSpacing": 0.12, "glow": 0.5, "glowColor": "@glow", "shadowColor": "@textShadow" } }
+      ],
+      "transform": { "y": 0.5 }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
+      "params": { "upcoming": "@text", "active": "@accent", "sung": "@primary", "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.8 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.72 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.1, "opacity": 0.85 } } ],
+      "transform": { "x": 0.92, "y": 0.9 },
+      "aspectOverrides": { "9:16": { "transform": { "x": 0.85, "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 1, "threshold": 0.5, "radius": 0.035 } },
+        { "key": "vignette", "module": "core.effect.vignette", "params": { "amount": 0.5 } },
+        { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.04 }, "probability": 0.6 }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Drums", "target": ["HERO.params.flare", "HERO.params.swell"],
+      "source": { "type": "onset", "stem": "drums" }, "mode": "add", "intensity": "strong", "response": "snappy" },
+    { "label": "Drift", "target": ["HERO.params.speed"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "medium", "response": "slow" },
+    { "label": "Hats", "target": ["ACCENT.params.flare"],
+      "source": { "type": "band", "stem": "mix", "band": "brilliance" }, "mode": "add", "intensity": "medium", "response": "snappy" },
+    { "label": "Bass glow", "target": ["GLOW.params.swell"],
+      "source": { "type": "band", "stem": "bass", "band": "bass" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Light", "target": ["POST.bloom.intensity"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "medium", "response": "smooth" }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.35, "addLayers": ["GLOW"] },
+      "build": { "intensity": 0.65, "addLayers": ["ACCENT"] },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"], "paletteShift": "glow" },
+      "breakdown": { "intensity": 0.4, "removeLayers": ["ACCENT"] },
+      "outro": { "intensity": 0.3, "removeLayers": ["ACCENT"] }
+    },
+    "intensityTargets": ["POST.bloom.intensity", "HERO.params.reactivity", "HERO.params.swell"],
+    "floor": 0.35,
+    "optionalLayers": ["ACCENT", "GLOW"],
+    "textHold": "untilFirstVocal",
+    "drop": { "targets": ["HERO.params.flare", "HERO.params.swell"], "amount": 0.5, "decaySeconds": 0.7 },
+    "fadeIn": 1.5,
+    "fadeOut": 3
+  },
+  "variation": {
+    "rerollable": ["slots.HERO.candidate", "slots.ACCENT.presence", "slots.GLOW.presence", "palette.baseHue"],
+    "locked": ["arrangement"],
+    "hueJitter": 30,
+    "intensityJitter": 0.12
+  },
+  "budget": { "maxLayers": 8, "maxCost": 12 }
+}

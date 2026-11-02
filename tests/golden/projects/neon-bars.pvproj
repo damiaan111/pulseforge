@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "id": "0000000000P000000000000010",
+  "name": "Golden — neon bars",
+  "createdAt": "2026-09-14T12:00:00.000Z",
+  "modifiedAt": "2026-09-14T12:00:00.000Z",
+  "appVersion": "0.1.0-p2",
+  "seed": 1337,
+  "canvas": {
+    "width": 640,
+    "height": 360,
+    "fps": { "num": 60, "den": 1 },
+    "background": "#0b0614"
+  },
+  "audio": {
+    "path": "",
+    "hash": "",
+    "durationTicks": 96000,
+    "leadInTicks": 0,
+    "leadOutTicks": 0,
+    "clipInTicks": 0,
+    "clipOutTicks": null,
+    "fadeInTicks": 0,
+    "fadeOutTicks": 0,
+    "gain": 1,
+    "stemsEnabled": false
+  },
+  "analysisSettings": {
+    "fftSize": 2048,
+    "onsetSensitivity": 0.5,
+    "bpmOverride": null,
+    "stemModel": "htdemucs",
+    "bands": [
+      { "id": "bass", "label": "Bass", "minHz": 60, "maxHz": 250, "gain": 1 }
+    ]
+  },
+  "palette": {
+    "colors": ["#ff2d95", "#7a2fff", "#00e5ff"],
+    "roles": { "primary": 0, "secondary": 1, "glow": 2 }
+  },
+  "layers": [
+    {
+      "id": "0000000000K000000000000010",
+      "kind": "module",
+      "name": "Bars",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "timeRange": { "inTicks": 0, "outTicks": null },
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min"
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "maskLayerId": null,
+      "module": "core.visualizer.bars",
+      "paramsSchemaVersion": 1,
+      "params": {
+        "source": "mix",
+        "barCount": 48,
+        "barWidth": 0.7,
+        "spread": 0.9,
+        "baseline": 0.82,
+        "minHeight": 0.01,
+        "maxHeight": 0.5,
+        "fill": "#ff2d95"
+      },
+      "effects": [
+        {
+          "id": "0000000000E000000000000010",
+          "module": "core.effect.bloom",
+          "name": "Bloom",
+          "enabled": true,
+          "paramsSchemaVersion": 1,
+          "params": { "threshold": 0.45, "knee": 0.3, "intensity": 0.8, "radius": 0.03, "passes": 3 }
+        }
+      ],
+      "modulations": [],
+      "aspectOverrides": {
+        "9:16": {
+          "transform": {},
+          "params": { "barCount": 20, "maxHeight": 0.32 }
+        },
+        "1:1": {
+          "transform": {},
+          "params": { "barCount": 32 }
+        }
+      }
+    }
+  ],
+  "globalEffects": [
+    {
+      "id": "0000000000E000000000000011",
+      "module": "core.effect.vignette",
+      "name": "Vignette",
+      "enabled": true,
+      "paramsSchemaVersion": 1,
+      "params": { "amount": 0.55, "radius": 0.6, "softness": 0.5, "roundness": 1 }
+    }
+  ],
+  "globalModulations": []
+}

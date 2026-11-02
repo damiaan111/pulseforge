@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "id": "0000000000P000000000000001",
+  "name": "Fixture — every v1 field",
+  "createdAt": "2026-09-14T12:00:00.000Z",
+  "modifiedAt": "2026-09-14T12:30:00.000Z",
+  "appVersion": "0.1.0-p2",
+  "seed": 1337,
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": { "num": 60, "den": 1 },
+    "background": "#050510"
+  },
+  "audio": {
+    "path": "audio/track.flac",
+    "hash": "b7f2c1a09d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e",
+    "durationTicks": 11520000,
+    "leadInTicks": 96000,
+    "leadOutTicks": 144000,
+    "clipInTicks": 48000,
+    "clipOutTicks": 11472000,
+    "fadeInTicks": 24000,
+    "fadeOutTicks": 72000,
+    "gain": 0.891,
+    "stemsEnabled": true
+  },
+  "analysisSettings": {
+    "fftSize": 2048,
+    "onsetSensitivity": 0.62,
+    "bpmOverride": null,
+    "stemModel": "htdemucs",
+    "bands": [
+      { "id": "bass", "label": "Bass", "minHz": 60, "maxHz": 250, "gain": 1 },
+      { "id": "brilliance", "label": "Brilliance", "minHz": 6000, "maxHz": 20000, "gain": 1.2 }
+    ]
+  },
+  "palette": {
+    "colors": ["#ff2fd0", "#7a2fff", "#00e5ff"],
+    "roles": { "primary": 0, "secondary": 1, "glow": 2 }
+  },
+  "layers": [
+    {
+      "id": "0000000000K000000000000001",
+      "kind": "module",
+      "name": "Bars",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "timeRange": { "inTicks": 96000, "outTicks": null },
+      "transform": {
+        "x": 0.5,
+        "y": 0.75,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "bottom-center",
+        "scaleReference": "width"
+      },
+      "blend": "add",
+      "opacity": 0.9,
+      "maskLayerId": null,
+      "module": "core.visualizer.bars",
+      "paramsSchemaVersion": 1,
+      "params": { "barCount": 64, "source": "drums", "glow": 0.4 },
+      "effects": [
+        {
+          "id": "0000000000E000000000000001",
+          "module": "core.effect.bloom",
+          "name": "Bloom",
+          "enabled": true,
+          "paramsSchemaVersion": 1,
+          "params": { "threshold": 0.8, "intensity": 1.2 }
+        }
+      ],
+      "modulations": [
+        {
+          "id": "0000000000M000000000000001",
+          "enabled": true,
+          "label": "kick pump",
+          "target": "layers.0000000000K000000000000001.params.glow",
+          "source": { "type": "onset", "stem": "drums" },
+          "inputRange": "auto",
+          "curve": { "type": "s-curve", "amount": 0.5 },
+          "envelope": { "attackMs": 2, "releaseMs": 250, "mode": "peak" },
+          "quantise": null,
+          "lookAheadMs": 30,
+          "amount": 1.8,
+          "offset": 0,
+          "invert": false,
+          "mode": "add",
+          "order": 0,
+          "clampOutput": null
+        }
+      ],
+      "aspectOverrides": {
+        "9:16": {
+          "transform": { "y": 0.62 },
+          "params": { "barCount": 24 }
+        }
+      }
+    },
+    {
+      "id": "0000000000G000000000000001",
+      "kind": "group",
+      "name": "Foreground",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "collapsed": true,
+      "timeRange": { "inTicks": 0, "outTicks": null },
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min"
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "maskLayerId": null,
+      "effects": [],
+      "modulations": [],
+      "aspectOverrides": {},
+      "children": [
+        {
+          "id": "0000000000K000000000000002",
+          "kind": "module",
+          "name": "Test pattern",
+          "enabled": true,
+          "locked": false,
+          "soloed": false,
+          "timeRange": { "inTicks": 0, "outTicks": 480000 },
+          "transform": {
+            "x": 0.5,
+            "y": 0.5,
+            "scaleX": 1,
+            "scaleY": 1,
+            "rotationDeg": 0,
+            "skewXDeg": 0,
+            "skewYDeg": 0,
+            "anchor": "center",
+            "scaleReference": "min"
+          },
+          "blend": "normal",
+          "opacity": 1,
+          "maskLayerId": null,
+          "module": "core.test.pattern",
+          "paramsSchemaVersion": 1,
+          "params": {},
+          "effects": [],
+          "modulations": [],
+          "aspectOverrides": {}
+        }
+      ]
+    }
+  ],
+  "globalEffects": [],
+  "globalModulations": []
+}

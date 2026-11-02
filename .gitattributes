@@ -1,0 +1,10 @@
+# Keep LF in the repo and working tree on Windows: shaders, shell scripts and
+# golden-frame hashes must not change bytes depending on core.autocrlf.
+* text=auto eol=lf
+
+*.png  binary
+*.bin  binary
+
+# cmd.exe and PowerShell 5.1 are Windows programs: the launcher keeps Windows line endings.
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf

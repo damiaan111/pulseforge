@@ -1,0 +1,98 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.minimal.type",
+  "name": "Minimal Type",
+  "description": "Large typography on paper, one thin line of sound, generous space. The type is the design.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "density": [0, 0.5], "vocalWeight": [0.45, 1] },
+    "tolerate": { "energy": "any", "tempo": "any" },
+    "avoid": { "density": [0.85, 1] },
+    "weight": 0.9,
+    "bonus": [ { "condition": "hasTitle", "amount": 0.05 } ]
+  },
+  "aspects": ["16:9", "9:16", "1:1", "4:5"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "mono",
+    "mode": "light",
+    "baseHue": { "from": "brightness", "range": [25, 50] },
+    "saturation": [0.1, 0.3],
+    "background": [0.9, 0.96],
+    "minTextContrast": 7
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Paper",
+      "candidates": [
+        { "module": "core.source.background", "weight": 1, "label": "Paper", "params": { "mode": "solid", "colorA": "@background" } }
+      ]
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": true,
+      "candidates": [
+        { "module": "core.visualizer.curve", "weight": 3, "label": "Line",
+          "params": { "fill": "@primary", "thickness": 0.0025, "baseline": 0.8, "height": 0.12, "spread": 0.7, "fillBody": 0 } },
+        { "module": "core.visualizer.waves", "weight": 1, "label": "Threads",
+          "params": { "fill": "@primary", "lines": 3, "spacing": 0.08, "amplitude": 0.035, "thickness": 0.0018, "speed": 0.1, "fade": 0.3 } }
+      ],
+      "transform": { "y": 0.5 }
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "case": "upper", "size": 0.12, "letterSpacing": 0.06, "shadow": 0, "maxWidth": 0.8 } }
+      ],
+      "transform": { "y": 0.36 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.34 } } }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
+      "params": { "upcoming": "@secondary", "active": "@text", "sung": "@text", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.84 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.72 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.08, "opacity": 0.8 } } ],
+      "transform": { "x": 0.08, "y": 0.9 },
+      "aspectOverrides": { "9:16": { "transform": { "x": 0.14, "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.03, "colour": 0 }, "probability": 0.6 },
+        { "key": "vignette", "module": "core.effect.vignette", "params": { "amount": 0.18, "softness": 0.8 }, "probability": 0.3 }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Voice", "target": ["HERO.params.height", "HERO.params.amplitude"],
+      "source": { "type": "rms", "stem": "vocals" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Breath", "target": ["TEXT.opacity"],
+      "source": { "type": "rms", "stem": "vocals" }, "mode": "multiply", "intensity": "subtle", "response": "slow", "invert": true }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.4 },
+      "build": { "intensity": 0.6 },
+      "main": { "intensity": 0.95 },
+      "breakdown": { "intensity": 0.5 },
+      "outro": { "intensity": 0.4 }
+    },
+    "intensityTargets": ["HERO.params.height", "HERO.params.amplitude"],
+    "floor": 0.5,
+    "textHold": "none",
+    "fadeIn": 1,
+    "fadeOut": 2.5
+  },
+  "variation": {
+    "rerollable": ["slots.HERO.candidate", "palette.baseHue", "slots.POST.effects.probability"],
+    "locked": ["arrangement", "slots.TEXT"],
+    "hueJitter": 15,
+    "intensityJitter": 0.08
+  },
+  "budget": { "maxLayers": 6, "maxCost": 8 }
+}
