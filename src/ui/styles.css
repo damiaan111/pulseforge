@@ -156,6 +156,13 @@ h2 {
 .topbar > button { white-space: nowrap; flex-shrink: 0; }
 .topbar > button[data-action="undo"], .topbar > button[data-action="redo"] { flex-shrink: 1; min-width: 60px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .topbar > .project-name { flex-shrink: 1; min-width: 0; }
+/* A narrow window (the 1100 px minimum, or a 13-inch screen split in two) keeps Export in view: the
+   wordmark goes first, then some air between the buttons. */
+@media (max-width: 1280px) {
+  .topbar { gap: 4px; padding: 7px 8px; }
+  .topbar > .wordmark { display: none; }
+  .topbar > button { padding-left: 7px; padding-right: 7px; }
+}
 .wordmark { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); margin-right: 6px; }
 .project-name { color: var(--text-dim); background: none; border-color: transparent; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-name-edit { width: 260px; }

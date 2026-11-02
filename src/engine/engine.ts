@@ -311,6 +311,37 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
    */
   const broken = new Map<string, string>();
 
+  /**
+   * Releases the instances of layers and effects the project no longer has. A MilkDrop layer holds a
+   * WebGL context of its own and Chromium keeps sixteen, so layers removed or rolled away (Surprise Me)
+   * used to pile up until the oldest context, the preview's, was the one dropped. Hidden layers and
+   * layers outside their time are still in the project, and keep theirs. Instances hold no state that
+   * reaches a frame (the determinism rule), so letting one go changes no picture.
+   */
+  let sweptProject: RenderProject | undefined;
+  function releaseUnused(project: RenderProject): void {
+    if (project === sweptProject) return;
+    sweptProject = project;
+    const ids = new Set<string>();
+    const addEffects = (effects: readonly EffectSpec[] | undefined) => {
+      for (const effect of effects ?? []) ids.add(effect.id);
+    };
+    const addLayers = (layers: readonly AnyLayerSpec[]) => {
+      for (const layer of layers) {
+        ids.add(layer.id);
+        addEffects(layer.effects);
+        if (layer.kind === 'group') addLayers(layer.children);
+      }
+    };
+    addLayers(project.layers);
+    addEffects(project.globalEffects);
+    for (const [id, entry] of instances) {
+      if (ids.has(id)) continue;
+      entry.instance.dispose();
+      instances.delete(id);
+    }
+  }
+
   function instanceFor(layerId: string, definition: ModuleDefinition): ModuleInstance | undefined {
     const existing = instances.get(layerId);
     if (existing !== undefined && existing.moduleId === definition.manifest.id) return existing.instance;
@@ -384,6 +415,7 @@ export function createEngine(gl: WebGL2RenderingContext, options: EngineOptions)
       if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) {
         throw new RangeError(`frameIndex must be a non-negative integer, got ${frameIndex}`);
       }
+      releaseUnused(project);
       const { width: outputWidth, height: outputHeight, fps } = project.canvas;
       if (nv12 !== undefined && !nv12Supported(outputWidth, outputHeight)) {
         throw new RenderSetupError(`NV12 export needs a width divisible by 4 and an even height, got ${outputWidth}×${outputHeight}`);
