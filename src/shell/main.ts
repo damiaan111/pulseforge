@@ -2933,10 +2933,11 @@ app.whenReady().then(async () => {
         const box = timeline.getBoundingClientRect();
         const total = 60;
         const at = { clientX: box.left + 8 + (2 / total) * (box.width - 16), clientY: box.top + 10, pointerId: 7, bubbles: true };
+        const timeBefore = document.querySelector('#app .transport .timecode')?.textContent ?? null;
         timeline.dispatchEvent(new PointerEvent('pointerdown', at));
         timeline.dispatchEvent(new PointerEvent('pointerup', at));
         const moved = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'animated', 100);
-        if (moved !== true) console.error('[smoke] keyframeUi seek: ' + JSON.stringify({ state: firstDiamond()?.getAttribute('data-key-state'), time: document.querySelector('#app .transport .time, #app [data-testid="transport-time"]')?.textContent ?? null, box: [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)] }));
+        if (moved !== true) console.error('[smoke] keyframeUi seek: ' + JSON.stringify({ state: firstDiamond()?.getAttribute('data-key-state'), before: timeBefore, after: document.querySelector('#app .transport .timecode')?.textContent ?? null, under: document.elementFromPoint(at.clientX, at.clientY)?.className ?? null, playing: document.querySelector('#app .transport [data-action="play"], #app .transport [data-action="pause"]')?.getAttribute('data-action') ?? null, view: [window.innerWidth, window.innerHeight], box: [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)] }));
         const range = document.querySelector('#app .inspector .param-group input[type="range"]');
         if (range !== null) {
           const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
