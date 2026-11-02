@@ -138,7 +138,7 @@ You do not need Node, Python, FFmpeg or git. The launcher fetches what is missin
 
 ## On a Mac
 
-1. Download `Pulseforge-1.1.0-mac-arm64.dmg` from the [Releases page](https://github.com/damiaan111/pulseforge/releases),
+1. Download the `.dmg` (`Pulseforge-1.1.2-mac.1-arm64.dmg` or newer) from the [Releases page](https://github.com/damiaan111/pulseforge/releases),
    open it, and drag Pulseforge onto Applications.
 2. Open it. It is signed ad hoc, not with an Apple Developer ID, so macOS blocks it the first time: open
    **System Settings → Privacy & Security** and choose **Open Anyway** beside *"Pulseforge" was blocked*.
@@ -180,6 +180,10 @@ in all. Then Pulseforge opens and asks what you want:
 
 Tick what you want and press **Install**. It can be stopped and resumed, and every file is checked
 against a known checksum. You can add more at any time in **Settings → Components**.
+
+**Updates:** Settings → **Check for updates** asks GitHub for a newer release, only when you press it, and installs it
+after checking its SHA-256 (on a Mac it opens the new disk image for you to drag onto Applications). Nothing else in
+Pulseforge goes online.
 
 **A licence to be aware of:** the French, German, Spanish and Italian alignment models are licensed
 CC BY-NC 4.0, for non-commercial use. They are never installed unless you choose them and confirm

@@ -23,6 +23,7 @@ import { useStudio } from '../store.ts';
 import { SHORTCUT_ACTIONS, keyLabel, keyName, keysFor, remap, type ShortcutMap } from '../shortcuts.ts';
 import { StorageSection } from './StorageSection.tsx';
 import { ON_MAC, shortcutLabel } from '../platform-keys.ts';
+import { UpdateSection } from './UpdateSection.tsx';
 
 /** The keys that do not move: the system's own, and the ones that mean something only inside a panel. */
 const FIXED_SHORTCUTS: readonly (readonly [string, string])[] = [
@@ -151,6 +152,8 @@ export function SettingsDialog(): React.JSX.Element | null {
           <DiagnosticsSection level={settings.logLevel} save={save} />
 
           <SetupSection />
+
+          <UpdateSection />
 
           <section data-testid="settings-environment">
             <h3>Environment</h3>

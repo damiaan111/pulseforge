@@ -135,6 +135,7 @@ the engine's determinism contract depends on it being fast, synchronous and alwa
 
 ### Rules this imposes on the codebase
 - **No runtime CDN links.** No Google Fonts, no remote shader/preset fetches, no update checks. All assets resolved from `vendor/` or the user's disk.
+  The one exception is the owner's D52: Settings → Check for updates asks GitHub when, and only when, the button is pressed.
 - **No implicit downloads.** If something is missing, the app says exactly what is missing and offers to run setup — it never silently reaches out.
 - **Setup is resumable and re-runnable**, verifies checksums, and can repair a partial install.
 - **Everything version-pinned**, including the FFmpeg build, so a render made today reproduces next year.

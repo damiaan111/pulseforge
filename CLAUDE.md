@@ -29,6 +29,7 @@ on Ampere. Probe capabilities and hide unsupported options rather than failing a
 1. **Determinism.** `renderFrame(project, analysis, t)` must be byte-identical for the same inputs, every time. No `Date.now()`, no `performance.now()`, no rAF deltas, no `Math.random()`, no live `AnalyserNode` anywhere in the engine. Time is always a parameter; randomness always comes from the seeded PRNG.
 2. **Engine boundary.** `src/engine/` must not import Electron, the DOM, React, or anything time- or network-aware. Enforce with a lint rule from the first commit. This is what keeps headless rendering, golden-frame tests and the CLI possible.
 3. **Offline after setup.** No runtime CDN links, no Google Fonts, no update checks, no implicit downloads. Everything resolves from `vendor/` or the user's disk.
+   Sole exception (D52): Settings → Check for updates, which reaches GitHub only when pressed.
 4. **Nothing is silently dropped.** Unknown modules, missing assets, broken modulation targets — all preserved and reported, never discarded.
 5. **Exact time.** Integer ticks at 1/48000 s; `fps` as a rational; frame time derived from the frame index, never accumulated.
 
@@ -74,7 +75,8 @@ detailed enough that a fresh session can take over mid-project. Commit at the en
 
 `macos` is an orphan branch (no shared history with `main`, on purpose) for Apple Silicon. It stays runnable on Windows:
 platform differences go through `setup/lib/platform.ts`. Its DMG is built by `.github/workflows/macos.yml`; nothing
-here can run macOS. STATUS 4.94 has the details. Port fixes between the branches by hand (cherry-pick does not apply).
+here can run macOS; its packaged-app step is the real test of the DMG. Versions are `1.1.2-mac.N`, tags `v1.1.2-mac.N`.
+STATUS 4.94 and 4.95 have the details. Port fixes between the branches by hand (cherry-pick does not apply).
 
 ## Development split
 

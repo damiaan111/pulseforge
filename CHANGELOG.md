@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2-mac.1 (the `macos` branch)
+
+- The Mac build of 1.1.2: the packaged app starts and exports outside the build machine, Check for updates (it opens the
+  new disk image), and the WebGL context fix. See STATUS 4.94 and 4.95.
+
 ## 1.1.0
 
 The first release with a Windows installer.

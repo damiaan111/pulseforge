@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 import { PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS, PYTHON_PACKAGES_LYRICS } from '../manifest.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
@@ -139,6 +139,13 @@ print(json.dumps(out))
  * an absolute path under `C:\Users\First Last\` reaches it as two files. Relative to the repo, with
  * uv running there, no spaces are involved wherever the repo is.
  */
+/**
+ * Installing, uv runs in vendor/.tmp, where the override file is, and is handed only its name: an
+ * installed app's data folder can be anywhere, spaces included, and nowhere near the program. The lock
+ * and the wheelhouse go as absolute paths, which uv takes whole.
+ */
+export const INSTALL_CWD = TMP;
+
 export function fromRoot(path: string): string {
   return relative(ROOT, path).split('\\').join('/');
 }
@@ -286,16 +293,16 @@ async function installFromWheelhouse(config: PythonEnvConfig, ctx: StepContext):
     [
       'pip', 'install',
       '--python', PYTHON_EXE,
-      '--requirement', fromRoot(config.requirementsLock),
+      '--requirement', config.requirementsLock,
       '--require-hashes',
       '--no-index',
-      '--find-links', fromRoot(WHEELHOUSE),
+      '--find-links', WHEELHOUSE,
       '--offline',
       '--no-config',
       '--break-system-packages',
       ...(await config.installArgs()),
     ],
-    { step: config.title, log: ctx.log, cwd: ROOT, env: pythonEnv(), echo: true },
+    { step: config.title, log: ctx.log, cwd: INSTALL_CWD, env: pythonEnv(), echo: true },
     () => ({
       what: 'Installing from the wheelhouse failed.',
       likelyCause: 'The wheelhouse is incomplete, or a file in it is damaged.',
@@ -455,8 +462,8 @@ export function createPythonEnvStep(config: PythonEnvConfig): Step {
       // Proves the wheelhouse alone satisfies the lock, with no index: the offline-rebuild guarantee.
       await runChecked(
         UV_EXE,
-        ['pip', 'install', '--python', PYTHON_EXE, '--requirement', fromRoot(config.requirementsLock), '--require-hashes', '--no-index', '--find-links', fromRoot(WHEELHOUSE), '--offline', '--no-config', '--break-system-packages', '--dry-run', ...(await config.installArgs())],
-        { step: TITLE, log: ctx.log, cwd: ROOT, env: pythonEnv() },
+        ['pip', 'install', '--python', PYTHON_EXE, '--requirement', config.requirementsLock, '--require-hashes', '--no-index', '--find-links', WHEELHOUSE, '--offline', '--no-config', '--break-system-packages', '--dry-run', ...(await config.installArgs())],
+        { step: TITLE, log: ctx.log, cwd: INSTALL_CWD, env: pythonEnv() },
         () => ({
           what: 'The wheelhouse can no longer satisfy the lock offline.',
           likelyCause: 'Wheels were deleted from vendor/wheelhouse/.',
@@ -538,12 +545,12 @@ if _spec is not None and _spec.submodule_search_locations:
 /**
  * The overrides as a file, for uv's `--override` — resolving and installing both need it. For an
  * install (`fromLock`), each override is copied from the lock *with its hashes*: installs run with
- * `--require-hashes`, and an unhashed override is refused.
+ * `--require-hashes`, and an unhashed override is refused. Returns the path: resolving passes it
+ * `fromRoot`, installing passes its name with uv running in `INSTALL_CWD`.
  */
 export async function lyricsOverridesFile(fromLock?: string): Promise<string> {
   await mkdir(TMP, { recursive: true });
   const path = join(TMP, 'lyrics-overrides.txt');
-  // Relative to the repo, where uv runs: see `fromRoot`.
   let text = `${PYTHON_PACKAGES_LYRICS.overrides.join('\n')}\n`;
   if (fromLock !== undefined) {
     const lock = (await readFile(fromLock, 'utf8')).replace(/\r\n/g, '\n');
@@ -559,7 +566,7 @@ export async function lyricsOverridesFile(fromLock?: string): Promise<string> {
     }).join('\n') + '\n';
   }
   await writeFile(path, text);
-  return fromRoot(path);
+  return path;
 }
 
 export const pythonLyricsEnvStep: Step = createPythonEnvStep({
@@ -588,9 +595,9 @@ export const pythonLyricsEnvStep: Step = createPythonEnvStep({
       .map((line) => /^([A-Za-z0-9_.-]+==\S+)/.exec(line)?.[1])
       .filter((pin): pin is string => pin !== undefined);
     await writeFile(constraints, `${pins.join('\n')}\n`);
-    return ['--constraint', fromRoot(constraints), '--override', await lyricsOverridesFile()];
+    return ['--constraint', fromRoot(constraints), '--override', fromRoot(await lyricsOverridesFile())];
   },
-  installArgs: async () => ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)],
+  installArgs: async () => ['--override', basename(await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK))],
   probeExtra: CUBLAS12_SNIPPET + String.raw`
 try:
     import ctranslate2, faster_whisper, whisperx, whisperx.alignment

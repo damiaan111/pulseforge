@@ -56,6 +56,11 @@ export const IPC = {
   settingsGet: 'pf:settings:get',
   settingsUpdate: 'pf:settings:update',
   settingsInfo: 'pf:settings:info',
+  /** Settings → Check for updates (D52): the only network access after setup, and only on a press. */
+  updateCheck: 'pf:update:check',
+  updateInstall: 'pf:update:install',
+  /** Pushed while the installer downloads. */
+  updateProgress: 'pf:update:progress',
   cacheInventory: 'pf:cache:inventory',
   cacheAction: 'pf:cache:action',
   revealCache: 'pf:cache:reveal',
@@ -470,6 +475,16 @@ export interface EnvironmentReport {
 /** What the Mac's menu bar can ask of the page; each runs what its key runs (ui/menu-commands.ts). */
 export type MenuCommand = 'new' | 'open' | 'save' | 'save-as' | 'export' | 'settings' | 'undo' | 'redo';
 
+/** What Check for updates found (D52). */
+export interface UpdateCheck {
+  readonly current: string;
+  /** The newest release for this system; null when there is none. */
+  readonly latest: { readonly version: string; readonly notes: string; readonly page: string; readonly bytes: number } | null;
+  readonly newer: boolean;
+  /** Why it cannot be installed from here (running from source, no checksum); null when it can. */
+  readonly cannotInstall: string | null;
+}
+
 export interface RenderReadiness {
   /** Null when the encoders have not been checked: FFmpeg is missing. */
   readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null; readonly encoder: 'nvenc' | 'software' | 'videotoolbox' }>> | null;
@@ -597,6 +612,11 @@ export interface PulseforgeApi {
   pickFolder(title: string): Promise<string | null>;
   /** What the Settings screen offers: installed models, the GPU in use, where things live. */
   settingsInfo(): Promise<SettingsInfo>;
+  /** Asks GitHub for the newest release for this system. Only ever called from the button (D52). */
+  checkForUpdate(): Promise<UpdateCheck>;
+  /** Downloads the release the last check offered, checks its SHA-256 and installs it; the app then restarts. */
+  installUpdate(): Promise<void>;
+  onUpdateProgress(listener: (progress: { readonly received: number; readonly total: number }) => void): () => void;
   /** Opens one of the app's own folders ('userData', 'settings') in the file manager. */
   revealPath(which: 'userData' | 'settings'): Promise<void>;
   /** Runs `npm run setup -- --verify` or `--tier <tier>`; output arrives through `onSetupOutput`. */

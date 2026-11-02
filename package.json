@@ -1,6 +1,6 @@
 {
   "name": "pulseforge",
-  "version": "1.1.0",
+  "version": "1.1.2-mac.1",
   "private": true,
   "license": "MIT",
   "description": "Self-hosted, GPU-accelerated audio visualizer and music-video renderer",
@@ -42,7 +42,7 @@
     "typescript-eslint": "^8.70.0",
     "vitest": "^5.0.0"
   },
-  "main": "dist/app/main.js",
+  "main": "dist/app/boot.mjs",
   "dependencies": {
     "butterchurn": "2.6.7",
     "immer": "^11.1.18",
@@ -99,7 +99,7 @@
       "icon": "assets/icon.png",
       "category": "public.app-category.video",
       "minimumSystemVersion": "14.0",
-      "artifactName": "Pulseforge-${version}-mac-arm64.${ext}",
+      "artifactName": "Pulseforge-${version}-arm64.${ext}",
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false

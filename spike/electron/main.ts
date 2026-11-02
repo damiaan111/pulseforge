@@ -12,7 +12,10 @@ const profile = process.env['PULSEFORGE_SPIKE_PROFILE'];
 if (profile !== undefined) app.setPath('userData', profile);
 
 // Pin the ANGLE backend so results are comparable across runs and recorded in the report.
-app.commandLine.appendSwitch('use-angle', 'd3d11');
+// On the Mac ANGLE runs on Metal, its only backend there; asking for Direct3D would leave it nothing.
+if (process.platform === 'win32') app.commandLine.appendSwitch('use-angle', 'd3d11');
+// A render is a hidden window: on the Mac it should not put a second icon in the Dock either.
+if (process.platform === 'darwin') app.dock?.hide();
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
 const configJson = process.env['PULSEFORGE_SPIKE_CONFIG'];

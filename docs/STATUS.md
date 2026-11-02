@@ -195,6 +195,7 @@
 | 4.92 | A real Windows app; removing components; the whole thing tested again |
 | 4.93 | The known problems: recovery after a crash, MilkDrop shaders, the Shadertoy input, file size, Auto |
 | 4.94 | The `macos` branch: Apple Silicon, a DMG built on GitHub |
+| 4.95 | Ported from main 1.1.2: the installed app starts again, Check for updates |
 
 ---
 
@@ -4941,6 +4942,18 @@ About panel; a MilkDrop card without a picture now says why in the log.
 
 **Not done or not known yet:** use on a real Mac (the owner tests on a MacBook Air M4); the VideoToolbox quality mapping
 measured against NVENC; golden frames for Apple's GPU; a launcher for running from source on a Mac.
+
+### 4.95 Ported from main 1.1.2: the installed app starts again, Check for updates
+
+Main's 1.1.2 found that an installed copy could neither start nor export (STATUS on `main`, 4.94 there): the studio imported
+esbuild at start, and the render host was bundled at the first export and started by running the app with a script path.
+The same code is here, so the first Mac preview had the same fault; the runner's checks all ran from the checkout, where
+Node found the dev `node_modules`. Ported: the render host built with the app, `dist/app/boot.mjs`, esbuild only from source,
+the build's self-contained check, uv installs from `vendor/.tmp`, and Check for updates (D52). Mac differences: the update
+opens the downloaded DMG and quits so the Finder can replace the app; the render host asks ANGLE for Direct3D only on Windows
+and hides its Dock icon on the Mac. The version is `1.1.2-mac.1`, so the updater compares Mac builds by their number. The
+workflow now runs the packaged app from a copy outside the checkout with a real export, and writes the DMG's SHA-256 into
+the release notes for the updater.
 
 ## 5. Measured results
 

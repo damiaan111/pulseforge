@@ -1,16 +1,16 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { ARTEFACTS, PYTHON } from '../manifest.ts';
 import { sha256File } from '../lib/download.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import type { Logger } from '../lib/log.ts';
 import { formatBytes } from '../lib/log.ts';
-import { DOWNLOADS, MODELS, PY_BEATS_REQUIREMENTS_LOCK, PY_LYRICS_REQUIREMENTS_LOCK, PY_REQUIREMENTS_LOCK, PYTHON_IN_ARCHIVE, ROOT, TAR_EXE, UV_EXE, VENDOR, WHEELHOUSE } from '../lib/paths.ts';
+import { DOWNLOADS, MODELS, PY_BEATS_REQUIREMENTS_LOCK, PY_LYRICS_REQUIREMENTS_LOCK, PY_REQUIREMENTS_LOCK, PYTHON_IN_ARCHIVE, TAR_EXE, UV_EXE, VENDOR, WHEELHOUSE } from '../lib/paths.ts';
 import { MAC } from '../lib/platform.ts';
 import { runChecked } from '../lib/proc.ts';
-import { fromRoot, lyricsOverridesFile } from './python-env.ts';
+import { INSTALL_CWD, lyricsOverridesFile } from './python-env.ts';
 
 // The offline-rebuild check (PROJECT.md P1 exit criterion, risk "the Python env rots").
 //
@@ -119,7 +119,7 @@ export async function runRebuildCheck(log: Logger): Promise<void> {
 
     for (const [lock, extra, label] of [
       [PY_REQUIREMENTS_LOCK, [] as string[], 'stems packages (torch CUDA, Demucs)'],
-      [PY_LYRICS_REQUIREMENTS_LOCK, ['--override', await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK)], 'lyrics packages (WhisperX)'],
+      [PY_LYRICS_REQUIREMENTS_LOCK, ['--override', basename(await lyricsOverridesFile(PY_LYRICS_REQUIREMENTS_LOCK))], 'lyrics packages (WhisperX)'],
       [PY_BEATS_REQUIREMENTS_LOCK, [] as string[], 'beat-tracking packages (librosa)'],
     ] as const) {
       if (!existsSync(lock)) {
@@ -129,8 +129,8 @@ export async function runRebuildCheck(log: Logger): Promise<void> {
       const t = performance.now();
       await runChecked(
         UV_EXE,
-        ['pip', 'install', '--python', python, '--requirement', fromRoot(lock), '--require-hashes', '--no-index', '--find-links', fromRoot(WHEELHOUSE), '--offline', '--no-config', '--break-system-packages', ...extra],
-        { step, log, cwd: ROOT, env },
+        ['pip', 'install', '--python', python, '--requirement', lock, '--require-hashes', '--no-index', '--find-links', WHEELHOUSE, '--offline', '--no-config', '--break-system-packages', ...extra],
+        { step, log, cwd: INSTALL_CWD, env },
         () => ({
           what: `The ${label} could not be installed from the wheelhouse alone.`,
           likelyCause: 'A wheel the lock needs is missing from vendor/wheelhouse/, so a rebuild would need the network.',
