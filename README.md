@@ -298,7 +298,7 @@ git and fix one wrong value in a text editor if you ever need to.
 
 ## Where the build is right now
 
-Being straight about this, since the repo is public to anyone I share it with.
+Being straight about this.
 
 **Working:** the studio. Import a track, build a look from ten visualizers, ten effects plus depth
 of field, backgrounds (colour, gradient, image or video), text, logos, groups and three 3D scenes
@@ -380,7 +380,7 @@ any strength.
 **Draft mode:** one click renders the preview at 640 px with the costliest effects approximated,
 so heavy projects stay smooth while you edit — exports always use full quality.
 
-**Also in since 1.0:** ISF shaders, vertical and 3D titles, colour emoji in titles, MIDI files as a
+**New in 1.1:** ISF shaders, vertical and 3D titles, colour emoji in titles, MIDI files as a
 modulation source, combining audio files into one track, a video file as the audio, A/B renders, the
 node view, colours from an image or cover art, palette shifts, Extract as template, and a choice of
 file size.
@@ -389,10 +389,8 @@ file size.
 card has not been tried. The installer is not code-signed, so Windows warns about it. Live input,
 WebGPU and NDI/Spout are left out on purpose. The reasons are in `docs/ROADMAP.md` §6.
 
-Every Must-have and Should-have is done; `docs/ROADMAP.md` lists what is left.
-
-`docs/ROADMAP.md` has every requirement with its state and what is left, and the order the rest
-will be built in. `docs/STATUS.md` has the detailed version, down to what has been verified on real
+Every Must-have and Should-have is done. `docs/ROADMAP.md` has every requirement with its state and
+what is left. `docs/STATUS.md` has the detailed version, down to what has been verified on real
 hardware and how.
 
 ## The documentation

@@ -706,7 +706,8 @@ that first report.
 
 ## 15. Distribution & maintenance
 
-**Private repo, personal use.** That simplifies several things and is assumed throughout.
+**Private repo, personal use.** That simplifies several things and is assumed throughout. (Since 1.1 the repo is public under
+MIT, with an installer; the README says what that changed.)
 
 - **No licence obligations to satisfy**, no cross-machine support burden, no docs written for strangers. Provisioning targets NVIDIA + Windows; CPU/AMD fallbacks are not required (though the code shouldn't gratuitously hard-code the 3060).
 - **Licence hygiene is still worth keeping cheaply**: don't paste AGPL code from Vizzy. Not because anything is being distributed today, but because "we might publish this" stays an option only while no such code is in the history. Costs nothing to avoid, expensive to unpick later.
