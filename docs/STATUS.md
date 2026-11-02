@@ -4934,6 +4934,11 @@ the newest for this system (`v1.2.3` for Windows, `v1.2.3-mac.N` for the Mac) wi
 `DATA_ROOT/updates`, refuses it unless it matches the `SHA-256:` line of the release notes, then runs it silently over this
 version (`/S --updated --force-run`) and quits; the new version starts itself. Disabled with unsaved changes, and from source.
 
+**Released as 1.1.2** (SHA-256 `335cf05a…f83160`); 1.1.0 and 1.1.1 withdrawn from the releases page (their tags stay). Installed
+over the broken 1.1.1, it started normally. **The update path, end to end:** this code built as 1.1.1 and installed found 1.1.2
+on GitHub, downloaded it, matched its SHA-256, installed it silently and came back up as 1.1.2 within seconds, with the
+`.pvproj` association kept.
+
 ## 5. Measured results
 
 The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:
