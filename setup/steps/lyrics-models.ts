@@ -8,6 +8,7 @@ import { SetupError } from '../lib/errors.ts';
 import { findArtefact, upsertArtefact } from '../lib/lockfile.ts';
 import { formatBytes } from '../lib/log.ts';
 import { PYTHON_EXE, VENDOR } from '../lib/paths.ts';
+import { ALIGN_DEVICE, WHISPER_DEVICE } from '../lib/platform.ts';
 import { runChecked } from '../lib/proc.ts';
 import type { Step, StepContext } from './types.ts';
 
@@ -35,9 +36,9 @@ if spec is not None and spec.submodule_search_locations:
 import sys
 from faster_whisper import WhisperModel
 import whisperx
-m = WhisperModel(sys.argv[1], device="cuda", compute_type="float16")
+m = WhisperModel(sys.argv[1], device="${WHISPER_DEVICE.device}", compute_type="${WHISPER_DEVICE.computeType}")
 del m
-model, meta = whisperx.load_align_model(language_code="en", device="cuda", model_dir=sys.argv[2])
+model, meta = whisperx.load_align_model(language_code="en", device="${ALIGN_DEVICE}", model_dir=sys.argv[2])
 print(json.dumps({"whisper": "ok", "align": type(model).__name__, "dictionary": len(meta["dictionary"])}))
 `;
 

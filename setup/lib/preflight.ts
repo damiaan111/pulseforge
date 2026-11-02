@@ -4,6 +4,7 @@ import { delimiter, join } from 'node:path';
 import { PYTHON_PACKAGES, REQUIRED_FREE_BYTES, type Tier } from '../manifest.ts';
 import { formatBytes, type Logger } from './log.ts';
 import { NVIDIA_SMI_EXE, ROOT, TAR_EXE, VENDOR } from './paths.ts';
+import { EXE, MAC } from './platform.ts';
 import { run } from './proc.ts';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail';
@@ -36,12 +37,14 @@ export async function runPreflight(tiers: readonly Tier[], log: Logger): Promise
 
   if (process.platform === 'win32' && process.arch === 'x64') {
     checks.push({ name: 'Platform', status: 'ok', detail: 'Windows x64' });
+  } else if (MAC && process.arch === 'arm64') {
+    checks.push({ name: 'Platform', status: 'ok', detail: 'macOS on Apple Silicon' });
   } else {
     checks.push({
       name: 'Platform',
       status: 'fail',
-      detail: `${process.platform}/${process.arch}. Pulseforge provisions Windows x64 builds only.`,
-      fix: ['Run setup on the Windows RTX machine (PROJECT.md §4).'],
+      detail: `${process.platform}/${process.arch}. Pulseforge provisions Windows x64 and Apple Silicon builds only.`,
+      fix: ['Run setup on Windows x64, or on a Mac with an M-series chip.'],
     });
   }
 
@@ -59,8 +62,8 @@ export async function runPreflight(tiers: readonly Tier[], log: Logger): Promise
     checks.push({
       name: 'Archive tool',
       status: 'fail',
-      detail: `${TAR_EXE} not found. Windows 10 (1803+) and 11 include it.`,
-      fix: ['Check that this is Windows 10 1803 or newer. Setup deliberately does not fall back to other tools found on PATH.'],
+      detail: MAC ? `${TAR_EXE} not found. Every macOS includes it.` : `${TAR_EXE} not found. Windows 10 (1803+) and 11 include it.`,
+      fix: [MAC ? 'Check the macOS installation. Setup deliberately does not fall back to other tools found on PATH.' : 'Check that this is Windows 10 1803 or newer. Setup deliberately does not fall back to other tools found on PATH.'],
     });
   }
 
@@ -92,7 +95,7 @@ export async function runPreflight(tiers: readonly Tier[], log: Logger): Promise
     gpu = await probeGpu(checks, log);
   }
 
-  const shadowing = ['python.exe', 'ffmpeg.exe', 'uv.exe']
+  const shadowing = [MAC ? 'python3' : 'python.exe', `ffmpeg${EXE}`, `uv${EXE}`]
     .map((exe) => [exe, findOnPath(exe)] as const)
     .filter((entry): entry is readonly [string, string] => entry[1] !== undefined);
   if (shadowing.length > 0) {
@@ -107,6 +110,11 @@ export async function runPreflight(tiers: readonly Tier[], log: Logger): Promise
 }
 
 async function probeGpu(checks: Check[], log: Logger): Promise<GpuInfo | undefined> {
+  // Apple Silicon has one GPU and no driver to check: torch reaches it through Metal (MPS).
+  if (MAC) {
+    checks.push({ name: 'GPU', status: 'ok', detail: 'Apple Silicon, through Metal (stems on the GPU, transcription on the CPU)' });
+    return undefined;
+  }
   if (!existsSync(NVIDIA_SMI_EXE)) {
     checks.push({
       name: 'NVIDIA GPU',
@@ -134,7 +142,7 @@ async function probeGpu(checks: Check[], log: Logger): Promise<GpuInfo | undefin
   }
   const gpu: GpuInfo = { name, driverVersion, memoryMiB: Number(memory) };
   const major = Number(driverVersion.split('.')[0]);
-  if (!(major >= PYTHON_PACKAGES.minDriverMajor)) {
+  if (!(major >= (PYTHON_PACKAGES.minDriverMajor ?? 0))) {
     checks.push({
       name: 'NVIDIA GPU',
       status: 'fail',

@@ -194,6 +194,7 @@
 | 4.91 | The auto-director's Could-level list: image palettes, cover art, key, palette shifts, extract, curves to keyframes |
 | 4.92 | A real Windows app; removing components; the whole thing tested again |
 | 4.93 | The known problems: recovery after a crash, MilkDrop shaders, the Shadertoy input, file size, Auto |
+| 4.94 | The `macos` branch: Apple Silicon, a DMG built on GitHub |
 
 ---
 
@@ -4904,6 +4905,30 @@ packaged smoke 46/46 and a silent install and uninstall.
 
 **Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
 voice line was not reproduced, and is left as it was.
+
+### 4.94 The `macos` branch: Apple Silicon, a DMG built on GitHub
+
+**On this branch only.** `macos` shares no history with `main` (an orphan branch, started from 1.1.0), so GitHub never
+counts it ahead or behind. It still runs on Windows: `setup/lib/platform.ts` decides per system, and the full suite
+passes here on the RTX machine (with `vendor/` linked in from the main checkout).
+
+**What the Mac gets.** FFmpeg 9.0.2 arm64 from martin-riedl.de (FFmpeg and FFprobe as two pinned archives), python-build-
+standalone and uv for `aarch64-apple-darwin`, and its own locks, `setup/python/*.macos.lock.txt`. Those were resolved
+with uv from Windows for `aarch64-apple-darwin` and macOS 14 (torch 2.13 ships no older wheel), with the Windows locks
+as constraints: the same versions on both, without the CUDA packages. Demucs runs on Metal (`mps`, with
+`PYTORCH_ENABLE_MPS_FALLBACK`), Whisper on the CPU in int8 and alignment on the CPU (`WHISPER_DEVICE`, `ALIGN_DEVICE`).
+Video encodes on VideoToolbox (`encoder: 'videotoolbox'`): `-q:v` from the CQ (17 → 66), the ceiling as `-b:v` for
+Balanced and Small, 4:2:0 only, never Apple's software fallback. Data lives in `~/Library/Application Support/Pulseforge/Data`.
+The app has a Mac menu (Edit for Cmd+C/V; Cmd+Z stays the project's undo), opens `.pvproj` from the Finder (`open-file`),
+quits with its window, and shuts the Mac down through System Events.
+
+**The DMG** comes from `.github/workflows/macos.yml` on GitHub's Apple Silicon runner: `npm run dist:mac`, signed ad hoc in
+`scripts/after-pack.cjs` (no Developer ID, so Gatekeeper asks once: Privacy & Security → Open Anyway). The same run
+installs core, MilkDrop and stems on that clean Mac and runs the smoke check and the tests, as a report rather than a
+verdict: the runner is a virtual Mac. A tag `v*-mac*` publishes the DMG as a pre-release.
+
+**Not done or not known yet:** use on a real Mac (the owner tests on a MacBook Air M4); the VideoToolbox quality mapping
+measured against NVENC; golden frames for Apple's GPU; a launcher for running from source on a Mac.
 
 ## 5. Measured results
 

@@ -224,7 +224,7 @@ export async function renderDocument(options: RenderDocumentOptions): Promise<Re
     throw new RenderDocumentError(`This machine cannot encode ${options.codec === 'hevc' ? 'HEVC' : 'H.264'}. ${support.reason ?? ''}`.trim(), ['Choose an H.264 export preset, or update the graphics driver']);
   }
   const encodeSettings = { ...encodeSettingsFor(options.codec, options.quality), encoder: support.encoder };
-  if (support.encoder === 'software') say(`Encoding in software, which is slower: NVENC is not usable here (${support.reason ?? 'unknown reason'})`);
+  if (support.encoder === 'software') say(`Encoding in software, which is slower: the hardware encoder is not usable here (${support.reason ?? 'unknown reason'})`);
   const neededBytes = estimateOutputBytes({ ...canvas, frames, fps: fps.num / fps.den, audioBitrateKbps: encodeSettings.audioBitrateKbps });
   const noRoom = spaceProblem(options.outputPath, neededBytes, await (options.freeBytes ?? freeBytesAt)(options.outputPath));
   if (noRoom !== null) throw diskSpaceError(noRoom);

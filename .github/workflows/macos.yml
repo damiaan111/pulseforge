@@ -1,0 +1,95 @@
+# The Mac build. GitHub's macOS runners are Apple Silicon, so this builds the arm64 DMG on the system it
+# is for, and tries the app there before anyone downloads it. A tag like v1.1.0-mac.1 also publishes the
+# DMG as a pre-release, so the Windows release stays the latest.
+#
+# Only typecheck, lint and the DMG decide the run. The rest reports: the runner is a virtual Mac, where
+# Metal and VideoToolbox can be missing, so what fails there is read, not trusted as a verdict.
+
+name: macOS
+
+on:
+  push:
+    branches: [macos]
+    tags: ['v*-mac*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+      - name: Build the DMG
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Check the app's signature
+        run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Pulseforge.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pulseforge-mac-arm64
+          path: release/*.dmg
+          if-no-files-found: error
+
+      - name: Setup on a clean Mac (core, MilkDrop)
+        id: setup
+        continue-on-error: true
+        run: npm run setup -- --tier core,milkdrop
+
+      - name: Setup of stem separation (torch for Metal, Demucs)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: npm run setup -- --tier stems
+
+      - name: Smoke check
+        if: steps.setup.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          rm -f out/smoke-result.json
+          npm run dev -- --smoke > out/smoke-run.log 2>&1 || true
+          tail -40 out/smoke-run.log
+          cat out/smoke-result.json || echo "no smoke result"
+
+      - name: Unit tests
+        continue-on-error: true
+        timeout-minutes: 30
+        run: npm run test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-reports
+          path: |
+            out/smoke-result.json
+            out/smoke-run.log
+            out/smoke.png
+            out/smoke-milkdrop.png
+            out/vitest-last.json
+            vendor/setup.log
+          if-no-files-found: ignore
+
+      - name: Publish the pre-release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" release/*.dmg
+          --prerelease --target macos
+          --title "Pulseforge ${GITHUB_REF_NAME#v} for Mac (Apple Silicon)"
+          --notes-file docs/mac-release-notes.md

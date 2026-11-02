@@ -7,7 +7,8 @@ import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import type { Logger } from '../lib/log.ts';
 import { formatBytes } from '../lib/log.ts';
-import { DOWNLOADS, MODELS, PY_BEATS_REQUIREMENTS_LOCK, PY_LYRICS_REQUIREMENTS_LOCK, PY_REQUIREMENTS_LOCK, ROOT, TAR_EXE, UV_EXE, VENDOR, WHEELHOUSE } from '../lib/paths.ts';
+import { DOWNLOADS, MODELS, PY_BEATS_REQUIREMENTS_LOCK, PY_LYRICS_REQUIREMENTS_LOCK, PY_REQUIREMENTS_LOCK, PYTHON_IN_ARCHIVE, ROOT, TAR_EXE, UV_EXE, VENDOR, WHEELHOUSE } from '../lib/paths.ts';
+import { MAC } from '../lib/platform.ts';
 import { runChecked } from '../lib/proc.ts';
 import { fromRoot, lyricsOverridesFile } from './python-env.ts';
 
@@ -45,7 +46,8 @@ print(json.dumps({
     "python": sys.version.split()[0],
     "torch": torch.__version__,
     "cuda": torch.cuda.is_available(),
-    "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    "mps": bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()),
+    "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else ("Apple GPU (Metal)" if torch.backends.mps.is_available() else None),
     "demucs": metadata.version("demucs"),
     "htdemucs": list(bag.sources),
     "whisperx": metadata.version("whisperx"),
@@ -110,8 +112,8 @@ export async function runRebuildCheck(log: Logger): Promise<void> {
       what: 'Extracting the kept Python archive failed.',
       fix: ['Check free space on the repo drive.'],
     }));
-    const python = join(SCRATCH, 'python', 'python.exe');
-    if (!existsSync(python)) throw new SetupError({ step, what: 'The Python archive did not contain python/python.exe.', fix: ['Check the PYTHON pin in setup/manifest.ts.'] });
+    const python = join(SCRATCH, 'python', PYTHON_IN_ARCHIVE);
+    if (!existsSync(python)) throw new SetupError({ step, what: `The Python archive did not contain python/${PYTHON_IN_ARCHIVE}.`, fix: ['Check the PYTHON pin in setup/manifest.ts.'] });
     log.ok('Fresh interpreter extracted from the kept archive');
 
     for (const [lock, extra, label] of [
@@ -143,7 +145,7 @@ export async function runRebuildCheck(log: Logger): Promise<void> {
       fix: ['Share vendor/setup.log; the import error is in it.'],
     }));
     const info = JSON.parse(probe.stdout.trim().split(/\r?\n/).pop() ?? '{}') as Record<string, unknown>;
-    if (info['cuda'] !== true) {
+    if (info[MAC ? 'mps' : 'cuda'] !== true) {
       throw new SetupError({ step, what: 'The rebuilt torch does not see the GPU.', likelyCause: 'The wheelhouse holds a CPU build of torch.', fix: ['Re-run `npm run setup -- --relock`.'] });
     }
     log.ok(`Rebuilt env works: Python ${String(info['python'])}, torch ${String(info['torch'])} on ${String(info['device'])}, demucs ${String(info['demucs'])} (htdemucs loads), whisperx ${String(info['whisperx'])}, CTranslate2 on ${String(info['ctranslate2Cuda'])} CUDA device(s)`);

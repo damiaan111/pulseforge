@@ -2,8 +2,13 @@
 
 import argparse
 import json
+import os
 import sys
 import time
+
+# Demucs uses a few operations Metal (MPS) does not have. They run on the CPU instead of failing the
+# separation. It has to be set before torch loads, and changes nothing on CUDA or the CPU.
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 from . import PROTOCOL_VERSION
 
@@ -23,6 +28,7 @@ def cmd_health(_args):
         "torch": torch.__version__,
         "torchCuda": torch.version.cuda,
         "cudaAvailable": bool(torch.cuda.is_available()),
+        "mpsAvailable": bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available()),
     }
     if info["cudaAvailable"]:
         props = torch.cuda.get_device_properties(0)
@@ -43,6 +49,21 @@ def cmd_separate(args):
     emit("result", **_separate(args, None))
 
 
+def _resolve_device(device):
+    """`auto` (or nothing) becomes the best this machine has: CUDA on the NVIDIA PC, Metal (MPS) on
+    Apple Silicon, the CPU otherwise."""
+    if device not in (None, "", "auto"):
+        return device
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def _separate(args, context):
     """Stem separation. `context` is None one-shot, or serve.py's context when served."""
     from pathlib import Path
@@ -52,6 +73,7 @@ def _separate(args, context):
     from demucs.apply import BagOfModels, apply_model
     from demucs.pretrained import get_model
 
+    args.device = _resolve_device(args.device)
     if args.device == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA is not available to torch; run `npm run setup -- --verify`")
 
@@ -136,6 +158,8 @@ def _separate(args, context):
         "segments": total,
         "stemRms": stem_rms,
     }
+    if args.device == "mps":
+        result["device"] = "Apple GPU (Metal)"
     if args.device == "cuda":
         result["peakAllocatedMiB"] = torch.cuda.max_memory_allocated() / 2**20
         result["peakReservedMiB"] = torch.cuda.max_memory_reserved() / 2**20
@@ -171,7 +195,7 @@ def _served_separate(params, context):
         model=params.get("model", "htdemucs"),
         repo=params["repo"],
         out_dir=params.get("outDir"),
-        device=params.get("device", "cuda"),
+        device=params.get("device", "auto"),
         shifts=int(params.get("shifts", 1)),
         overlap=float(params.get("overlap", 0.25)),
     )
@@ -231,7 +255,7 @@ def main(argv=None):
     separate.add_argument("--model", default="htdemucs")
     separate.add_argument("--repo", required=True, help="folder holding the model yaml + weights")
     separate.add_argument("--out-dir", help="write each stem as <name>.f32")
-    separate.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
+    separate.add_argument("--device", default="auto", choices=["auto", "cuda", "mps", "cpu"])
     separate.add_argument("--shifts", type=int, default=1)
     separate.add_argument("--overlap", type=float, default=0.25)
 

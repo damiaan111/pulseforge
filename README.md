@@ -1,12 +1,16 @@
 # Pulseforge
 
+> **This is the `macos` branch: Pulseforge for Macs with Apple Silicon (M1 or newer, macOS 14+).** It is a
+> preview, kept apart from `main` (the Windows build) on purpose. Download the DMG from the
+> [Releases page](https://github.com/damiaan111/pulseforge/releases), and read [the Mac section](#on-a-mac) first.
+
 Turn a song into a music video, on your own machine, with your own GPU doing the work.
 
 ![The Pulseforge studio with a MilkDrop visual, lyrics and the timeline](docs/images/01-studio.png)
 
 Local, offline after setup, and free. No account, no credits, no uploads, no watermark.
 
-**Windows 10/11, 64-bit** · Electron, TypeScript and WebGL2, with Demucs and WhisperX on the side, and FFmpeg for export · [MIT](LICENSE)
+**Windows 10/11, 64-bit, and macOS 14+ on Apple Silicon (this branch)** · Electron, TypeScript and WebGL2, with Demucs and WhisperX on the side, and FFmpeg for export · [MIT](LICENSE)
 
 ## Contents
 
@@ -131,6 +135,21 @@ actually do and disables what it cannot deliver, rather than letting you pick so
 twenty minutes into a render.
 
 You do not need Node, Python, FFmpeg or git. The launcher fetches what is missing.
+
+## On a Mac
+
+1. Download `Pulseforge-1.1.0-mac-arm64.dmg` from the [Releases page](https://github.com/damiaan111/pulseforge/releases),
+   open it, and drag Pulseforge onto Applications.
+2. Open it. It is signed ad hoc, not with an Apple Developer ID, so macOS blocks it the first time: open
+   **System Settings → Privacy & Security** and choose **Open Anyway** beside *"Pulseforge" was blocked*.
+3. The first start offers the components, as on Windows. They go to
+   `~/Library/Application Support/Pulseforge/Data` unless you choose another folder.
+
+What changes on a Mac: video encodes on **VideoToolbox**, Apple's hardware encoder (H.264 and 10-bit HEVC, no
+AV1). **Stems** separate on the GPU through Metal. **Transcription** runs on the CPU, because CTranslate2 has no
+Metal support: a few minutes per song. The Python packages are the same versions as on Windows, built for
+the Mac (`setup/python/*.macos.lock.txt`), and FFmpeg is Martin Riedl's arm64 build. Intel Macs are not
+supported. To build the DMG yourself on a Mac: `npm ci`, then `npm run dist:mac`.
 
 ## Install
 

@@ -467,7 +467,7 @@ export interface EnvironmentReport {
  */
 export interface RenderReadiness {
   /** Null when the encoders have not been checked: FFmpeg is missing. */
-  readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null; readonly encoder: 'nvenc' | 'software' }>> | null;
+  readonly codecs: Readonly<Record<'h264' | 'hevc', { readonly available: boolean; readonly reason: string | null; readonly encoder: 'nvenc' | 'software' | 'videotoolbox' }>> | null;
   /** On the output file's drive; null with no output chosen, or when it cannot be read. */
   readonly freeBytes: number | null;
 }
@@ -477,6 +477,8 @@ export type ComponentRow = Component & { readonly installed: boolean; readonly r
 
 export interface ComponentsInfo {
   readonly components: readonly ComponentRow[];
+  /** A Mac with Apple Silicon: the GPU features run through Metal, with no driver to ask. */
+  readonly appleSilicon: boolean;
   /** Null: no NVIDIA card or driver answered. */
   readonly driver: { readonly name: string; readonly version: string; readonly major: number } | null;
   /** On the drive this folder is on; null when it cannot be read. */

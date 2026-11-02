@@ -22,6 +22,7 @@ import {
   WHEELHOUSE,
 } from '../lib/paths.ts';
 import { run, runChecked } from '../lib/proc.ts';
+import { MAC } from '../lib/platform.ts';
 import type { Tier } from '../manifest.ts';
 import type { Step, StepContext } from './types.ts';
 
@@ -79,6 +80,8 @@ interface EnvProbe {
   torch?: string;
   torchCuda?: string | null;
   cudaAvailable?: boolean;
+  /** Apple Silicon's GPU, through Metal. */
+  mpsAvailable?: boolean;
   device?: string;
   torchError?: string;
   demucs?: string;
@@ -102,6 +105,9 @@ try:
     out["cudaAvailable"] = bool(torch.cuda.is_available())
     if out["cudaAvailable"]:
         out["device"] = torch.cuda.get_device_name(0)
+    out["mpsAvailable"] = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+    if out["mpsAvailable"]:
+        out["device"] = "Apple GPU (Metal)"
 except Exception as e:
     out["torchError"] = repr(e)
 try:
@@ -175,11 +181,10 @@ async function ensureRequirementsLock(config: PythonEnvConfig, ctx: StepContext)
       '--python', PYTHON_EXE,
       '--python-version', PYTHON_PACKAGES.pythonVersion,
       '--python-platform', PYTHON_PACKAGES.pythonPlatform,
-      '--index-url', PYTHON_PACKAGES.pypiIndex,
-      '--extra-index-url', PYTHON_PACKAGES.torchIndex,
+      ...indexArgs(),
       // Consider both indexes for every package, so the PyTorch mirror's older copies of
       // common packages don't shadow PyPI. torch itself is pinned to its CUDA local version.
-      '--index-strategy', 'unsafe-best-match',
+      ...(PYTHON_PACKAGES.torchIndex === null ? [] : ['--index-strategy', 'unsafe-best-match']),
       // Wheels only: an offline rebuild must never need a compiler or a build backend.
       '--only-binary', ':all:',
       '--no-config',
@@ -190,7 +195,7 @@ async function ensureRequirementsLock(config: PythonEnvConfig, ctx: StepContext)
     () => ({
       what: 'uv could not resolve the Python requirements.',
       likelyCause:
-        'A pinned version in setup/python/requirements.in has no Windows wheel for Python 3.11, or pypi.org / download.pytorch.org is unreachable.',
+        `A pinned version in ${inputRelative} has no ${MAC ? 'macOS arm64' : 'Windows'} wheel for Python 3.11, or pypi.org / download.pytorch.org is unreachable.`,
       fix: [
         'Read the uv output above: it names the package that could not be satisfied.',
         'If it is a network error, check the connection and re-run.',
@@ -204,16 +209,23 @@ async function ensureRequirementsLock(config: PythonEnvConfig, ctx: StepContext)
     ctx.log.ok(`Wrote ${config.lockRelative}`);
     return { generated: true };
   }
-  if (torch === undefined || !torch.endsWith(`+${PYTHON_PACKAGES.torchLocalVersion}`)) {
+  const local = PYTHON_PACKAGES.torchLocalVersion;
+  if (torch === undefined || (local !== null && !torch.endsWith(`+${local}`))) {
     throw new SetupError({
       step: config.title,
-      what: `The generated lock pins torch ${torch ?? '(missing)'}, not a +${PYTHON_PACKAGES.torchLocalVersion} CUDA build.`,
+      what: `The generated lock pins torch ${torch ?? '(missing)'}, not a +${local ?? '?'} CUDA build.`,
       likelyCause: 'The resolver chose the CPU wheel, so stem separation would silently run on the CPU.',
       fix: ['Check the torch pin in setup/python/requirements.in and PYTHON_PACKAGES.torchIndex in setup/manifest.ts, then re-run with --relock.'],
     });
   }
   ctx.log.ok(`Wrote ${config.lockRelative} (torch ${torch})`);
   return { generated: true };
+}
+
+/** The indexes to resolve and download from: PyPI, plus PyTorch's own for the CUDA build. */
+function indexArgs(): string[] {
+  const extra = PYTHON_PACKAGES.torchIndex;
+  return ['--index-url', PYTHON_PACKAGES.pypiIndex, ...(extra === null ? [] : ['--extra-index-url', extra])];
 }
 
 async function pipResumeArgs(config: PythonEnvConfig, ctx: StepContext): Promise<string[]> {
@@ -239,8 +251,7 @@ async function downloadWheelhouse(config: PythonEnvConfig, ctx: StepContext): Pr
       '--no-deps', // the lock is the complete, resolved set
       '--only-binary', ':all:',
       '--no-cache-dir',
-      '--index-url', PYTHON_PACKAGES.pypiIndex,
-      '--extra-index-url', PYTHON_PACKAGES.torchIndex,
+      ...indexArgs(),
       ...(await pipResumeArgs(config, ctx)),
     ],
     { step: config.title, log: ctx.log, env: pythonEnv(), echo: true },
@@ -316,6 +327,17 @@ function assertHealthy(config: PythonEnvConfig, info: EnvProbe): string {
         : ['Delete vendor/python (the wheelhouse is kept) and re-run `npm run setup`.'],
     });
   }
+  if (MAC) {
+    if (info.mpsAvailable !== true) {
+      throw new SetupError({
+        step: TITLE,
+        what: `torch ${info.torch ?? '?'} cannot reach the GPU through Metal (MPS).`,
+        likelyCause: 'This Mac is not Apple Silicon, or macOS is older than 12.3.',
+        fix: ['Update macOS, then re-run setup.'],
+      });
+    }
+    return config.check(info);
+  }
   if (info.torchCuda === null || info.torchCuda === undefined) {
     throw new SetupError({
       step: TITLE,
@@ -372,7 +394,7 @@ export function createPythonEnvStep(config: PythonEnvConfig): Step {
         name: TITLE,
         version: lockExists ? `lock: torch ${torch ?? '?'} (+ deps)` : `requirements: ${requirements}`,
         download: `~${formatBytes(config.approxWheelhouseBytes)} of wheels`,
-        source: `${PYTHON_PACKAGES.pypiIndex} + ${PYTHON_PACKAGES.torchIndex}`,
+        source: PYTHON_PACKAGES.torchIndex === null ? PYTHON_PACKAGES.pypiIndex : `${PYTHON_PACKAGES.pypiIndex} + ${PYTHON_PACKAGES.torchIndex}`,
         destination: 'vendor/wheelhouse/ (kept) → installed into vendor/python/',
         status:
           marker !== undefined && marker.requirementsLockSha256 === lockSha
@@ -469,7 +491,7 @@ export const pythonEnvStep: Step = createPythonEnvStep({
   tier: PYTHON_PACKAGES.tier,
   requirementsIn: PY_REQUIREMENTS_IN,
   requirementsLock: PY_REQUIREMENTS_LOCK,
-  lockRelative: 'setup/python/requirements.lock.txt',
+  lockRelative: fromRoot(PY_REQUIREMENTS_LOCK),
   marker: join(VENDOR, 'python', '.pulseforge-env.json'),
   approxWheelhouseBytes: PYTHON_PACKAGES.approxWheelhouseBytes,
   compileArgs: async () => [],
@@ -544,7 +566,7 @@ export const pythonLyricsEnvStep: Step = createPythonEnvStep({
   tier: PYTHON_PACKAGES_LYRICS.tier,
   requirementsIn: PY_LYRICS_REQUIREMENTS_IN,
   requirementsLock: PY_LYRICS_REQUIREMENTS_LOCK,
-  lockRelative: 'setup/python/requirements-lyrics.lock.txt',
+  lockRelative: fromRoot(PY_LYRICS_REQUIREMENTS_LOCK),
   marker: join(VENDOR, 'python', '.pulseforge-lyrics-env.json'),
   approxWheelhouseBytes: PYTHON_PACKAGES_LYRICS.approxWheelhouseBytes,
   requires() {
@@ -585,7 +607,8 @@ except Exception as e:
         fix: ['Re-run with `npm run setup -- --relock`; if it persists, share vendor/setup.log.'],
       });
     }
-    if ((info.ctranslate2Cuda ?? 0) < 1) {
+    // On the Mac CTranslate2 runs on the CPU: it has no Metal backend.
+    if (!MAC && (info.ctranslate2Cuda ?? 0) < 1) {
       throw new SetupError({
         step,
         what: 'CTranslate2 (faster-whisper) cannot see a CUDA device.',
@@ -593,7 +616,7 @@ except Exception as e:
         fix: ['Re-run `npm run setup -- --tier lyrics`, and update the NVIDIA driver if this repeats.'],
       });
     }
-    return `whisperx ${info.whisperx ?? '?'}, CTranslate2 on ${info.ctranslate2Cuda ?? 0} CUDA device(s)`;
+    return MAC ? `whisperx ${info.whisperx ?? '?'}, CTranslate2 on the CPU` : `whisperx ${info.whisperx ?? '?'}, CTranslate2 on ${info.ctranslate2Cuda ?? 0} CUDA device(s)`;
   },
   record(ctx, lockSha, info) {
     recordEnv(ctx, lockSha, info);
@@ -607,7 +630,7 @@ export const pythonBeatsEnvStep: Step = createPythonEnvStep({
   tier: PYTHON_PACKAGES_BEATS.tier,
   requirementsIn: PY_BEATS_REQUIREMENTS_IN,
   requirementsLock: PY_BEATS_REQUIREMENTS_LOCK,
-  lockRelative: 'setup/python/requirements-beats.lock.txt',
+  lockRelative: fromRoot(PY_BEATS_REQUIREMENTS_LOCK),
   marker: join(VENDOR, 'python', '.pulseforge-beats-env.json'),
   approxWheelhouseBytes: PYTHON_PACKAGES_BEATS.approxWheelhouseBytes,
   usesTorch: false,

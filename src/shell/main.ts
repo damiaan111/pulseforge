@@ -28,6 +28,7 @@ import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promi
 import { basename, dirname, join } from 'node:path';
 import { BrowserWindow, Menu, Notification, app, clipboard, crashReporter, dialog, ipcMain, session, shell, type Rectangle } from 'electron';
 import { DEFAULT_FONT_FILE, FFMPEG_EXE, FFPROBE_EXE, MILKDROP_JS_DIR, MODELS, MODULES_DIR, MODULE_LIBRARIES, NVIDIA_SMI_EXE, PYTHON_EXE, ROOT, VENDOR, BUNDLED_MODULES_DIR, DATA_LOCATION_FILE, DATA_ROOT, INSTALLED } from '../../setup/lib/paths.ts';
+import { MAC } from '../../setup/lib/platform.ts';
 import { WAV2VEC2_EN } from '../../setup/manifest.ts';
 import { LyricsNeedStemsError, installedAlignLanguages, alignLyrics, type LyricsAlignProgress } from '../ml/lyrics-align.ts';
 import { FONT_EXTENSIONS, colorEmojiFontFile, fallbackFontFiles } from '../assets/fonts.ts';
@@ -453,6 +454,10 @@ async function installCheck(window: BrowserWindow): Promise<void> {
 /** The NVIDIA card and driver, by asking the driver; null when there is none to ask. */
 function nvidiaDriver(): Promise<ComponentsInfo['driver']> {
   return new Promise((resolve) => {
+    if (MAC) {
+      resolve(null);
+      return;
+    }
     execFile(NVIDIA_SMI_EXE, ['--query-gpu=name,driver_version', '--format=csv,noheader,nounits'], { windowsHide: true }, (error, stdout) => {
       const [name, version] = (stdout.split(/\r?\n/)[0] ?? '').split(',').map((part) => part.trim());
       const major = Number(version?.split('.')[0]);
@@ -518,8 +523,11 @@ function projectPathIn(argv: readonly string[]): string | undefined {
 }
 
 function initialProjectPath(): string | undefined {
-  return projectPathIn(process.argv);
+  return projectPathIn(process.argv) ?? finderProject;
 }
+
+/** A project the Finder opened the app with. The Mac sends it as `open-file`, never in argv. */
+let finderProject: string | undefined;
 
 function registerHandlers(): void {
   ipcMain.handle(IPC.projectInitial, async (): Promise<ProjectFile | null> => {
@@ -1001,6 +1009,7 @@ function registerHandlers(): void {
   });
   ipcMain.handle(IPC.componentsInfo, async (): Promise<ComponentsInfo> => ({
     components: COMPONENTS.map((component) => ({ ...component, installed: componentInstalled(component.id), removable: componentRemovable(component.id) })),
+    appleSilicon: MAC && process.arch === 'arm64',
     driver: await nvidiaDriver(),
     freeBytes: await freeBytesAt(DATA_ROOT),
     nonCommercialNotice: NON_COMMERCIAL_NOTICE,
@@ -1547,10 +1556,23 @@ let shutdownWhenDone = false;
 const SHUTDOWN_GRACE_SECONDS = 120;
 /** In smoke mode the shutdown is recorded here instead of run — a self-check must never turn the machine off. */
 const smokeShutdownCalls: string[][] = [];
+/** The Mac's pending shutdown: the grace runs here, since `shutdown` there needs administrator rights. */
+let macShutdown: ReturnType<typeof setTimeout> | undefined;
 
 function systemShutdown(args: readonly string[]): void {
   if (process.env['PULSEFORGE_SMOKE'] === '1') {
     smokeShutdownCalls.push([...args]);
+    return;
+  }
+  if (MAC) {
+    // Windows' arguments, read the same way: `/a` cancels, anything else schedules. System Events shuts
+    // the Mac down the way the Apple menu does; the first time, macOS asks to let Pulseforge control it.
+    if (macShutdown !== undefined) clearTimeout(macShutdown);
+    macShutdown = undefined;
+    if (args[0] === '/a') return;
+    macShutdown = setTimeout(() => {
+      spawn('/usr/bin/osascript', ['-e', 'tell application "System Events" to shut down'], { detached: true, stdio: 'ignore' }).unref();
+    }, SHUTDOWN_GRACE_SECONDS * 1000);
     return;
   }
   // By absolute path, like every other tool this app runs (CLAUDE.md).
@@ -1821,7 +1843,15 @@ app.enableSandbox();
 // From source a second copy is often the point.
 if (INSTALLED) {
   app.setAppUserModelId('app.pulseforge.studio');
-  Menu.setApplicationMenu(null);
+  // Windows shows no menu bar. A Mac always has one, and without Edit in it Cmd+C and Cmd+V do nothing in
+  // a text field. Undo is left out on purpose: Cmd+Z reaches the studio, whose undo is the project's.
+  Menu.setApplicationMenu(MAC
+    ? Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      { label: 'Edit', submenu: [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+      { role: 'windowMenu' },
+    ])
+    : null);
   if (!app.requestSingleInstanceLock()) app.exit(0);
   app.on('second-instance', (_event, argv) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -1833,6 +1863,20 @@ if (INSTALLED) {
     void readProjectText(project).then((text) => window.webContents.send(IPC.projectOpenRequest, { path: project, text } satisfies ProjectFile));
   });
 }
+
+// Double-clicking a project in the Finder. Registered before the app is ready: on a cold start the
+// event comes first, and the studio opens with it like a project named on the command line.
+app.on('open-file', (event, path) => {
+  event.preventDefault();
+  if (!path.endsWith('.pvproj')) return;
+  const window = BrowserWindow.getAllWindows()[0];
+  if (window === undefined) {
+    finderProject = path;
+    return;
+  }
+  window.focus();
+  void readProjectText(path).then((text) => window.webContents.send(IPC.projectOpenRequest, { path, text } satisfies ProjectFile));
+});
 
 // The self-check must not depend on what else is on screen: Windows' occlusion tracking marks a
 // covered window hidden, and a hidden page stops painting and running animation frames — so a
@@ -3541,6 +3585,8 @@ async function uiTour(window: BrowserWindow, dir: string): Promise<void> {
   console.log(`[smoke] ui tour written to ${dir}`);
 }
 
+// Quits on the Mac too: one studio window is the whole app, and a render queue left running with no
+// window to see it would surprise anyone.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });

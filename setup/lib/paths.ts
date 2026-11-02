@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EXE, MAC } from './platform.ts';
 
 /** The program: sources or, installed, `resources/app`. Replaced by an update, so never written to. */
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -10,8 +11,13 @@ const resourcesPath = (process as { readonly resourcesPath?: string }).resources
 /** Running from the installer's copy rather than from the sources. */
 export const INSTALLED = resourcesPath !== undefined && resolve(resourcesPath, 'app') === ROOT;
 
+/** Where each system keeps an app's settings: `%APPDATA%` on Windows, Application Support on the Mac. */
+const APP_SUPPORT = MAC
+  ? join(homedir(), 'Library', 'Application Support')
+  : process.env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming');
+
 /** Names a data folder other than the default; the installed app reads it at start. */
-export const DATA_LOCATION_FILE = join(process.env['APPDATA'] ?? join(homedir(), 'AppData', 'Roaming'), 'Pulseforge', 'data-location.txt');
+export const DATA_LOCATION_FILE = join(APP_SUPPORT, 'Pulseforge', 'data-location.txt');
 
 function dataRoot(): string {
   const named = process.env['PULSEFORGE_DATA'];
@@ -21,6 +27,8 @@ function dataRoot(): string {
     const location = readFileSync(DATA_LOCATION_FILE, 'utf8').trim();
     if (location !== '') return resolve(location);
   } catch { /* none chosen */ }
+  // The Mac has no separate local folder: the data sits beside Electron's own, in its own folder.
+  if (MAC) return join(APP_SUPPORT, 'Pulseforge', 'Data');
   return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Pulseforge');
 }
 
@@ -63,23 +71,30 @@ export const SETUP_LOG = join(VENDOR, 'setup.log');
 export const SETUP_PID = join(VENDOR, '.setup.pid');
 export const LICENSES_MD = join(VENDOR, 'LICENSES.md');
 
-export const PY_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', 'requirements.in');
-export const PY_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements.lock.txt');
+// The Mac resolves its own locks (torch for Metal, no CUDA libraries), beside the Windows ones.
+const PLATFORM_LOCK = MAC ? '.macos' : '';
+export const PY_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', `requirements${PLATFORM_LOCK}.in`);
+export const PY_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', `requirements${PLATFORM_LOCK}.lock.txt`);
 /** The lyrics tier (WhisperX): a superset of the stems set, resolved with it as constraints. */
-export const PY_LYRICS_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', 'requirements-lyrics.in');
-export const PY_LYRICS_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements-lyrics.lock.txt');
+export const PY_LYRICS_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', `requirements-lyrics${PLATFORM_LOCK}.in`);
+export const PY_LYRICS_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', `requirements-lyrics${PLATFORM_LOCK}.lock.txt`);
 export const PY_BEATS_REQUIREMENTS_IN = join(ROOT, 'setup', 'python', 'requirements-beats.in');
-export const PY_BEATS_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', 'requirements-beats.lock.txt');
+export const PY_BEATS_REQUIREMENTS_LOCK = join(ROOT, 'setup', 'python', `requirements-beats${PLATFORM_LOCK}.lock.txt`);
 
 // Vendored executables. Always invoked by absolute path, never resolved from PATH
 // (PROJECT.md §3) — a system-wide python or ffmpeg must never be picked up.
-export const FFMPEG_EXE = join(VENDOR, 'ffmpeg', 'bin', 'ffmpeg.exe');
-export const FFPROBE_EXE = join(VENDOR, 'ffmpeg', 'bin', 'ffprobe.exe');
-export const PYTHON_EXE = join(VENDOR, 'python', 'python.exe');
-export const UV_EXE = join(VENDOR, 'uv', 'uv.exe');
+// On the Mac FFmpeg and FFprobe come as two archives of one file each (setup/manifest.ts).
+export const FFMPEG_EXE = MAC ? join(VENDOR, 'ffmpeg', 'ffmpeg') : join(VENDOR, 'ffmpeg', 'bin', 'ffmpeg.exe');
+export const FFPROBE_EXE = MAC ? join(VENDOR, 'ffprobe', 'ffprobe') : join(VENDOR, 'ffmpeg', 'bin', 'ffprobe.exe');
+/** The interpreter inside the Python archive, relative to where it unpacks. */
+export const PYTHON_IN_ARCHIVE = MAC ? join('bin', 'python3') : 'python.exe';
+export const PYTHON_EXE = join(VENDOR, 'python', PYTHON_IN_ARCHIVE);
+export const UV_EXE = join(VENDOR, 'uv', `uv${EXE}`);
 
 export const SYSTEM32 = join(process.env['SystemRoot'] ?? 'C:\\Windows', 'System32');
-export const TAR_EXE = join(SYSTEM32, 'tar.exe');
+/** bsdtar on both: Windows ships it in System32, the Mac in /usr/bin. It reads .zip as well. */
+export const TAR_EXE = MAC ? '/usr/bin/tar' : join(SYSTEM32, 'tar.exe');
+/** Never present on a Mac, which reports no NVIDIA card through every check that asks. */
 export const NVIDIA_SMI_EXE = join(SYSTEM32, 'nvidia-smi.exe');
 
 /** Guard for anything that deletes or replaces files: it must be inside vendor/. */

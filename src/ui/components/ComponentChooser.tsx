@@ -167,7 +167,9 @@ export function ComponentChooser(props: { readonly firstRun: boolean; readonly o
       <p className="dim note" data-testid="component-total">
         {toInstall.length === 0 ? 'Nothing chosen to install.' : `To download: about ${size(total)}.`}
         {info?.freeBytes != null ? ` ${size(info.freeBytes)} free on this drive.` : ''}
-        {info?.driver != null ? ` ${info.driver.name}, driver ${info.driver.version}.` : ' No NVIDIA card found: video exports on the CPU, more slowly, and the GPU features are not available.'}
+        {info?.appleSilicon === true
+          ? ' Apple Silicon: video encodes on VideoToolbox and stems separate on the GPU; transcription runs on the CPU.'
+          : info?.driver != null ? ` ${info.driver.name}, driver ${info.driver.version}.` : ' No NVIDIA card found: video exports on the CPU, more slowly, and the GPU features are not available.'}
       </p>
       {info !== null ? (
         <p className="dim note data-folder" data-testid="data-folder">

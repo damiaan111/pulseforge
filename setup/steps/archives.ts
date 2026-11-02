@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { FFMPEG, FONT_INTER, PYTHON, UV, type ArchiveArtefact } from '../manifest.ts';
+import { FFMPEG, FFPROBE, FONT_INTER, PYTHON, UV, type ArchiveArtefact } from '../manifest.ts';
 import { installArchive, isInstalled } from '../lib/archive.ts';
 import { ensureDownloaded, sha256File } from '../lib/download.ts';
 import { pythonEnv } from '../lib/env.ts';
 import { SetupError } from '../lib/errors.ts';
 import { upsertArtefact } from '../lib/lockfile.ts';
 import { formatBytes } from '../lib/log.ts';
-import { DOWNLOADS, FFMPEG_EXE, FONTS, PYTHON_EXE, UV_EXE, VENDOR } from '../lib/paths.ts';
+import { DOWNLOADS, FFMPEG_EXE, FFPROBE_EXE, FONTS, PYTHON_EXE, UV_EXE, VENDOR } from '../lib/paths.ts';
+import { MAC } from '../lib/platform.ts';
 import { runChecked } from '../lib/proc.ts';
 import type { Step, StepContext } from './types.ts';
 
@@ -109,8 +110,8 @@ function archiveStep(artefact: ArchiveArtefact, title: string, check: PostInstal
 
 const ffmpegCheck: PostInstallCheck = async (ctx, step) => {
   const version = await runChecked(FFMPEG_EXE, ['-hide_banner', '-version'], { step, log: ctx.log }, () => ({
-    what: 'The vendored ffmpeg.exe does not run.',
-    likelyCause: 'The extracted files are damaged, or antivirus quarantined them.',
+    what: 'The vendored FFmpeg does not run.',
+    likelyCause: MAC ? 'The extracted file is damaged, or macOS refused to run it.' : 'The extracted files are damaged, or antivirus quarantined them.',
     fix: [`Delete ${join(VENDOR, 'ffmpeg')} and re-run setup; it re-extracts from the kept archive.`],
   }));
   ctx.log.ok(version.stdout.split(/\r?\n/)[0] ?? 'ffmpeg runs');
@@ -119,25 +120,36 @@ const ffmpegCheck: PostInstallCheck = async (ctx, step) => {
     what: 'ffmpeg -encoders failed.',
     fix: [`Delete ${join(VENDOR, 'ffmpeg')} and re-run setup.`],
   }));
-  const missing = ['h264_nvenc', 'hevc_nvenc'].filter((name) => !new RegExp(`\\s${name}\\s`).test(encoders.stdout));
+  // The Mac encodes on VideoToolbox, Apple's hardware encoder, where Windows has NVENC.
+  const wanted = MAC ? ['h264_videotoolbox', 'hevc_videotoolbox'] : ['h264_nvenc', 'hevc_nvenc'];
+  const missing = wanted.filter((name) => !new RegExp(`\\s${name}\\s`).test(encoders.stdout));
   if (missing.length > 0) {
     throw new SetupError({
       step,
       what: `The pinned FFmpeg build does not include ${missing.join(' and ')}.`,
-      likelyCause: 'The manifest points at a build without NVENC support.',
-      fix: ['Pin an NVENC-capable LGPL build in setup/manifest.ts (BtbN win64-lgpl builds include NVENC).'],
+      likelyCause: `The manifest points at a build without ${MAC ? 'VideoToolbox' : 'NVENC'} support.`,
+      fix: [MAC ? 'Pin a macOS arm64 build with VideoToolbox in setup/manifest.ts.' : 'Pin an NVENC-capable LGPL build in setup/manifest.ts (BtbN win64-lgpl builds include NVENC).'],
     });
   }
   // These encoders are compiled in; whether this GPU and driver can actually use them
   // (no AV1 on Ampere) is a runtime capability probe, which is `npm run validate`'s job.
-  ctx.log.ok('NVENC encoders present in the build: h264_nvenc, hevc_nvenc');
+  ctx.log.ok(`${MAC ? 'VideoToolbox' : 'NVENC'} encoders present in the build: ${wanted.join(', ')}`);
+};
+
+const ffprobeCheck: PostInstallCheck = async (ctx, step) => {
+  const version = await runChecked(FFPROBE_EXE, ['-hide_banner', '-version'], { step, log: ctx.log }, () => ({
+    what: 'The vendored FFprobe does not run.',
+    likelyCause: 'The extracted file is damaged, or macOS refused to run it.',
+    fix: [`Delete ${join(VENDOR, 'ffprobe')} and re-run setup; it re-extracts from the kept archive.`],
+  }));
+  ctx.log.ok(version.stdout.split(/\r?\n/)[0] ?? 'ffprobe runs');
 };
 
 const pythonCheck: PostInstallCheck = async (ctx, step) => {
   const script =
     'import json, site, sys; print(json.dumps({"version": sys.version.split()[0], "executable": sys.executable, "userSite": bool(site.ENABLE_USER_SITE)}))';
   const result = await runChecked(PYTHON_EXE, ['-c', script], { step, log: ctx.log, env: pythonEnv() }, () => ({
-    what: 'The vendored python.exe does not run.',
+    what: 'The vendored Python does not run.',
     likelyCause: 'The extracted files are damaged, or antivirus quarantined them.',
     fix: [`Delete ${join(VENDOR, 'python')} and re-run setup.`],
   }));
@@ -145,9 +157,9 @@ const pythonCheck: PostInstallCheck = async (ctx, step) => {
   if (!info.executable.toLowerCase().startsWith(VENDOR.toLowerCase())) {
     throw new SetupError({
       step,
-      what: `python.exe reports its executable as ${info.executable}, not the vendored copy.`,
+      what: `The vendored Python reports its executable as ${info.executable}, not the vendored copy.`,
       likelyCause: 'Something on this machine redirects Python launches (an App Execution Alias or a wrapper).',
-      fix: ['Disable Python App Execution Aliases in Windows Settings > Apps > Advanced app settings, then re-run setup.'],
+      fix: [MAC ? 'Check for a shell alias or pyenv shim that wraps python3, then re-run setup.' : 'Disable Python App Execution Aliases in Windows Settings > Apps > Advanced app settings, then re-run setup.'],
     });
   }
   if (info.userSite) {
@@ -163,7 +175,7 @@ const pythonCheck: PostInstallCheck = async (ctx, step) => {
 
 const uvCheck: PostInstallCheck = async (ctx, step) => {
   const result = await runChecked(UV_EXE, ['--version'], { step, log: ctx.log, env: pythonEnv() }, () => ({
-    what: 'The vendored uv.exe does not run.',
+    what: 'The vendored uv does not run.',
     fix: [`Delete ${join(VENDOR, 'uv')} and re-run setup.`],
   }));
   ctx.log.ok(result.stdout.trim());
@@ -177,7 +189,9 @@ const fontCheck: PostInstallCheck = async (ctx, step) => {
   ctx.log.ok('Inter present (extras/ttf)');
 };
 
-export const ffmpegStep = archiveStep(FFMPEG, 'FFmpeg (NVENC build)', ffmpegCheck);
+export const ffmpegStep = archiveStep(FFMPEG, MAC ? 'FFmpeg (VideoToolbox build)' : 'FFmpeg (NVENC build)', ffmpegCheck);
+/** The Mac only: Windows has FFprobe inside the FFmpeg archive. */
+export const ffprobeStep: Step | null = FFPROBE === null ? null : archiveStep(FFPROBE, 'FFprobe', ffprobeCheck);
 export const fontStep = archiveStep(FONT_INTER, 'Bundled fonts (Inter)', fontCheck);
 export const pythonStep = archiveStep(PYTHON, 'Portable Python', pythonCheck);
 export const uvStep = archiveStep(UV, 'uv', uvCheck);

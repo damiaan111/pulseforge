@@ -1,0 +1,9 @@
+# The Mac's lyrics tier: WhisperX on top of the Mac stems set. The Windows set is
+# requirements-lyrics.in.
+#
+# Resolved with the Mac stems lock as constraints, as on Windows. ctranslate2 is overridden to the same
+# 4.8.2 (manifest PYTHON_PACKAGES_LYRICS.overrides). There is no cuBLAS wheel: CTranslate2 has no Metal
+# backend and runs on the CPU here.
+
+-r requirements.macos.in
+whisperx==3.4.5

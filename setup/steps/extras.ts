@@ -8,6 +8,7 @@ import { SetupError } from '../lib/errors.ts';
 import { findArtefact, upsertArtefact, type VendorLock } from '../lib/lockfile.ts';
 import { formatBytes } from '../lib/log.ts';
 import { PYTHON_EXE, VENDOR } from '../lib/paths.ts';
+import { ALIGN_DEVICE, WHISPER_DEVICE } from '../lib/platform.ts';
 import { runChecked } from '../lib/proc.ts';
 import type { Step, StepContext } from './types.ts';
 
@@ -100,7 +101,7 @@ print(json.dumps({"models": len(bag.models), "sources": list(bag.sources)}))
     loadScript: `${CUBLAS}
 import json, sys
 from faster_whisper import WhisperModel
-m = WhisperModel(sys.argv[1], device="cuda", compute_type="float16")
+m = WhisperModel(sys.argv[1], device="${WHISPER_DEVICE.device}", compute_type="${WHISPER_DEVICE.computeType}")
 print(json.dumps({"mels": m.feature_extractor.mel_filters.shape[0]}))
 `,
     loadArgs: [join(VENDOR, 'models', 'whisper', 'faster-whisper-large-v3')],
@@ -114,7 +115,7 @@ print(json.dumps({"mels": m.feature_extractor.mel_filters.shape[0]}))
     loadScript: `${CUBLAS}
 import json, sys
 import whisperx
-model, meta = whisperx.load_align_model(language_code=sys.argv[2], device="cuda", model_dir=sys.argv[1])
+model, meta = whisperx.load_align_model(language_code=sys.argv[2], device="${ALIGN_DEVICE}", model_dir=sys.argv[1])
 print(json.dumps({"model": type(model).__name__, "dictionary": len(meta["dictionary"])}))
 `,
     loadArgs: [ALIGN_DIR, language],

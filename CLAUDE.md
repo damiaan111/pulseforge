@@ -70,6 +70,12 @@ detailed enough that a fresh session can take over mid-project. Commit at the en
 - Edit files with the Edit/Write tools, never PowerShell text replacement (PowerShell 5.1
   re-encodes UTF-8 and corrupts the docs' punctuation).
 
+## The macOS branch
+
+`macos` is an orphan branch (no shared history with `main`, on purpose) for Apple Silicon. It stays runnable on Windows:
+platform differences go through `setup/lib/platform.ts`. Its DMG is built by `.github/workflows/macos.yml`; nothing
+here can run macOS. STATUS 4.94 has the details. Port fixes between the branches by hand (cherry-pick does not apply).
+
 ## Development split
 
 Specs were written on a non-NVIDIA laptop; this repo is built and run on the RTX machine, so GPU

@@ -9,7 +9,7 @@ import { readVendorLock, writeVendorLock } from './lib/lockfile.ts';
 import { createLogger, formatBytes, type Logger } from './lib/log.ts';
 import { SETUP_LOG, SETUP_PID, VENDOR } from './lib/paths.ts';
 import { requiredBytes, runPreflight, type Check } from './lib/preflight.ts';
-import { ffmpegStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
+import { ffmpegStep, ffprobeStep, fontStep, pythonStep, uvStep } from './steps/archives.ts';
 import { demucsModelStep } from './steps/demucs-model.ts';
 import { NON_COMMERCIAL_NOTICE, resolveChoice } from './components.ts';
 import { fallbackFontsStep } from './steps/fallback-fonts.ts';
@@ -24,7 +24,7 @@ import type { Step, StepContext } from './steps/types.ts';
 
 /** In dependency order: Python before uv's resolve, the env before the model check. */
 const STEPS: readonly Step[] = [
-  ffmpegStep, fontStep, fallbackFontsStep,
+  ffmpegStep, ...(ffprobeStep === null ? [] : [ffprobeStep]), fontStep, fallbackFontsStep,
   { ...pythonStep, alsoFor: ['lyrics', 'beats'] },
   { ...uvStep, alsoFor: ['lyrics', 'beats'] },
   // The lyrics environment is the stems one plus WhisperX.

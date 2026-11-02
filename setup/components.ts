@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  COLOR_EMOJI_FONT, DEMUCS_HTDEMUCS, EXTRA_ARTEFACTS, FALLBACK_FONTS, FFMPEG, FONT_INTER, ISF_FILES, LYRICS_MODELS, MILKDROP_PRESETS, PYTHON, PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS,
+  COLOR_EMOJI_FONT, DEMUCS_HTDEMUCS, EXTRA_ARTEFACTS, FALLBACK_FONTS, FFMPEG, FFPROBE, FONT_INTER, ISF_FILES, LYRICS_MODELS, MILKDROP_PRESETS, PYTHON, PYTHON_PACKAGES, PYTHON_PACKAGES_BEATS,
   PYTHON_PACKAGES_LYRICS, UV, type ExtraId, type Tier,
 } from './manifest.ts';
 import { COLOR_EMOJI_FILE, DEFAULT_FONT_FILE, FFMPEG_EXE, ISF_DIR, MILKDROP_JS_DIR, MODELS, VENDOR } from './lib/paths.ts';
@@ -52,7 +52,7 @@ export const COMPONENTS: readonly Component[] = [
     title: 'Pulseforge essentials',
     summary: 'FFmpeg for audio and video, and the fonts for every script. The app needs these.',
     group: 'required',
-    bytes: FFMPEG.sizeBytes + FONT_INTER.sizeBytes + sum(FALLBACK_FONTS),
+    bytes: FFMPEG.sizeBytes + (FFPROBE?.sizeBytes ?? 0) + FONT_INTER.sizeBytes + sum(FALLBACK_FONTS),
     license: 'FFmpeg GPL; fonts OFL-1.1',
     requires: [],
     minDriver: null,

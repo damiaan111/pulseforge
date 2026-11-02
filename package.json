@@ -25,7 +25,8 @@
     "modules:check": "node --disable-warning=ExperimentalWarning scripts/check-modules.ts",
     "milkdrop:measure": "node --disable-warning=ExperimentalWarning scripts/measure-milkdrop.ts",
     "contact-sheet": "node --disable-warning=ExperimentalWarning scripts/contact-sheet.ts",
-    "dist": "npm run build && electron-builder --win --publish never"
+    "dist": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --arm64 --publish never"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -86,6 +87,38 @@
       "deleteAppDataOnUninstall": false,
       "shortcutName": "Pulseforge"
     },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.video",
+      "minimumSystemVersion": "14.0",
+      "artifactName": "Pulseforge-${version}-mac-arm64.${ext}",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Pulseforge ${version}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "fileAssociations": [
       {
         "ext": "pvproj",
@@ -93,6 +126,7 @@
         "description": "Pulseforge project",
         "role": "Editor"
       }
-    ]
+    ],
+    "afterPack": "scripts/after-pack.cjs"
   }
 }

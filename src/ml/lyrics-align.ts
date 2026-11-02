@@ -18,6 +18,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { ALIGN_DEVICE, WHISPER_DEVICE } from '../../setup/lib/platform.ts';
 import { decodeMono48k } from '../analysis/decode.ts';
 import { TICKS_PER_SECOND, sourceToTimelineSeconds, type AudioPlacement } from '../engine/core/time.ts';
 import { linesFromTranscript, matchLyricsToTranscript, type TranscriptSegment } from '../lyrics/align-match.ts';
@@ -132,7 +133,7 @@ export async function alignLyrics(options: LyricsAlignOptions): Promise<LyricsAl
   const audio = await vocalStemPath(options.ffmpegExe, options.stemsRoot, options.stemModel, options.audioPath);
   report('decoding', 1);
 
-  const transcript = await options.sidecar.request('transcribe', { audio, modelDir: options.whisperDir, language, device: 'cuda' }, {
+  const transcript = await options.sidecar.request('transcribe', { audio, modelDir: options.whisperDir, language, device: WHISPER_DEVICE.device }, {
     onProgress: (p) => report('transcribing', p.fraction ?? 0),
     ...withSignal,
   }) as unknown as { language: string; duration: number; segments: TranscriptSegment[] };
@@ -155,7 +156,7 @@ export async function alignLyrics(options: LyricsAlignOptions): Promise<LyricsAl
 
   const alignment = windows.length === 0
     ? { lines: [] as { id: string; words: AlignerWord[]; error: string | null }[] }
-    : await options.sidecar.request('align', { audio, language, modelDir: options.alignDir, device: 'cuda', segments: windows }, {
+    : await options.sidecar.request('align', { audio, language, modelDir: options.alignDir, device: ALIGN_DEVICE, segments: windows }, {
       onProgress: (p) => report('aligning', p.fraction ?? 0),
       ...withSignal,
     }) as unknown as { lines: { id: string; words: AlignerWord[]; error: string | null }[] };

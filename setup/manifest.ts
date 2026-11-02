@@ -5,6 +5,8 @@
 // Checksums come from each project's published checksum files, not from our own
 // downloads — except where noted.
 
+import { MAC } from './lib/platform.ts';
+
 export type Tier = 'core' | 'stems' | 'lyrics' | 'beats' | 'milkdrop' | 'isf' | 'emoji' | 'extras';
 /** What a plain `npm run setup` installs. */
 export const ALL_TIERS: readonly Tier[] = ['core', 'stems', 'lyrics', 'beats', 'milkdrop', 'isf', 'emoji'];
@@ -55,7 +57,7 @@ export interface FileArtefact extends ArtefactBase {
 
 export type Artefact = ArchiveArtefact | FileArtefact;
 
-export const FFMPEG: ArchiveArtefact = {
+const FFMPEG_WINDOWS: ArchiveArtefact = {
   kind: 'archive',
   id: 'ffmpeg',
   name: 'FFmpeg + FFprobe (LGPL, NVENC)',
@@ -73,7 +75,50 @@ export const FFMPEG: ArchiveArtefact = {
   expectFile: 'bin/ffmpeg.exe',
 };
 
-export const PYTHON: ArchiveArtefact = {
+/**
+ * The Mac's FFmpeg: Martin Riedl's static arm64 release build, the one maintained source for Apple
+ * Silicon (BtbN builds no macOS). It has VideoToolbox, Apple's hardware encoder, and OpenH264. It is
+ * GPL (it includes x264), which is fine for a separate download the app runs as a program. FFmpeg and
+ * FFprobe come as two archives of one file each; the checksums are the ones published beside them.
+ */
+const FFMPEG_MAC: ArchiveArtefact = {
+  kind: 'archive',
+  id: 'ffmpeg',
+  name: 'FFmpeg (VideoToolbox)',
+  version: '9.0.2 (martin-riedl.de arm64 release)',
+  tier: 'core',
+  url: 'https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip',
+  fileName: 'ffmpeg-9.0.2-macos-arm64.zip',
+  sha256: 'c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924',
+  sizeBytes: 28_395_699,
+  license: 'GPL-3.0-or-later',
+  installDir: 'ffmpeg',
+  stripTopLevelDir: false,
+  expectFile: 'ffmpeg',
+};
+
+export const FFMPEG: ArchiveArtefact = MAC ? FFMPEG_MAC : FFMPEG_WINDOWS;
+
+/** FFprobe on the Mac, from the same build. Windows has it inside the FFmpeg archive: null there. */
+export const FFPROBE: ArchiveArtefact | null = MAC
+  ? {
+    kind: 'archive',
+    id: 'ffprobe',
+    name: 'FFprobe',
+    version: '9.0.2 (martin-riedl.de arm64 release)',
+    tier: 'core',
+    url: 'https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip',
+    fileName: 'ffprobe-9.0.2-macos-arm64.zip',
+    sha256: 'fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6',
+    sizeBytes: 28_317_701,
+    license: 'GPL-3.0-or-later',
+    installDir: 'ffprobe',
+    stripTopLevelDir: false,
+    expectFile: 'ffprobe',
+  }
+  : null;
+
+const PYTHON_WINDOWS: ArchiveArtefact = {
   kind: 'archive',
   id: 'python',
   name: 'Portable CPython (python-build-standalone)',
@@ -89,7 +134,18 @@ export const PYTHON: ArchiveArtefact = {
   expectFile: 'python.exe',
 };
 
-export const UV: ArchiveArtefact = {
+export const PYTHON: ArchiveArtefact = MAC
+  ? {
+    ...PYTHON_WINDOWS,
+    url: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.11.16%2B20260901-aarch64-apple-darwin-install_only.tar.gz',
+    fileName: 'cpython-3.11.16+20260901-aarch64-apple-darwin-install_only.tar.gz',
+    sha256: '50424fa409e8ae84b82a3052522f64695b47dff2158b70bb7358e0ebd6c085c9',
+    sizeBytes: 27_087_450,
+    expectFile: 'bin/python3',
+  }
+  : PYTHON_WINDOWS;
+
+const UV_WINDOWS: ArchiveArtefact = {
   kind: 'archive',
   id: 'uv',
   name: 'uv (Python resolver/installer)',
@@ -104,6 +160,19 @@ export const UV: ArchiveArtefact = {
   stripTopLevelDir: false,
   expectFile: 'uv.exe',
 };
+
+export const UV: ArchiveArtefact = MAC
+  ? {
+    ...UV_WINDOWS,
+    url: 'https://github.com/astral-sh/uv/releases/download/0.12.13/uv-aarch64-apple-darwin.tar.gz',
+    fileName: 'uv-0.12.13-aarch64-apple-darwin.tar.gz',
+    sha256: '7e6ddb9316acc00f2296c82ff4d99977870ee34b2f0ddcae9444d714db9364ed',
+    sizeBytes: 16_674_623,
+    // The archive wraps uv and uvx in `uv-aarch64-apple-darwin/`.
+    stripTopLevelDir: true,
+    expectFile: 'uv',
+  }
+  : UV_WINDOWS;
 
 export const DEMUCS_HTDEMUCS: FileArtefact = {
   kind: 'file',
@@ -432,21 +501,46 @@ export const EXTRA_ARTEFACTS: Readonly<Record<ExtraId, readonly FileArtefact[]>>
   'align-it': [ALIGN_MODELS.it],
 };
 
-export const ARTEFACTS: readonly Artefact[] = [FFMPEG, FONT_INTER, ...FALLBACK_FONTS, MILKDROP_PRESETS, ISF_FILES, COLOR_EMOJI_FONT, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
+export const ARTEFACTS: readonly Artefact[] = [FFMPEG, ...(FFPROBE === null ? [] : [FFPROBE]), FONT_INTER, ...FALLBACK_FONTS, MILKDROP_PRESETS, ISF_FILES, COLOR_EMOJI_FONT, PYTHON, UV, DEMUCS_HTDEMUCS, ...LYRICS_MODELS, ...Object.values(EXTRA_ARTEFACTS).flat()];
 
-export const PYTHON_PACKAGES = {
-  tier: 'stems' as Tier,
-  pypiIndex: 'https://pypi.org/simple',
-  /** CUDA 13.0 wheels. Ampere (RTX 30xx) is supported. */
-  torchIndex: 'https://download.pytorch.org/whl/cu130',
-  torchLocalVersion: 'cu130',
-  /** CUDA 13.0 wheels need an R580-branch driver or newer. */
-  minDriverMajor: 580,
-  pythonVersion: '3.11',
-  pythonPlatform: 'x86_64-pc-windows-msvc',
-  /** Rough download size for the plan output; the torch CUDA wheel dominates. */
-  approxWheelhouseBytes: 3.2 * 1024 ** 3,
-};
+interface PythonPackages {
+  readonly tier: Tier;
+  readonly pypiIndex: string;
+  /** PyTorch's own index, for the CUDA build. Null on the Mac: PyPI's torch is the Metal one. */
+  readonly torchIndex: string | null;
+  /** The local version the locked torch must carry (`2.13.0+cu130`); null when it carries none. */
+  readonly torchLocalVersion: string | null;
+  /** The NVIDIA driver the CUDA build needs; null on the Mac, where nothing is asked of a driver. */
+  readonly minDriverMajor: number | null;
+  readonly pythonVersion: string;
+  readonly pythonPlatform: string;
+  /** Rough download size for the plan output; the torch wheel dominates. */
+  readonly approxWheelhouseBytes: number;
+}
+
+export const PYTHON_PACKAGES: PythonPackages = MAC
+  ? {
+    tier: 'stems',
+    pypiIndex: 'https://pypi.org/simple',
+    torchIndex: null,
+    torchLocalVersion: null,
+    minDriverMajor: null,
+    pythonVersion: '3.11',
+    pythonPlatform: 'aarch64-apple-darwin',
+    approxWheelhouseBytes: 0.5 * 1024 ** 3,
+  }
+  : {
+    tier: 'stems',
+    pypiIndex: 'https://pypi.org/simple',
+    /** CUDA 13.0 wheels. Ampere (RTX 30xx) is supported. */
+    torchIndex: 'https://download.pytorch.org/whl/cu130',
+    torchLocalVersion: 'cu130',
+    /** CUDA 13.0 wheels need an R580-branch driver or newer. */
+    minDriverMajor: 580,
+    pythonVersion: '3.11',
+    pythonPlatform: 'x86_64-pc-windows-msvc',
+    approxWheelhouseBytes: 3.2 * 1024 ** 3,
+  };
 
 /**
  * WhisperX on top of the stems environment (M26). The lock is resolved with the stems lock as

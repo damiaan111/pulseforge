@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { ArchiveArtefact } from '../manifest.ts';
 import { SetupError } from './errors.ts';
 import type { Logger } from './log.ts';
 import { STAGING, TAR_EXE, VENDOR, insideVendor } from './paths.ts';
+import { MAC } from './platform.ts';
 import { runChecked } from './proc.ts';
 
 const MARKER = '.pulseforge-installed.json';
@@ -74,6 +75,9 @@ export async function installArchive(archivePath: string, artefact: ArchiveArtef
       fix: ['Check the expectFile entry for this artefact in setup/manifest.ts.'],
     });
   }
+
+  // A zip keeps its permission bits only when it was made on a Unix system. The program has to run.
+  if (MAC) await chmod(join(source, artefact.expectFile), 0o755);
 
   await removeVendorDir(target);
   // A nested install dir (`fonts/inter`) needs its parent before the rename can land in it.

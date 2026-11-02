@@ -16,8 +16,11 @@ export type ChromaFormat = '420' | '444';
  */
 export type ColorConversion = 'gpu-nv12' | 'swscale';
 export type NvencPreset = 'p1' | 'p2' | 'p3' | 'p4' | 'p5' | 'p6' | 'p7';
-/** 'software' is OpenH264 on the CPU: 8-bit 4:2:0 H.264, for a PC with no NVENC it can open. */
-export type VideoEncoder = 'nvenc' | 'software';
+/**
+ * 'software' is OpenH264 on the CPU: 8-bit 4:2:0 H.264, for a PC with no NVENC it can open.
+ * 'videotoolbox' is Apple's hardware encoder, on a Mac: H.264 and HEVC, 4:2:0 only.
+ */
+export type VideoEncoder = 'nvenc' | 'software' | 'videotoolbox';
 
 export interface EncodeSettings {
   readonly codec: VideoCodec;
@@ -97,9 +100,12 @@ export function settingsProblems(settings: EncodeSettings, width: number, height
   if (settings.encoder === 'software' && (settings.codec !== 'h264' || settings.bitDepth !== 8 || settings.chroma !== '420')) {
     problems.push('The software encoder is 8-bit 4:2:0 H.264 only.');
   }
+  if (settings.encoder === 'videotoolbox' && settings.chroma !== '420') {
+    problems.push('VideoToolbox encodes 4:2:0 only.');
+  }
   if (!(settings.cq >= 0 && settings.cq <= 51)) problems.push(`CQ must be 0–51, got ${settings.cq}.`);
   if (width % 2 !== 0 || height % 2 !== 0) problems.push(`Dimensions must be even for YUV output, got ${width}×${height}.`);
-  if (settings.encoder !== 'software' && (width < 146 || height < 50)) problems.push(`NVENC needs at least 146×50, got ${width}×${height}.`);
+  if ((settings.encoder ?? 'nvenc') === 'nvenc' && (width < 146 || height < 50)) problems.push(`NVENC needs at least 146×50, got ${width}×${height}.`);
   return problems;
 }
 
@@ -133,9 +139,29 @@ export function softwareBitrate(width: number, height: number, fps: Rational, cq
   return Math.round(width * height * (fps.num / fps.den) * 0.4 * 2 ** ((17 - cq) / 6));
 }
 
+/**
+ * VideoToolbox's constant quality (`-q:v`, 1–100, higher is better; Apple Silicon only) for a CQ. The
+ * two scales run opposite ways; two quality points to a CQ step puts D40's CQ 17 at 66 and CQ 19 at 62,
+ * which is visually transparent on the M-series encoders. Not yet measured against NVENC.
+ */
+export function videotoolboxQuality(cq: number): number {
+  return Math.min(100, Math.max(1, Math.round(100 - 2 * cq)));
+}
+
 function videoEncoderArgs(job: EncodeJob): string[] {
   const { settings, fps } = job;
   const ceiling = settings.maxBitsPerPixel === undefined ? undefined : Math.round(job.width * job.height * (fps.num / fps.den) * settings.maxBitsPerPixel);
+  if (settings.encoder === 'videotoolbox') {
+    const common = [
+      '-c:v', settings.codec === 'hevc' ? 'hevc_videotoolbox' : 'h264_videotoolbox',
+      // The hardware or nothing: a silent fall back to Apple's software encoder would be far slower.
+      '-allow_sw', '0',
+      '-profile:v', profile(settings),
+      '-g', String(gopLength(fps)),
+    ];
+    // With a ceiling the ceiling is the rate: VideoToolbox's quality mode takes no maximum.
+    return ceiling === undefined ? [...common, '-q:v', String(videotoolboxQuality(settings.cq))] : [...common, '-b:v', String(ceiling)];
+  }
   if (settings.encoder === 'software') {
     const rate = Math.min(softwareBitrate(job.width, job.height, fps, settings.cq), ceiling ?? Infinity);
     return ['-c:v', 'libopenh264', '-rc_mode', 'bitrate', '-b:v', String(rate), '-profile:v', 'high', '-g', String(gopLength(fps))];
