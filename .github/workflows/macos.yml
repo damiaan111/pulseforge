@@ -82,7 +82,7 @@ jobs:
           cp out/smoke-result.json out/smoke-result-source.json 2>/dev/null || true
           rm -f out/smoke-result.json out/smoke-render.mp4
           ditto release/mac-arm64/Pulseforge.app "$RUNNER_TEMP/Pulseforge.app"
-          PULSEFORGE_SMOKE=1 PULSEFORGE_DATA="$GITHUB_WORKSPACE" PULSEFORGE_SMOKE_RENDER="$GITHUB_WORKSPACE/out/smoke-song.wav" \n            "$RUNNER_TEMP/Pulseforge.app/Contents/MacOS/Pulseforge" > out/smoke-packaged.log 2>&1 || true
+          PULSEFORGE_SMOKE=1 PULSEFORGE_DATA="$GITHUB_WORKSPACE" PULSEFORGE_SMOKE_RENDER="$GITHUB_WORKSPACE/out/smoke-song.wav" "$RUNNER_TEMP/Pulseforge.app/Contents/MacOS/Pulseforge" > out/smoke-packaged.log 2>&1 || true
           tail -30 out/smoke-packaged.log
           mv out/smoke-result.json out/smoke-result-packaged.json || echo "no packaged smoke result"
           ls -la out/smoke-render.mp4 || echo "no render"
@@ -116,7 +116,6 @@ jobs:
         run: |
           # The SHA-256 line is what Check for updates verifies the download against (D52).
           cp docs/mac-release-notes.md "$RUNNER_TEMP/notes.md"
-          printf '
-SHA-256: `%s`
-' "$(shasum -a 256 release/*.dmg | cut -c1-64)" >> "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" release/*.dmg --prerelease --target macos \n            --title "Pulseforge ${GITHUB_REF_NAME#v} for Mac (Apple Silicon)" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "" >> "$RUNNER_TEMP/notes.md"
+          echo "SHA-256: \`$(shasum -a 256 release/*.dmg | cut -c1-64)\`" >> "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" release/*.dmg --prerelease --target macos --title "Pulseforge ${GITHUB_REF_NAME#v} for Mac (Apple Silicon)" --notes-file "$RUNNER_TEMP/notes.md"
