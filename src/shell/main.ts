@@ -2780,7 +2780,7 @@ app.whenReady().then(async () => {
       const mdRemoved = await waitFor(() => mdLayers() === 0, 40);
       document.querySelector('#app [data-action="preset-scope-all"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const milkdropUi = mdCards === true && mdPicture === true && mdAdded === true && mdScript && mdCanvasError === null && mdRemoved === true;
-      if (!milkdropUi) console.error('[smoke] milkdropUi: ' + JSON.stringify({ mdCards, mdPicture, mdAdded, mdScript, mdCanvasError, mdRemoved }));
+      if (!milkdropUi) console.error('[smoke] milkdropUi: ' + JSON.stringify({ mdCards, mdPicture, mdAdded, mdScript, mdCanvasError, mdRemoved, cards: document.querySelectorAll('#app [data-testid="milkdrop-grid"] li').length, pictures: document.querySelectorAll('#app [data-testid="milkdrop-grid"] img').length, waiting: document.querySelectorAll('#app [data-testid="milkdrop-grid"] .strip.loading').length }));
 
       // Selecting two layers with Ctrl brings their shared actions; a plain click goes back to one.
       console.log('[smoke] step: multiSelectUi');
@@ -2935,7 +2935,8 @@ app.whenReady().then(async () => {
         const at = { clientX: box.left + 8 + (2 / total) * (box.width - 16), clientY: box.top + 10, pointerId: 7, bubbles: true };
         timeline.dispatchEvent(new PointerEvent('pointerdown', at));
         timeline.dispatchEvent(new PointerEvent('pointerup', at));
-        const moved = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'animated', 40);
+        const moved = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'animated', 100);
+        if (moved !== true) console.error('[smoke] keyframeUi seek: ' + JSON.stringify({ state: firstDiamond()?.getAttribute('data-key-state'), time: document.querySelector('#app .transport .time, #app [data-testid="transport-time"]')?.textContent ?? null, box: [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)] }));
         const range = document.querySelector('#app .inspector .param-group input[type="range"]');
         if (range !== null) {
           const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -3175,8 +3176,9 @@ app.whenReady().then(async () => {
         // Generous: this check runs last, after the heavy ones (setup verify, cache clearing), and on
         // a busy machine the restore and its snapshot can take a few seconds.
         const restored = await waitFor(() => [...document.querySelectorAll('#app .layer-list .layer-row')].some((row) => row.textContent?.includes('Recovered smoke layer')), 200);
-        recoveryDialog = summary.includes('Smoke crash') && summary.includes('never saved') && restored === true
-          && document.querySelector('#app .recovery-dialog') === null;
+        // The layer can appear a moment before the dialog closes on a slower machine.
+        const closed = await waitFor(() => document.querySelector('#app .recovery-dialog') === null, 100);
+        recoveryDialog = summary.includes('Smoke crash') && summary.includes('never saved') && restored === true && closed === true;
         if (!recoveryDialog) console.error('[smoke] recoveryDialog steps ' + JSON.stringify({ summary: summary.slice(0, 120), restored, open: document.querySelector('#app .recovery-dialog') !== null }));
       } else if (recoveryDialog === false) {
         console.error('[smoke] recoveryDialog: the dialog was not offered; on screen: ' + JSON.stringify({ dialog: document.querySelector('#app .recovery-dialog') !== null, cards: [...document.querySelectorAll('#app [data-recovery]')].map((c) => c.getAttribute('data-recovery')), modals: [...document.querySelectorAll('#app .modal')].map((m) => m.className), trace: recoveryTrace }));

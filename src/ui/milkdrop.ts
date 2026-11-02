@@ -62,9 +62,9 @@ async function makeStill(name: string, key: string): Promise<string | null> {
   // Between paints, so scrolling the list never stutters the preview for long.
   await new Promise((resolve) => setTimeout(resolve, 0));
   const canvas = presetStill(host, name, CARD_WIDTH, CARD_HEIGHT, CARD_FRAMES);
-  if (canvas === null) return null;
+  if (canvas === null) throw new Error('the preset drew nothing');
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-  if (blob === null) return null;
+  if (blob === null) throw new Error('the picture could not be encoded');
   await window.pulseforge.storePresetThumbnail(key, new Uint8Array(await blob.arrayBuffer()));
   return URL.createObjectURL(blob);
 }
@@ -74,7 +74,11 @@ export function presetCardImage(name: string, file: string): Promise<string | nu
   const known = stills.get(name);
   if (known !== undefined) return known;
   // The store takes 32 hex digits; the file name is 16, a hash of the preset's name.
-  const next = queue.then(() => makeStill(name, file.replace('.js', '').padEnd(32, '0'))).catch(() => null);
+  // A card without a picture still works, but why it has none goes to the log (CLAUDE.md #4).
+  const next = queue.then(() => makeStill(name, file.replace('.js', '').padEnd(32, '0'))).catch((error: unknown) => {
+    console.warn(`[milkdrop] no card picture for ${name}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  });
   queue = next;
   stills.set(name, next);
   return next;

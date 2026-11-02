@@ -106,7 +106,7 @@ m = WhisperModel(sys.argv[1], device="${WHISPER_DEVICE.device}", compute_type="$
 print(json.dumps({"mels": m.feature_extractor.mel_filters.shape[0]}))
 `,
     loadArgs: [join(VENDOR, 'models', 'whisper', 'faster-whisper-large-v3')],
-    describeLoad: (r) => `Whisper large-v3 loads offline on the GPU (${String(r['mels'])} mel bins)`,
+    describeLoad: (r) => `Whisper large-v3 loads offline on the ${WHISPER_DEVICE.device === 'cuda' ? 'GPU' : 'CPU'} (${String(r['mels'])} mel bins)`,
   },
   ...(['fr', 'de', 'es', 'it'] as const).map((language): ExtraSpec => ({
     extra: `align-${language}`,
@@ -120,13 +120,13 @@ model, meta = whisperx.load_align_model(language_code=sys.argv[2], device="${ALI
 print(json.dumps({"model": type(model).__name__, "dictionary": len(meta["dictionary"])}))
 `,
     loadArgs: [ALIGN_DIR, language],
-    describeLoad: (r) => `${language} alignment loads offline on the GPU (${String(r['model'])}, ${String(r['dictionary'])} symbols)`,
+    describeLoad: (r) => `${language} alignment loads offline on the ${ALIGN_DEVICE === 'cuda' ? 'GPU' : 'CPU'} (${String(r['model'])}, ${String(r['dictionary'])} symbols)`,
   })),
 ];
 
 async function loadOffline(spec: ExtraSpec, ctx: StepContext): Promise<string> {
   const result = await runChecked(PYTHON_EXE, ['-c', spec.loadScript, ...spec.loadArgs], { step: spec.title, log: ctx.log, env: pythonEnv() }, () => ({
-    what: `${spec.title} could not be loaded offline on the GPU.`,
+    what: `${spec.title} could not be loaded offline.`,
     likelyCause: `A model file is damaged, or the ${spec.needs} Python packages are not installed.`,
     fix: [`Re-run \`npm run setup -- --tier extras --extras ${spec.extra}\`; it re-verifies every file.`],
   }));

@@ -45,13 +45,13 @@ print(json.dumps({"whisper": "ok", "align": type(model).__name__, "dictionary": 
 
 async function loadOffline(ctx: StepContext): Promise<string> {
   const result = await runChecked(PYTHON_EXE, ['-c', LOAD_SCRIPT, WHISPER_DIR, ALIGN_DIR], { step: TITLE, log: ctx.log, env: pythonEnv() }, () => ({
-    what: 'The lyrics models could not be loaded offline on the GPU.',
+    what: 'The lyrics models could not be loaded offline.',
     likelyCause: 'A model file is damaged, or the lyrics Python packages are not installed.',
     fix: ['Re-run `npm run setup -- --tier lyrics`. It re-verifies every file and reinstalls what is missing.'],
   }));
   const last = result.stdout.trim().split(/\r?\n/).pop() ?? '{}';
   const parsed = JSON.parse(last) as { align?: string; dictionary?: number };
-  return `Whisper medium and ${parsed.align ?? '?'} (${parsed.dictionary ?? 0} symbols) load offline on the GPU`;
+  return `Whisper medium and ${parsed.align ?? '?'} (${parsed.dictionary ?? 0} symbols) load offline on the ${WHISPER_DEVICE.device === 'cuda' ? 'GPU' : 'CPU'}`;
 }
 
 export const lyricsModelsStep: Step = {
