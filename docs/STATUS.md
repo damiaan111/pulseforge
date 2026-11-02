@@ -4927,6 +4927,18 @@ quits with its window, and shuts the Mac down through System Events.
 installs core, MilkDrop and stems on that clean Mac and runs the smoke check and the tests, as a report rather than a
 verdict: the runner is a virtual Mac. A tag `v*-mac*` publishes the DMG as a pre-release.
 
+**Checked on GitHub's Apple Silicon runner** (a virtual Mac, so the GPU is Apple's paravirtual one): every tier installs
+from nothing (core, stems, lyrics, beats, MilkDrop) and verifies offline; torch sees the GPU through Metal; the whole
+suite passes (1402, the GPU harness tests skip there); the smoke check passes 45 of 46. MilkDrop draws with the song at
+about 55 fps. Two bugs came out of it and are fixed on both branches: `find_spec('nvidia.cublas')` raises where no
+`nvidia` package exists, and **the engine kept the instance of every layer it ever drew**, so each removed MilkDrop layer
+or Surprise Me roll kept a WebGL context until Chromium dropped the preview's (the UI tour lost it on Windows too).
+
+**Made for the Mac:** a full menu bar (Pulseforge, File, Edit, View, Window) whose items run what the keys and the top bar
+run, with Undo in a text field undoing the typing; ⌘ in shortcut labels (`ui/platform-keys.ts`); the window sized to the
+screen; the top bar kept on one line with SF's wider letters and Export always in view below 1280 px; "Follow macOS"; an
+About panel; a MilkDrop card without a picture now says why in the log.
+
 **Not done or not known yet:** use on a real Mac (the owner tests on a MacBook Air M4); the VideoToolbox quality mapping
 measured against NVENC; golden frames for Apple's GPU; a launcher for running from source on a Mac.
 

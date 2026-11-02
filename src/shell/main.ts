@@ -2928,12 +2928,15 @@ app.whenReady().then(async () => {
         const firstDiamond = () => document.querySelector('#app .inspector .param-group [data-action="keyframe"]');
         firstDiamond()?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         const keyed = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'on-key', 40);
-        // Seek to 2 s on the waveform lane.
+        // Seek on the waveform lane.
         const timeline = document.querySelector('#app [data-testid="timeline"]');
         const box = timeline.getBoundingClientRect();
         const total = 60;
-        const at = { clientX: box.left + 8 + (2 / total) * (box.width - 16), clientY: box.top + 10, pointerId: 7, bubbles: true };
+        // Somewhere the playhead is not: an earlier check can leave it at exactly 2 s, and a seek to where
+        // the key already is would leave it on the key (it did on the Mac runner).
         const timeBefore = document.querySelector('#app .transport .timecode')?.textContent ?? null;
+        const target = timeBefore !== null && timeBefore.startsWith('00:02') ? 5 : 2;
+        const at = { clientX: box.left + 8 + (target / total) * (box.width - 16), clientY: box.top + 10, pointerId: 7, bubbles: true };
         timeline.dispatchEvent(new PointerEvent('pointerdown', at));
         timeline.dispatchEvent(new PointerEvent('pointerup', at));
         const moved = await waitFor(() => firstDiamond()?.getAttribute('data-key-state') === 'animated', 100);
