@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.2
+
+- **Fixed: 1.1.0 and 1.1.1 did not start** on any PC but the one they were built on: the studio loaded a build tool the
+  installer does not include. Exporting from an installed copy would have failed too, as the export renderer was built on the
+  fly. It is now built with the app, and the build refuses anything that would need a tool at runtime.
+- **Check for updates** in Settings: asks GitHub only when you press it, shows what is new, and installs the update over
+  this version after checking its SHA-256. Your components, projects and settings stay.
+- Fixed: a data folder with spaces on another drive broke installing and verifying the Python components.
+
 ## 1.1.1
 
 - Fixed: the preview could turn white after many MilkDrop layers were removed or many Surprise Me rolls. Each

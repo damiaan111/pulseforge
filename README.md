@@ -134,7 +134,7 @@ You do not need Node, Python, FFmpeg or git. The launcher fetches what is missin
 
 ## Install
 
-**The easy way:** run `Pulseforge-Setup-1.1.1.exe` from the
+**The easy way:** run `Pulseforge-Setup-1.1.2.exe` from the
 [Releases page](https://github.com/damiaan111/pulseforge/releases), or build it yourself with `npm run dist`; it lands in `release/`. It installs for you alone, needs no administrator rights, and adds a Start menu and desktop shortcut. The first
 start offers the components. They go to `%LOCALAPPDATA%\Pulseforge` unless you choose another folder there, and uninstalling
 leaves them. The installer is not code-signed, so Windows may warn the first time: choose More info, then Run anyway.
@@ -162,13 +162,16 @@ in all. Then Pulseforge opens and asks what you want:
 Tick what you want and press **Install**. It can be stopped and resumed, and every file is checked
 against a known checksum. You can add more at any time in **Settings → Components**.
 
+**Updates:** Settings → **Check for updates** asks GitHub for a newer release, only when you press it, and installs it
+over this version after checking its SHA-256. Nothing else in Pulseforge goes online.
+
 **A licence to be aware of:** the French, German, Spanish and Italian alignment models are licensed
 CC BY-NC 4.0, for non-commercial use. They are never installed unless you choose them and confirm
 that you have read the notice. English alignment is not affected.
 
 Your own Python and FFmpeg are left alone. Running from source, everything stays in this folder, so
 deleting it removes all of it. Once the download has finished, the app never reaches out to the
-internet again.
+internet again, unless you press Check for updates.
 
 ## Running it
 

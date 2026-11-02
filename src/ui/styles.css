@@ -148,6 +148,8 @@ h2 {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+.update-offer { margin-top: 8px; }
+.update-notes { max-height: 180px; overflow: auto; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; font: inherit; user-select: text; }
 .wordmark { font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); margin-right: 6px; }
 .project-name { color: var(--text-dim); background: none; border-color: transparent; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-name-edit { width: 260px; }

@@ -194,6 +194,7 @@
 | 4.91 | The auto-director's Could-level list: image palettes, cover art, key, palette shifts, extract, curves to keyframes |
 | 4.92 | A real Windows app; removing components; the whole thing tested again |
 | 4.93 | The known problems: recovery after a crash, MilkDrop shaders, the Shadertoy input, file size, Auto |
+| 4.94 | 1.1.0 and 1.1.1 did not start when installed; the render host built with the app; Check for updates |
 
 ---
 
@@ -4909,6 +4910,29 @@ of layers and effects the project no longer has; the tour now loses no context. 
 
 **Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
 voice line was not reproduced, and is left as it was.
+
+### 4.94 1.1.0 and 1.1.1 did not start when installed; the render host built with the app; Check for updates
+
+**The released installers were broken.** `src/export/render-document.ts` imports `spike/harness.ts`, which imported `esbuild` at
+the top, and the main bundle keeps esbuild external. Installed, there is no `node_modules`, so 1.1.0 and 1.1.1 stopped at an
+`ERR_MODULE_NOT_FOUND` dialog before a window opened, on every PC but this one. Every packaged test ran from `release/` inside the
+repo, where Node walks up and finds the dev `node_modules`; the silent install tests never started the installed app. Found by
+installing a build to test the updater. Exporting from an installed copy was broken as well: the render host was bundled with
+esbuild at the first export, into the program folder, and started by running the app's own exe with a script path, which an
+installed Electron app ignores.
+
+**Fixed.** `npm run build` now bundles the render host into `dist/app/render-host/`, and the installed app's entry is
+`dist/app/boot.mjs`, which starts the render host for `--pulseforge-render-host` and the studio otherwise. `spike/harness.ts`
+loads esbuild only when running from source. The build checks that `main.js`, `preload.cjs` and the host load nothing but Node
+and Electron, and fails otherwise. Proved from a copy of `release/win-unpacked` outside the repo: smoke 47/47 with a real queued
+render (a 10.9 MB MP4 through the render host). Also fixed on the way: a data folder with spaces on another drive broke
+installing and verifying the Python packages, because uv splits `--override` paths at spaces; installs now run uv in
+`vendor/.tmp` and hand it the override's name.
+
+**Check for updates (D52).** Settings → Updates asks GitHub's API for this repository's releases, only when pressed, and shows
+the newest for this system (`v1.2.3` for Windows, `v1.2.3-mac.N` for the Mac) with its notes. Install downloads the installer to
+`DATA_ROOT/updates`, refuses it unless it matches the `SHA-256:` line of the release notes, then runs it silently over this
+version (`/S --updated --force-run`) and quits; the new version starts itself. Disabled with unsaved changes, and from source.
 
 ## 5. Measured results
 

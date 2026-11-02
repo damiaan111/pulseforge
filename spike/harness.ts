@@ -6,9 +6,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { build, type BuildOptions } from 'esbuild';
+import type { BuildOptions } from 'esbuild';
 import electronPath from 'electron';
-import { ROOT } from '../setup/lib/paths.ts';
+import { INSTALLED, ROOT } from '../setup/lib/paths.ts';
 import type { SpikeConfig } from './electron/protocol.ts';
 
 export const SPIKE_OUT = join(ROOT, 'out', 'spike');
@@ -40,6 +40,10 @@ async function replaceFile(path: string, text: string): Promise<void> {
 }
 
 export async function bundleElectron(): Promise<void> {
+  if (INSTALLED) return;
+  // Loaded here, never at the top: the studio's main process imports this file, and an installed app
+  // has no esbuild to load.
+  const { build } = await import('esbuild');
   await mkdir(SPIKE_OUT, { recursive: true });
   const common: BuildOptions = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'], sourcemap: 'linked', logLevel: 'error', write: false };
   const built = await Promise.all([
@@ -77,7 +81,9 @@ export function runElectron<T>(
     // index and some of them stopped responding.
     const profile = mkdtempSync(join(tmpdir(), 'pulseforge-render-'));
     const removeProfile = () => rm(profile, { recursive: true, force: true, maxRetries: 5 }).catch(() => undefined);
-    const child = spawn(electronBinary(), [join(SPIKE_OUT, 'main.cjs')], {
+    // Installed, the host was built with the app (dist/app/render-host) and is asked for with a switch:
+    // an installed Electron app runs its own entry (dist/app/boot.mjs) whatever script it is handed.
+    const child = spawn(electronBinary(), INSTALLED ? ['--pulseforge-render-host'] : [join(SPIKE_OUT, 'main.cjs')], {
       env: { ...process.env, PULSEFORGE_SPIKE_CONFIG: JSON.stringify(config), PULSEFORGE_SPIKE_PROFILE: profile, ELECTRON_ENABLE_LOGGING: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

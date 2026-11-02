@@ -88,7 +88,9 @@ import { directTrack } from '../batch/direct-track.ts';
 import { BATCH_AUDIO_EXTENSIONS } from '../batch/plan.ts';
 import { loadTemplates } from '../director/template-library.ts';
 import { shaderModuleDefinition, shadertoyFileSource, validateShaderModule } from '../engine/modules/shader-module.ts';
-import type { QueueFinishedEvent } from './ipc.ts';
+import type { QueueFinishedEvent, UpdateCheck } from './ipc.ts';
+import { compareVersions, type ReleaseChoice } from './update-release.ts';
+import { downloadUpdate, findUpdate } from './updater.ts';
 import { DEFAULT_ANALYSIS_SETTINGS, createDocument, createModuleLayer } from '../project/create.ts';
 import { stringifyDocument } from '../project/serialize.ts';
 
@@ -874,6 +876,43 @@ function registerHandlers(): void {
     log().setLevel(currentSettings.logLevel);
     return currentSettings;
   });
+  // Check for updates (D52). Nothing here runs unless the button is pressed.
+  let offeredUpdate: ReleaseChoice | undefined;
+  ipcMain.handle(IPC.updateCheck, async (): Promise<UpdateCheck> => {
+    const current = packageVersion();
+    const latest = await findUpdate(process.platform === 'darwin' ? 'mac' : 'windows');
+    const newer = latest !== undefined && compareVersions(latest.version, current) > 0;
+    offeredUpdate = newer ? latest : undefined;
+    log().info('update', `checked: this is ${current}, the newest release is ${latest?.version ?? 'none'}`);
+    const cannotInstall = !INSTALLED
+      ? 'This copy runs from source: update it with git pull, or install the release.'
+      : latest !== undefined && latest.sha256 === null ? 'This release names no SHA-256, so it is not installed from here. Download it from its page.' : null;
+    return {
+      current,
+      latest: latest === undefined ? null : { version: latest.version, notes: latest.notes, page: latest.page, bytes: latest.bytes },
+      newer,
+      cannotInstall,
+    };
+  });
+  ipcMain.handle(IPC.updateInstall, async (event): Promise<void> => {
+    const choice = offeredUpdate;
+    if (choice === undefined) throw new Error('Check for updates first.');
+    if (!INSTALLED) throw new Error('This copy runs from source: update it with git pull.');
+    let shown = -1;
+    const installer = await downloadUpdate(choice, (received, total) => {
+      // A message per percent, not per network chunk.
+      const percent = total > 0 ? Math.floor((received / total) * 100) : 0;
+      if (percent === shown) return;
+      shown = percent;
+      event.sender.send(IPC.updateProgress, { received, total });
+    });
+    log().info('update', `${choice.assetName} downloaded and matches its SHA-256; installing ${choice.version}`);
+    // A silent upgrade in place, then the new version starts (`--force-run`). `--updated` tells the old
+    // uninstaller it is an update, so it leaves the .pvproj association (assets/installer.nsh).
+    spawn(installer, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+    setTimeout(() => app.quit(), 500);
+  });
+
   ipcMain.handle(IPC.settingsInfo, async (): Promise<SettingsInfo> => {
     const listed = async (dir: string, keep: (name: string) => string | null) => {
       try {

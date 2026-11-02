@@ -29,6 +29,7 @@ on Ampere. Probe capabilities and hide unsupported options rather than failing a
 1. **Determinism.** `renderFrame(project, analysis, t)` must be byte-identical for the same inputs, every time. No `Date.now()`, no `performance.now()`, no rAF deltas, no `Math.random()`, no live `AnalyserNode` anywhere in the engine. Time is always a parameter; randomness always comes from the seeded PRNG.
 2. **Engine boundary.** `src/engine/` must not import Electron, the DOM, React, or anything time- or network-aware. Enforce with a lint rule from the first commit. This is what keeps headless rendering, golden-frame tests and the CLI possible.
 3. **Offline after setup.** No runtime CDN links, no Google Fonts, no update checks, no implicit downloads. Everything resolves from `vendor/` or the user's disk.
+   Sole exception (D52): Settings → Check for updates, which reaches GitHub only when pressed.
 4. **Nothing is silently dropped.** Unknown modules, missing assets, broken modulation targets — all preserved and reported, never discarded.
 5. **Exact time.** Integer ticks at 1/48000 s; `fps` as a rational; frame time derived from the frame index, never accumulated.
 
@@ -57,7 +58,10 @@ through Butterchurn (STATUS 4.83). ROADMAP §6 lists what is left. `npm run test
   that dies leaves the old one behind.
 - The end goal is a clean public repo: `Pulseforge.cmd` starts everything from nothing, and the app
   offers components (`setup/components.ts`). Nothing may assume the owner's PC, path or tools.
-- `npm run dist` builds the installer. Anything the app writes goes under `DATA_ROOT`, never `ROOT`: installed, `ROOT` is
+- `npm run dist` builds the installer. **Test the packaged app from a copy outside the repo** (`release/win-unpacked` copied
+  elsewhere, `PULSEFORGE_SMOKE=1`, `PULSEFORGE_SMOKE_RENDER=<wav>`): inside the repo Node finds the dev `node_modules`, which hid
+  that 1.1.0 and 1.1.1 crashed on start everywhere else (STATUS 4.94). `npm run build` now refuses a bundle that loads a package.
+  Anything the app writes goes under `DATA_ROOT`, never `ROOT`: installed, `ROOT` is
   the program and an update replaces it (`setup/lib/paths.ts`).
 
 - MilkDrop is in, the director uses it (`src/director/milkdrop-catalogue.ts` is generated: `npm run

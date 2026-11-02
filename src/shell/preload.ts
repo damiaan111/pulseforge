@@ -51,6 +51,15 @@ const api: PulseforgeApi = {
   getSettings: () => ipcRenderer.invoke(IPC.settingsGet) as ReturnType<PulseforgeApi['getSettings']>,
   updateSettings: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch) as ReturnType<PulseforgeApi['updateSettings']>,
   settingsInfo: () => ipcRenderer.invoke(IPC.settingsInfo) as ReturnType<PulseforgeApi['settingsInfo']>,
+  checkForUpdate: () => ipcRenderer.invoke(IPC.updateCheck) as ReturnType<PulseforgeApi['checkForUpdate']>,
+  installUpdate: () => ipcRenderer.invoke(IPC.updateInstall) as Promise<void>,
+  onUpdateProgress: (listener) => {
+    const handler = (_event: unknown, progress: { received: number; total: number }) => listener(progress);
+    ipcRenderer.on(IPC.updateProgress, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.updateProgress, handler);
+    };
+  },
   cacheInventory: () => ipcRenderer.invoke(IPC.cacheInventory) as ReturnType<PulseforgeApi['cacheInventory']>,
   cacheAction: (action) => ipcRenderer.invoke(IPC.cacheAction, action) as ReturnType<PulseforgeApi['cacheAction']>,
   revealCache: () => ipcRenderer.invoke(IPC.revealCache) as Promise<void>,
