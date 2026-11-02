@@ -1,12 +1,14 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
+
+The first release with a Windows installer.
 
 - **ISF shaders:** drop a `.fs` file in the modules folder, or add Vidvox's library as a component. Files
   that cannot run are listed with the reason.
 - **Titles** can run vertically, grow a solid 3D side that follows the beat, and draw emoji in colour
   (with the Colour emoji component).
-- **A real Windows app:** `Pulseforge-Setup-1.0.0.exe` installs Pulseforge with a Start menu and desktop shortcut, and
+- **A real Windows app:** `Pulseforge-Setup-1.1.0.exe` installs Pulseforge with a Start menu and desktop shortcut, and
   `.pvproj` files open in it. Components live outside the program, in a folder you can choose, so updates leave them alone.
 - **Remove optional models and libraries** from the app, and install them again whenever you like.
 - **Auto:** colours from an image or the song's cover, the musical key, palette shifts at a chorus, Extract as template,

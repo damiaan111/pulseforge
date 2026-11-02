@@ -4899,6 +4899,9 @@ with the renderer idle, right after the check for the blocked network request, a
 The cause is unknown: its output sat behind `| tail`, so the step was not visible. Log a smoke run to a file, and if it hangs again read the
 last `[smoke] step:` line. The other projects on the machine were busy at the time.
 
+**Released as v1.1.0** on GitHub, with `Pulseforge-Setup-1.1.0.exe` attached (SHA-256 `d58bc130…f4a49d`). Its build passed the
+packaged smoke 46/46 and a silent install and uninstall.
+
 **Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
 voice line was not reproduced, and is left as it was.
 
