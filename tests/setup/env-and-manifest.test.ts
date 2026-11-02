@@ -50,7 +50,12 @@ describe('manifest', () => {
     expect(new Set(ARTEFACTS.map((a) => a.id)).size).toBe(ARTEFACTS.length);
   });
 
-  it('pins torch to a CUDA index', () => {
-    expect(PYTHON_PACKAGES.torchIndex).toMatch(new RegExp(`/whl/${PYTHON_PACKAGES.torchLocalVersion}$`));
+  it.skipIf(process.platform === 'darwin')('pins torch to a CUDA index', () => {
+    expect(PYTHON_PACKAGES.torchIndex).toMatch(new RegExp(`/whl/${PYTHON_PACKAGES.torchLocalVersion ?? ''}$`));
+  });
+
+  it.runIf(process.platform === 'darwin')('takes torch from PyPI on the Mac, the build with Metal', () => {
+    expect(PYTHON_PACKAGES.torchIndex).toBeNull();
+    expect(PYTHON_PACKAGES.minDriverMajor).toBeNull();
   });
 });

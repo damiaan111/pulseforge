@@ -56,11 +56,17 @@ jobs:
         timeout-minutes: 30
         run: npm run setup -- --tier stems
 
+      - name: Setup of lyrics (WhisperX on the CPU) and beat refinement
+        continue-on-error: true
+        timeout-minutes: 40
+        run: npm run setup -- --tier lyrics,beats
+
       - name: Smoke check
         if: steps.setup.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 15
         run: |
+          mkdir -p out
           rm -f out/smoke-result.json
           npm run dev -- --smoke > out/smoke-run.log 2>&1 || true
           tail -40 out/smoke-run.log

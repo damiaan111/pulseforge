@@ -82,7 +82,9 @@ describe('assets on disk', () => {
 describe('asset paths', () => {
   it('resolves relative paths against the project and leaves absolute ones alone', () => {
     expect(resolveAssetPath('art/sky.png', 'D:/songs/one.pvproj')?.replace(/\\/g, '/')).toBe('D:/songs/art/sky.png');
-    expect(resolveAssetPath('D:/art/sky.png', null)).toBe('D:/art/sky.png');
+    // Absolute as this system writes it: a drive letter is no root on a Mac.
+    const absolute = process.platform === 'win32' ? 'D:/art/sky.png' : '/Users/me/art/sky.png';
+    expect(resolveAssetPath(absolute, null)).toBe(absolute);
     expect(resolveAssetPath('art/sky.png', null)).toBeUndefined();
     expect(resolveAssetPath('', 'D:/songs/one.pvproj')).toBeUndefined();
   });

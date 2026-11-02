@@ -485,9 +485,11 @@ function recordEnv(ctx: StepContext, lockSha: string, info: EnvProbe): void {
 // stems: torch CUDA + Demucs
 // ---------------------------------------------------------------------------
 
+const STEMS_TITLE = MAC ? 'Python packages (torch for Metal + Demucs)' : 'Python packages (torch CUDA + Demucs)';
+
 export const pythonEnvStep: Step = createPythonEnvStep({
   id: 'python-env',
-  title: 'Python packages (torch CUDA + Demucs)',
+  title: STEMS_TITLE,
   tier: PYTHON_PACKAGES.tier,
   requirementsIn: PY_REQUIREMENTS_IN,
   requirementsLock: PY_REQUIREMENTS_LOCK,
@@ -500,13 +502,13 @@ export const pythonEnvStep: Step = createPythonEnvStep({
   check(info) {
     if (info.demucsError !== undefined) {
       throw new SetupError({
-        step: 'Python packages (torch CUDA + Demucs)',
+        step: STEMS_TITLE,
         what: `demucs is installed but fails to import: ${info.demucsError}`,
         likelyCause: 'A dependency mismatch in the resolved lock.',
         fix: ['Re-run with `npm run setup -- --relock`; if it persists, share vendor/setup.log.'],
       });
     }
-    return `torch ${info.torch ?? '?'} sees ${info.device ?? '?'} (CUDA ${info.torchCuda ?? '?'}); demucs ${info.demucs ?? '?'}`;
+    return `torch ${info.torch ?? '?'} sees ${info.device ?? '?'}${MAC ? '' : ` (CUDA ${info.torchCuda ?? '?'})`}; demucs ${info.demucs ?? '?'}`;
   },
   record(ctx, lockSha, info) {
     recordEnv(ctx, lockSha, info);
