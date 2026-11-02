@@ -24,7 +24,8 @@ const pathOf = (artefact: FileArtefact) => join(VENDOR, artefact.installDir, art
 /** The same CUDA 12 cuBLAS search-path step the sidecar takes before CTranslate2 loads. */
 const CUBLAS = String.raw`
 import os, importlib.util
-spec = importlib.util.find_spec("nvidia.cublas")
+# `nvidia` exists only beside the CUDA build: on a Mac find_spec of a child of a missing package raises.
+spec = importlib.util.find_spec("nvidia.cublas") if importlib.util.find_spec("nvidia") is not None else None
 if spec is not None and spec.submodule_search_locations:
     b = os.path.join(list(spec.submodule_search_locations)[0], "bin")
     if os.path.isdir(b):

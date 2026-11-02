@@ -28,7 +28,8 @@ import os
 def enable_cublas12():
     """CTranslate2 is built for CUDA 12; torch here ships CUDA 13. The CUDA 12 cuBLAS comes from
     the `nvidia-cublas-cu12` wheel, and its folder must be searchable before CTranslate2 loads."""
-    spec = importlib.util.find_spec("nvidia.cublas")
+    # `nvidia` exists only beside the CUDA build: on a Mac find_spec of a child of a missing package raises.
+    spec = importlib.util.find_spec("nvidia.cublas") if importlib.util.find_spec("nvidia") is not None else None
     if spec is None or not spec.submodule_search_locations:
         return False
     folder = os.path.join(list(spec.submodule_search_locations)[0], "bin")

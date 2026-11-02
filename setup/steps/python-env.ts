@@ -527,7 +527,7 @@ export const pythonEnvStep: Step = createPythonEnvStep({
  */
 const CUBLAS12_SNIPPET = String.raw`
 import os as _os, importlib.util as _iu
-_spec = _iu.find_spec("nvidia.cublas")
+_spec = _iu.find_spec("nvidia.cublas") if _iu.find_spec("nvidia") is not None else None
 if _spec is not None and _spec.submodule_search_locations:
     _bin = _os.path.join(list(_spec.submodule_search_locations)[0], "bin")
     if _os.path.isdir(_bin):
