@@ -4905,7 +4905,7 @@ packaged smoke 46/46 and a silent install and uninstall.
 **Found afterwards, through the macOS branch's UI tour (fixed, `b5ee850`):** the engine kept the module instance of every layer it
 ever drew. A MilkDrop instance holds a WebGL context, so removed MilkDrop layers and Surprise Me rolls piled contexts up until
 Chromium dropped the oldest, the preview's, and it went white. `releaseUnused` in `src/engine/engine.ts` lets go of the instances
-of layers and effects the project no longer has; the tour now loses no context. Not yet in a released installer.
+of layers and effects the project no longer has; the tour now loses no context. Released in 1.1.1 (SHA-256 `bae1b53e…973df7`; packaged smoke 46/46, silent install and uninstall checked).
 
 **Not changed:** transcribed lines already break at breaths and at 42 characters, so no fix was needed there. The Lyric Focus word near the
 voice line was not reproduced, and is left as it was.
