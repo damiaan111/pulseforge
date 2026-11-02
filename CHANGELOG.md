@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: the preview could turn white after many MilkDrop layers were removed or many Surprise Me rolls. Each
+  MilkDrop layer holds a WebGL context, and the engine kept them all until Chromium dropped the preview's own.
+
 ## 1.1.0
 
 The first release with a Windows installer.
