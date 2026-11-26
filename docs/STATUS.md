@@ -5001,6 +5001,12 @@ advisories: `aiohttp`, `certifi`, `filelock`, `nltk` and `setuptools` were moved
 real environment: torch sees the GPU, Demucs, WhisperX and librosa import, the models load, and the sidecar and lyrics
 tests pass.
 
+**Electron 44.3.0 → 44.11.6** for the four advisories against the shipped runtime (`npm audit --omit=dev` never showed them:
+Electron is a dev dependency that ends up in the installer). Check 1605 passed, golden 29/29 still byte-identical, smoke 46/46.
+`npm audit fix` took the development tools' advisories (vite, undici and others). Left: a moderate one in `minimatch` under
+electron-builder, a build tool that globs this repository's own files; its fix is a downgrade of electron-builder.
+npm does not run install scripts here, so after an Electron bump the binary comes with `node node_modules/electron/install.js`.
+
 ## 5. Measured results
 
 The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:
