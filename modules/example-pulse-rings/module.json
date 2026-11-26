@@ -1,0 +1,22 @@
+{
+  "id": "example.visualizer.pulse-rings",
+  "version": "1.0.0",
+  "kind": "visualizer",
+  "name": "Pulse rings",
+  "description": "Concentric rings that drift outward and brighten with the music. The worked example in docs/module-authoring.md.",
+  "category": "examples",
+  "tags": ["rings", "example"],
+  "shader": "shader.frag",
+  "params": [
+    { "key": "color", "label": "Colour", "group": "Look", "type": "color", "default": "#46d4ff", "paletteRole": "primary" },
+    { "key": "spacing", "label": "Spacing", "group": "Look", "type": "float", "default": 0.08, "min": 0.02, "max": 0.3 },
+    { "key": "width", "label": "Line width", "group": "Look", "type": "float", "default": 0.012, "min": 0.002, "max": 0.05 },
+    { "key": "radius", "label": "Radius", "group": "Look", "type": "float", "default": 0.5, "min": 0.1, "max": 1.5, "aspectOverridable": true },
+    { "key": "speed", "label": "Drift", "group": "Motion", "type": "float", "default": 0.4, "min": -2, "max": 2, "unit": "rings/s" },
+    {
+      "key": "react", "label": "Brightens on", "group": "Audio", "type": "enum", "default": "beat",
+      "options": [{ "value": "beat", "label": "Beat" }, { "value": "level", "label": "Level" }, { "value": "onset", "label": "Onsets" }]
+    },
+    { "key": "source", "label": "Source", "group": "Audio", "type": "select:stem", "default": "mix" }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "formatVersion": 1,
+  "id": "tpl.aurora.night",
+  "name": "Aurora Night",
+  "description": "Curtains of northern light over a dark sky, slow and wide. Acoustic, ambient, ballads — anything that breathes.",
+  "author": "Pulseforge",
+  "version": 1,
+  "affinity": {
+    "prefer": { "energy": [0, 0.55], "organic": [0.45, 1] },
+    "tolerate": { "tempo": "any", "vocalWeight": "any", "density": [0, 0.75] },
+    "avoid": { "energy": [0.85, 1] },
+    "weight": 0.95
+  },
+  "aspects": ["16:9", "9:16", "1:1", "4:5"],
+  "palette": {
+    "strategy": "generate-from-style",
+    "harmony": "analogous",
+    "baseHue": { "from": "key", "range": [140, 280] },
+    "saturation": [0.6, 0.9],
+    "background": [0.02, 0.05],
+    "minTextContrast": 4.5
+  },
+  "slots": [
+    {
+      "id": "BACKDROP", "role": "BACKDROP", "required": true, "name": "Night sky",
+      "candidates": [
+        { "module": "core.source.background", "weight": 1, "label": "Night sky",
+          "params": { "mode": "gradient", "gradient": "linear", "colorA": "#000000", "colorB": "@background", "drift": 0.1 } }
+      ]
+    },
+    {
+      "id": "STARS", "role": "ACCENT", "name": "Stars", "required": true, "priority": 85, "opacity": 0.8, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.nebula", "weight": 1, "label": "Stars",
+          "params": { "colorA": "#000000", "colorB": "@secondary", "colorC": "@primary", "brightness": 0.3, "react": 0.2, "speed": 0.2, "stars": 1, "size": 1.6 } }
+      ]
+    },
+    {
+      "id": "HERO", "role": "HERO", "required": true, "name": "Aurora", "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.aurora", "weight": 3, "label": "Three curtains",
+          "params": { "colorA": "@primary", "colorB": "@secondary", "sky": "#000000", "brightness": 0.9, "height": 0.55, "position": 0.6, "curtains": 3, "speed": 0.5, "react": 0.7 } },
+        { "module": "core.visualizer.aurora", "weight": 2, "label": "Tall curtains",
+          "params": { "colorA": "@primary", "colorB": "@accent", "sky": "#000000", "brightness": 0.85, "height": 0.85, "position": 0.72, "curtains": 2, "speed": 0.35, "react": 0.7 } },
+        { "module": "core.visualizer.aurora", "weight": 1, "label": "Low band",
+          "params": { "colorA": "@secondary", "colorB": "@primary", "sky": "#000000", "brightness": 0.9, "height": 0.4, "position": 0.5, "curtains": 5, "speed": 0.6, "react": 0.8 } }
+      ]
+    },
+    {
+      "id": "ACCENT", "role": "ACCENT", "name": "Snow", "probability": 0.6, "opacity": 0.6, "blend": "screen",
+      "candidates": [
+        { "module": "core.visualizer.particles", "weight": 1, "label": "Snow",
+          "params": { "fill": "@text", "count": 220, "size": 0.005, "sizeVariance": 0.9, "speed": 0.03, "sway": 0.05, "flare": 0.4, "softness": 0.9, "direction": "down", "seed": "$seed" } }
+      ]
+    },
+    {
+      "id": "TEXT", "role": "TEXT", "condition": "hasTitle",
+      "candidates": [
+        { "module": "core.text.title", "weight": 1,
+          "params": { "text": "$title", "color": "@text", "size": 0.07, "letterSpacing": 0.22, "case": "upper", "shadow": 0.7, "shadowColor": "@textShadow", "animSeconds": 1.4 } }
+      ],
+      "transform": { "y": 0.3 }
+    },
+    {
+      "id": "LYRICS", "role": "LYRICS", "condition": "hasLyrics",
+      "params": { "size": 0.058, "maxWidth": 0.9, "upcoming": "@text", "active": "@accent", "sung": "@primary", "shadow": 0.9, "glowColor": "@glow", "shadowColor": "@textShadow" },
+      "transform": { "y": 0.84 },
+      "aspectOverrides": { "9:16": { "transform": { "y": 0.76 } } }
+    },
+    {
+      "id": "LOGO", "role": "LOGO", "condition": "hasLogo",
+      "candidates": [ { "module": "core.source.logo", "weight": 1, "params": { "image": "$logo", "size": 0.1, "opacity": 0.85 } } ],
+      "transform": { "x": 0.92, "y": 0.1 },
+      "aspectOverrides": { "9:16": { "transform": { "x": 0.85, "y": 0.14 } } }
+    },
+    {
+      "id": "POST", "role": "POST", "required": true,
+      "effects": [
+        { "key": "bloom", "module": "core.effect.bloom", "params": { "intensity": 0.7, "threshold": 0.55, "radius": 0.04 } },
+        { "key": "vignette", "module": "core.effect.vignette", "params": { "amount": 0.45 } },
+        { "key": "grain", "module": "core.effect.grain", "params": { "amount": 0.035 }, "probability": 0.6 }
+      ]
+    }
+  ],
+  "modulations": [
+    { "label": "Breath", "target": ["HERO.params.brightness"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "medium", "response": "slow" },
+    { "label": "Bass lift", "target": ["HERO.params.height"],
+      "source": { "type": "band", "stem": "bass", "band": "bass" }, "mode": "add", "intensity": "subtle", "response": "smooth" },
+    { "label": "Voice", "target": ["HERO.params.react"],
+      "source": { "type": "rms", "stem": "vocals" }, "mode": "add", "intensity": "medium", "response": "smooth" },
+    { "label": "Light", "target": ["POST.bloom.intensity"],
+      "source": { "type": "rms", "stem": "mix" }, "mode": "multiply", "intensity": "subtle", "response": "smooth" }
+  ],
+  "arrangement": {
+    "sections": {
+      "intro": { "intensity": 0.4 },
+      "build": { "intensity": 0.7, "addLayers": ["ACCENT"] },
+      "main": { "intensity": 1, "addLayers": ["ACCENT"], "paletteShift": "glow" },
+      "breakdown": { "intensity": 0.45 },
+      "outro": { "intensity": 0.3, "removeLayers": ["ACCENT"] }
+    },
+    "intensityTargets": ["HERO.params.brightness", "POST.bloom.intensity"],
+    "floor": 0.45,
+    "optionalLayers": ["ACCENT"],
+    "textHold": "untilFirstVocal",
+    "drop": { "targets": ["HERO.params.brightness"], "amount": 0.3, "decaySeconds": 1.2 },
+    "fadeIn": 2.5,
+    "fadeOut": 4
+  },
+  "variation": {
+    "rerollable": ["slots.HERO.candidate", "slots.ACCENT.presence", "palette.baseHue"],
+    "locked": ["arrangement"],
+    "hueJitter": 35,
+    "intensityJitter": 0.1
+  },
+  "budget": { "maxLayers": 7, "maxCost": 10 }
+}

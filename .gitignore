@@ -1,0 +1,60 @@
+# Provisioned by `npm run setup` — never committed (multi-GB, machine-specific)
+/vendor/
+
+# Dependencies
+/node_modules/
+
+# Python bytecode from the ML sidecar
+__pycache__/
+*.pyc
+
+# Build output
+/dist/
+/build/
+/out/
+/release/
+*.tsbuildinfo
+
+# Caches: analysis, stems, waveform peaks, glyph atlases, video frame caches.
+# All rebuildable by definition (PROJECT.md M33) — deleting them costs time, never data.
+# Anchored, like every folder here: a bare `cache/` also hid src/cache/ from git.
+/cache/
+.cache/
+*.analysis.bin
+
+# Render outputs and reports
+/renders/
+*.mp4
+*.mkv
+*.webm
+*.mov
+
+# Audio test material (keep the repo light; add specific fixtures with `git add -f`)
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+*.opus
+
+# Local settings and scratch
+.env
+.env.local
+settings.local.json
+/scratch/
+/tmp/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+*.swp
+
+# Golden-frame working files: the .actual.png written when a comparison fails is
+# evidence for that run only, never a committed reference.
+tests/golden/references/*.actual.png
+tests/golden/references/*.rgba
+
+# Local tool configuration
+/.claude/

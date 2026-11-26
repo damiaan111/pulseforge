@@ -1,0 +1,291 @@
+{
+  "schemaVersion": 1,
+  "id": "0000000000P000000000000031",
+  "name": "Golden — lyrics and karaoke",
+  "createdAt": "2026-09-25T12:00:00.000Z",
+  "modifiedAt": "2026-09-25T12:00:00.000Z",
+  "appVersion": "0.1.0-p6",
+  "seed": 777,
+  "canvas": {
+    "width": 640,
+    "height": 360,
+    "fps": {
+      "num": 60,
+      "den": 1
+    },
+    "background": "#07060f"
+  },
+  "audio": {
+    "path": "",
+    "hash": "",
+    "durationTicks": 96000,
+    "leadInTicks": 0,
+    "leadOutTicks": 0,
+    "clipInTicks": 0,
+    "clipOutTicks": null,
+    "fadeInTicks": 0,
+    "fadeOutTicks": 0,
+    "fadeInCurve": "equal-power",
+    "fadeOutCurve": "equal-power",
+    "gain": 1,
+    "stemsEnabled": false
+  },
+  "analysisSettings": {
+    "fftSize": 2048,
+    "onsetSensitivity": 0.5,
+    "bpmOverride": null,
+    "stemModel": "htdemucs",
+    "bands": [
+      {
+        "id": "sub",
+        "label": "Sub",
+        "minHz": 20,
+        "maxHz": 60,
+        "gain": 1
+      },
+      {
+        "id": "bass",
+        "label": "Bass",
+        "minHz": 60,
+        "maxHz": 250,
+        "gain": 1
+      },
+      {
+        "id": "lowMid",
+        "label": "Low mid",
+        "minHz": 250,
+        "maxHz": 500,
+        "gain": 1
+      },
+      {
+        "id": "mid",
+        "label": "Mid",
+        "minHz": 500,
+        "maxHz": 2000,
+        "gain": 1
+      },
+      {
+        "id": "highMid",
+        "label": "High mid",
+        "minHz": 2000,
+        "maxHz": 4000,
+        "gain": 1
+      },
+      {
+        "id": "presence",
+        "label": "Presence",
+        "minHz": 4000,
+        "maxHz": 6000,
+        "gain": 1
+      },
+      {
+        "id": "brilliance",
+        "label": "Brilliance",
+        "minHz": 6000,
+        "maxHz": 20000,
+        "gain": 1
+      }
+    ]
+  },
+  "palette": {
+    "colors": [],
+    "roles": {}
+  },
+  "layers": [
+    {
+      "id": "0000000000P000000000000032",
+      "kind": "module",
+      "name": "Bars",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "timeRange": {
+        "inTicks": 0,
+        "outTicks": null
+      },
+      "transform": {
+        "x": 0.5,
+        "y": 0.5,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min"
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "maskLayerId": null,
+      "module": "core.visualizer.bars",
+      "paramsSchemaVersion": 1,
+      "params": {
+        "barCount": 48
+      },
+      "effects": [],
+      "modulations": [],
+      "aspectOverrides": {}
+    },
+    {
+      "id": "0000000000P000000000000033",
+      "kind": "module",
+      "name": "Lyrics",
+      "enabled": true,
+      "locked": false,
+      "soloed": false,
+      "timeRange": {
+        "inTicks": 0,
+        "outTicks": null
+      },
+      "transform": {
+        "x": 0.5,
+        "y": 0.72,
+        "scaleX": 1,
+        "scaleY": 1,
+        "rotationDeg": 0,
+        "skewXDeg": 0,
+        "skewYDeg": 0,
+        "anchor": "center",
+        "scaleReference": "min"
+      },
+      "blend": "normal",
+      "opacity": 1,
+      "maskLayerId": null,
+      "module": "core.text.lyrics",
+      "paramsSchemaVersion": 1,
+      "params": {
+        "glow": 0.4,
+        "plate": true,
+        "plateOpacity": 0.4
+      },
+      "effects": [],
+      "modulations": [
+        {
+          "id": "00000000003000000000000009",
+          "enabled": true,
+          "label": "Word accent",
+          "target": "layers.0000000000P000000000000033.params.glow",
+          "source": {
+            "type": "wordActive",
+            "stem": "mix",
+            "band": null,
+            "shape": "sine",
+            "rateHz": 1,
+            "phase": 0,
+            "syncDivision": null,
+            "noiseScale": 1,
+            "octaves": 1,
+            "from": 0,
+            "to": 1
+          },
+          "inputRange": "auto",
+          "curve": {
+            "type": "linear",
+            "amount": 0
+          },
+          "envelope": {
+            "attackMs": 1,
+            "releaseMs": 150,
+            "mode": "peak"
+          },
+          "quantise": null,
+          "lookAheadMs": 0,
+          "amount": 0.225,
+          "offset": 0,
+          "invert": false,
+          "mode": "add",
+          "order": 0,
+          "clampOutput": null
+        }
+      ],
+      "aspectOverrides": {
+        "9:16": {
+          "transform": {
+            "y": 0.62
+          },
+          "params": {
+            "size": 0.1,
+            "maxWidth": 0.9
+          }
+        }
+      }
+    }
+  ],
+  "globalEffects": [],
+  "globalModulations": [],
+  "lyrics": {
+    "language": "en",
+    "source": "manual",
+    "lines": [
+      {
+        "id": "00000000003000000000000001",
+        "text": "Neon lights are calling",
+        "startTicks": 14400,
+        "endTicks": 48000,
+        "role": "lead",
+        "locked": false,
+        "confidence": null,
+        "style": null,
+        "words": [
+          {
+            "id": "00000000003000000000000005",
+            "text": "Neon",
+            "startTicks": 14400,
+            "endTicks": 21600,
+            "confidence": null
+          },
+          {
+            "id": "00000000003000000000000006",
+            "text": "lights",
+            "startTicks": 21600,
+            "endTicks": 29760,
+            "confidence": null
+          },
+          {
+            "id": "00000000003000000000000007",
+            "text": "are",
+            "startTicks": 29760,
+            "endTicks": 34560,
+            "confidence": null
+          },
+          {
+            "id": "00000000003000000000000008",
+            "text": "calling",
+            "startTicks": 34560,
+            "endTicks": 48000,
+            "confidence": null
+          }
+        ]
+      },
+      {
+        "id": "00000000003000000000000002",
+        "text": "(hey!)",
+        "startTicks": 28800,
+        "endTicks": 45600,
+        "role": "backing",
+        "locked": false,
+        "confidence": null,
+        "style": null,
+        "words": []
+      },
+      {
+        "id": "00000000003000000000000003",
+        "text": "Hold on tonight",
+        "startTicks": 48000,
+        "endTicks": 86400,
+        "role": "lead",
+        "locked": false,
+        "confidence": null,
+        "style": null,
+        "words": []
+      }
+    ],
+    "sections": [
+      {
+        "id": "00000000003000000000000004",
+        "label": "Verse",
+        "beforeLineId": "00000000003000000000000001"
+      }
+    ]
+  }
+}
