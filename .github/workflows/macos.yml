@@ -1,0 +1,123 @@
+# The Mac build. GitHub's macOS runners are Apple Silicon, so this builds the arm64 DMG on the system it
+# is for, and tries the app there before anyone downloads it. A tag like v1.1.0-mac.1 also publishes the
+# DMG as a pre-release, so the Windows release stays the latest.
+#
+# Only typecheck, lint and the DMG decide the run. The rest reports: the runner is a virtual Mac, where
+# Metal and VideoToolbox can be missing, so what fails there is read, not trusted as a verdict.
+
+name: macOS
+
+on:
+  push:
+    branches: [macos]
+    tags: ['v*-mac*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+      - name: Build the DMG
+        run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Check the app's signature
+        run: codesign --verify --deep --strict --verbose=2 release/mac-arm64/Pulseforge.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pulseforge-mac-arm64
+          path: release/*.dmg
+          if-no-files-found: error
+
+      - name: Setup on a clean Mac (core, MilkDrop)
+        id: setup
+        continue-on-error: true
+        run: npm run setup -- --tier core,milkdrop
+
+      - name: Setup of stem separation (torch for Metal, Demucs)
+        continue-on-error: true
+        timeout-minutes: 30
+        run: npm run setup -- --tier stems
+
+      - name: Setup of lyrics (WhisperX on the CPU) and beat refinement
+        continue-on-error: true
+        timeout-minutes: 40
+        run: npm run setup -- --tier lyrics,beats
+
+      - name: Smoke check
+        if: steps.setup.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          mkdir -p out
+          rm -f out/smoke-result.json
+          PULSEFORGE_UI_TOUR=1 npm run dev -- --smoke > out/smoke-run.log 2>&1 || true
+          tail -40 out/smoke-run.log
+          cat out/smoke-result.json || echo "no smoke result"
+
+      - name: The packaged app, outside the repo, with a real export
+        # What a person gets from the DMG. Inside the checkout Node would find the dev node_modules and
+        # hide a missing package, which is how 1.1.0 and 1.1.1 shipped broken on Windows.
+        if: steps.setup.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          cp out/smoke-result.json out/smoke-result-source.json 2>/dev/null || true
+          rm -f out/smoke-result.json out/smoke-render.mp4
+          ditto release/mac-arm64/Pulseforge.app "$RUNNER_TEMP/Pulseforge.app"
+          PULSEFORGE_SMOKE=1 PULSEFORGE_DATA="$GITHUB_WORKSPACE" PULSEFORGE_SMOKE_RENDER="$GITHUB_WORKSPACE/out/smoke-song.wav" "$RUNNER_TEMP/Pulseforge.app/Contents/MacOS/Pulseforge" > out/smoke-packaged.log 2>&1 || true
+          tail -30 out/smoke-packaged.log
+          mv out/smoke-result.json out/smoke-result-packaged.json || echo "no packaged smoke result"
+          ls -la out/smoke-render.mp4 || echo "no render"
+
+      - name: Unit tests
+        continue-on-error: true
+        timeout-minutes: 30
+        run: npm run test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-reports
+          path: |
+            out/smoke-result.json
+            out/smoke-result-source.json
+            out/smoke-result-packaged.json
+            out/smoke-packaged.log
+            out/smoke-run.log
+            out/smoke.png
+            out/smoke-milkdrop.png
+            out/ui-tour/
+            out/vitest-last.json
+            vendor/setup.log
+          if-no-files-found: ignore
+
+      - name: Publish the pre-release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A tag pushed again for a release that exists (history tidied) publishes nothing new.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then echo "release exists"; exit 0; fi
+          # The SHA-256 line is what Check for updates verifies the download against (D52).
+          cp docs/mac-release-notes.md "$RUNNER_TEMP/notes.md"
+          echo "" >> "$RUNNER_TEMP/notes.md"
+          echo "SHA-256: \`$(shasum -a 256 release/*.dmg | cut -c1-64)\`" >> "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" release/*.dmg --prerelease --target macos --title "Pulseforge ${GITHUB_REF_NAME#v} for Mac (Apple Silicon)" --notes-file "$RUNNER_TEMP/notes.md"

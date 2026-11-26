@@ -1,0 +1,13 @@
+# The Mac's stems requirements (Apple Silicon). The Windows set is requirements.in.
+#
+# This is the input. The pinned, hashed resolution lives in requirements.macos.lock.txt, generated
+# by `npm run setup -- --relock` on a Mac (or with uv's --python-platform aarch64-apple-darwin) and
+# committed. It was resolved with the Windows locks' versions as constraints, so both systems run the
+# same packages, only built for their own platform. torch from PyPI is the macOS build with Metal (MPS): there is no CUDA on a Mac, and no
+# local version tag to pin.
+
+torch==2.13.0
+demucs==4.1.0
+
+# As on Windows: demucs imports numpy everywhere but does not always declare it.
+numpy
