@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2
+
+- **Security:** five of the pinned Python packages behind stems and lyrics had published advisories (aiohttp, certifi,
+  filelock, nltk, setuptools). They are updated to fixed versions; nothing else in the locks moved. They run offline
+  and only on your own files, so the exposure was small. **Settings → Setup & repair → Repair stems** (and lyrics)
+  brings an existing install up to date.
+- The docs no longer describe the machine they were written on, there is a SECURITY.md, and the README starts with a
+  quick start and what to do when something goes wrong.
+
 ## 1.2.1
 
 - **Exports are about half the size.** Balanced is now the default: 20 Mbit/s at most for 1080p60, where Best went to
