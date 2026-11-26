@@ -6,6 +6,8 @@
   filelock, nltk, setuptools). They are updated to fixed versions; nothing else in the locks moved. They run offline
   and only on your own files, so the exposure was small. **Settings → Setup & repair → Repair stems** (and lyrics)
   brings an existing install up to date.
+- **Security:** Electron, the browser engine the app runs on, goes from 44.3.0 to 44.11.6, which closes four published
+  advisories.
 - The docs no longer describe the machine they were written on, there is a SECURITY.md, and the README starts with a
   quick start and what to do when something goes wrong.
 
