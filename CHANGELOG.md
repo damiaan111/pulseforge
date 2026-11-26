@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2-mac.1 (the `macos` branch)
+
+- **Security:** five of the pinned Python packages behind stems and lyrics had published advisories (aiohttp, certifi,
+  filelock, nltk, setuptools). They are updated to fixed versions; nothing else in the locks moved. They run offline
+  and only on your own files, so the exposure was small. **Settings → Setup & repair → Repair stems** (and lyrics)
+  brings an existing install up to date.
+- The docs no longer describe the machine they were written on, there is a SECURITY.md, and the README starts with a
+  quick start and what to do when something goes wrong.
+
 ## 1.2.1-mac.1 (the `macos` branch)
 
 - **Exports are about half the size:** Balanced is the default quality (D53). Best is still in the export dialog and

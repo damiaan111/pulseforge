@@ -1,6 +1,6 @@
 ## Pulseforge for Mac (Apple Silicon) — preview
 
-The Mac build of Pulseforge 1.2.1, for Macs with an M-series chip (M1 or newer) on **macOS 14 or newer**. It is a
+The Mac build of Pulseforge 1.2.2, for Macs with an M-series chip (M1 or newer) on **macOS 14 or newer**. It is a
 preview: it is built and checked on GitHub's Apple Silicon machines, including the packaged app itself with a real
 export, but it has not yet been used by a person on a real Mac. The Windows release is still the main one.
 
@@ -29,6 +29,7 @@ disk image, checks its SHA-256 and opens it; Pulseforge closes, and you drag the
 
 ### New in 1.2
 
+- Security: five pinned Python packages with published advisories are updated (aiohttp, certifi, filelock, nltk, setuptools).
 - Exports are about half the size: Balanced is the default quality, Best is one choice away in the export dialog.
 - Five atmospheres (Nebula, Aurora, Bokeh, Light rays, Silk) and two templates built on them: Stage Lights and Aurora Night.
 - The Auto panel shows a picture of what each template would make of your track.

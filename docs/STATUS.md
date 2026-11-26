@@ -4970,6 +4970,17 @@ encoded at that rate (`-b:v`), so the default here is 20 Mbit/s at 1080p60 and B
 version is `1.2.1-mac.1`. The runner passed 1.2.0-mac.1's build: smoke 46/46, the packaged app 47/47 with an export,
 1434 tests.
 
+**The repository made fit to be public (2026-11-26).** Every tracked file was read for personal and machine details: the
+local path, the processor, memory and Windows build, a quoted lyric and a first name went; the GPU stays, as the reference
+the measurements were made on. No key, token or password was ever in a file or in the history. The history of both
+branches was folded into one commit each and the old tags and releases withdrawn, so nothing older is reachable from a
+branch or tag. Secret scanning with push protection, Dependabot alerts and private vulnerability reporting are on, and
+workflows get a read-only token unless they ask for more. Dependabot at once named five pinned Python packages with
+advisories: `aiohttp`, `certifi`, `filelock`, `nltk` and `setuptools` were moved to fixed versions with
+`uv pip compile --upgrade-package`, which left every other pin where it was; the Mac locks follow. Installed into the
+real environment: torch sees the GPU, Demucs, WhisperX and librosa import, the models load, and the sidecar and lyrics
+tests pass.
+
 ## 5. Measured results
 
 The full report is `docs/validation/p0-full-report.md`; the summary table is in PROJECT.md §4. Key points:
